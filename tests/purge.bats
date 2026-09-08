@@ -226,6 +226,31 @@ EOF
 	[[ "$output" == ".../deep/component/node_modules" ]]
 }
 
+@test "compact_purge_menu_path respects display width for a long CJK segment" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+result=$(compact_purge_menu_path '/项目项目项目项目项目项目项目项目项目项目项目项目' 10)
+printf '%s\n' "$result"
+[[ $(get_display_width "$result") -le 10 ]]
+EOF
+
+	[ "$status" -eq 0 ] || return 1
+}
+
+@test "format_purge_display preserves the cloud marker while compacting paths" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+result=$(format_purge_display '[cloud] ~/Library/CloudStorage/Provider/company/team/very/deep/project' node_modules 1GB 48)
+printf '%s\n' "$result"
+[[ "$result" == "[cloud] "* ]]
+[[ $(get_display_width "$result") -le 48 ]]
+EOF
+
+	[ "$status" -eq 0 ] || return 1
+}
+
 @test "format_purge_target_path rewrites home with tilde" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
@@ -563,6 +588,12 @@ EOF
 	[ "$status" -eq 0 ]
 }
 
+@test "purge terminal preserves focus across resize and supports project navigation" {
+	command -v python3 >/dev/null 2>&1 || skip "python3 not available"
+	run python3 "$PROJECT_ROOT/tests/purge_menu_pty.py"
+	[ "$status" -eq 0 ]
+}
+
 @test "select_purge_categories returns failure on empty input" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
@@ -654,11 +685,11 @@ printf 'RESULT=%s\n' "$PURGE_SELECTION_RESULT"
 EOF
 
 	[ "$status" -eq 0 ] || return 1
-	[[ "$output" == *"┌ A node_modules"* ]] || return 1
-	[[ "$output" == *"└ A dist"* ]] || return 1
-	[[ "$output" == *"─ B target"* ]] || return 1
+	[[ "$output" == *"┌ ~/work/obelisk"* ]] || return 1
+	[[ "$output" == *"└ ~/work/obelisk"* ]] || return 1
+	[[ "$output" == *"─ ~/work/atlas"* ]] || return 1
 	[[ "$output" == *"~/work/obelisk · 154KB · 2/2 selected"* ]] || return 1
-	[[ "$output" == *"~/work/obelisk · 154KB · 0/2 selected"* ]] || return 1
+	[[ "$output" == *"~/work/atlas · 26KB · 1/1 selected"* ]] || return 1
 	[[ "$output" == *"RESULT=2"* ]] || return 1
 }
 
@@ -705,6 +736,37 @@ EOF
 
 	[ "$status" -eq 0 ] || return 1
 	[[ "$output" == *"RESULT=1"* ]] || return 1
+}
+
+@test "purge search jumps by exact project path without changing other selections" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+PURGE_CATEGORY_SIZES="1,2,3"
+PURGE_CATEGORY_PROJECT_IDS_ARRAY=("a" "b" "c")
+PURGE_CATEGORY_PROJECT_PATHS_ARRAY=("~/client-a/obelisk" "~/client-b/obelisk" "~/client-c/atlas")
+# Search is case-insensitive and accepts vim navigation letters as query text.
+select_purge_categories "node_modules" "dist" "target" <<< $'/CLIENT-B\n \n' >/dev/null
+[[ "$PURGE_SELECTION_RESULT" == "0,2" ]]
+# Searching must restore the caller's shell matching mode.
+if shopt -q nocasematch; then exit 1; fi
+PURGE_CATEGORY_PROJECT_PATHS_ARRAY[1]="~/client-b/项目"
+LC_ALL=C select_purge_categories "node_modules" "dist" "target" <<< $'/项目\n \n' >/dev/null
+[[ "$PURGE_SELECTION_RESULT" == "0,2" ]]
+EOF
+	[ "$status" -eq 0 ]
+}
+
+@test "purge selection and final confirmation cancel when input closes" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+PURGE_CATEGORY_SIZES="1"
+PURGE_RECENT_CATEGORIES="false"
+if select_purge_categories "node_modules" </dev/null; then exit 91; fi
+if confirm_purge_cleanup 1 1 0 0 </dev/null; then exit 92; fi
+EOF
+	[ "$status" -eq 0 ]
 }
 
 @test "confirm_purge_cleanup accepts Enter" {
@@ -1087,6 +1149,7 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/lib/clean/project.sh"
 scan_purge_targets "$HOME/www" "$scan_output"
+MO_DEBUG=1 scan_purge_targets "$HOME/www" "$scan_output"
 [[ ! -e "$HOME/find-called" ]] || exit 1
 [[ -f "$scan_output" ]] || exit 1
 [[ ! -s "$scan_output" ]] || exit 1
@@ -1402,7 +1465,9 @@ set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/project.sh"
 run_with_timeout() { return 124; }
-is_recently_modified "$HOME/www/uncertain-project/node_modules"
+result=0
+is_recently_modified "$HOME/www/uncertain-project/node_modules" || result=$?
+[[ "$result" -eq 124 && "$_PURGE_ACTIVITY_STATE" == uncertain ]]
 EOF
 
 	[ "$status" -eq 0 ]
@@ -1541,6 +1606,58 @@ EOF
 
 	[ "$status" -eq 0 ] || return 1
 	[[ "$output" == "TIMEOUT" ]] || return 1
+}
+
+@test "purge preserves fd cancellation and rejects its partial filesystem-error output" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+mkdir -p "$HOME/probe/project/node_modules" "$HOME/.cache/mole"
+touch "$HOME/probe/project/package.json"
+fd() { :; }
+export MO_USE_FIND=0
+run_with_timeout() {
+    shift
+    case "$1" in
+        fd)
+            if [[ "$probe_mode" == cancelled ]]; then return 130; fi
+            printf '%s\n' "$HOME/probe/project/node_modules"
+            printf 'Permission denied\n' >&2
+            ;;
+        find)
+            echo find >> "$HOME/find-trace"
+            printf '%s\n' "$HOME/probe/project/node_modules"
+            return 1
+            ;;
+    esac
+}
+probe_mode=cancelled
+result=0
+scan_purge_targets "$HOME/probe" "$HOME/scan-result" || result=$?
+[[ $result -eq 130 && ! -e "$HOME/find-trace" && ! -s "$HOME/scan-result" ]]
+probe_mode=unreadable
+result=0
+scan_purge_targets "$HOME/probe" "$HOME/scan-result" || result=$?
+[[ $result -eq 1 && -e "$HOME/find-trace" && ! -s "$HOME/scan-result" ]]
+EOF
+	[ "$status" -eq 0 ]
+}
+
+@test "purge_target_activity_still_safe rechecks an uncertain selection" {
+	mkdir -p "$HOME/www/uncertain-project/node_modules"
+	touch -t 202001010000 "$HOME/www/uncertain-project/node_modules"
+
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/project.sh"
+run_with_timeout() { return 124; }
+result=0
+purge_target_activity_still_safe "$HOME/www/uncertain-project/node_modules" uncertain || result=$?
+[[ "$result" -eq 124 ]]
+EOF
+
+	[ "$status" -eq 0 ]
 }
 
 @test "purge size pass preserves a fractional timeout override" {
@@ -1721,6 +1838,42 @@ EOF
 	[[ "$output" == *"(status 7)"* ]] || return 1
 	[[ "$output" == *"REMOVE:$HOME/www/good-project/node_modules"* ]] || return 1
 	[[ "$output" != *"REMOVE:$HOME/dev/failed-project/node_modules"* ]] || return 1
+}
+
+@test "purge refills free scan slots and keeps failure status on the correct root" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+for name in slow failed fast; do
+    mkdir -p "$HOME/$name/project/node_modules"
+    touch "$HOME/$name/project/package.json"
+done
+PURGE_SEARCH_PATHS=("$HOME/slow" "$HOME/failed" "$HOME/fast")
+get_optimal_parallel_jobs() { echo 2; }
+scan_purge_targets() {
+    printf '%s/project/node_modules\n' "$1" > "$2"
+    case "$1" in
+        */slow)
+            deadline=$((SECONDS + 3))
+            until [[ -e "$HOME/fast-started" ]]; do
+                [[ $SECONDS -lt $deadline ]] || return 8
+                sleep 0.05
+            done ;;
+        */failed) return 7 ;;
+        */fast) touch "$HOME/fast-started" ;;
+    esac
+}
+get_dir_size_kb() { echo 4; }
+is_recently_modified() { return 1; }
+purge_target_activity_still_safe() { return 0; }
+safe_remove() { printf 'REVIEW:%s\n' "$1"; }
+MOLE_DRY_RUN=1 clean_project_artifacts </dev/null
+EOF
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"REVIEW:$HOME/slow/project/node_modules"* ]] || return 1
+	[[ "$output" == *"REVIEW:$HOME/fast/project/node_modules"* ]] || return 1
+	[[ "$output" != *"REVIEW:$HOME/failed/project/node_modules"* ]] || return 1
+	[[ "$output" == *"~/failed"* && "$output" == *"(status 7)"* ]] || return 1
 }
 
 @test "clean_project_artifacts stops launching roots after an interrupted scan" {
@@ -1955,6 +2108,41 @@ EOF
 	[[ "$output" != *"UNEXPECTED_CONTINUATION"* ]] || return 1
 }
 
+@test "perform_purge: incomplete cleanup is a failed command, not an empty inventory" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_SKIP_MAIN=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/purge.sh"
+clean_project_artifacts() {
+    PURGE_RUN_OUTCOME=incomplete
+    printf '0\n' > "$HOME/.cache/mole/purge_stats"
+    printf '0\n' > "$HOME/.cache/mole/purge_count"
+}
+perform_purge </dev/null
+EOF
+	[ "$status" -eq 1 ] || return 1
+	[[ "$output" == *"Purge incomplete"* ]] || return 1
+	[[ "$output" == *"Some artifacts were skipped or could not be processed"* ]] || return 1
+	[[ "$output" != *"No old project artifacts"* ]] || return 1
+}
+
+@test "perform_purge: unknown-size successes remain visible in the summary" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_SKIP_MAIN=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/purge.sh"
+clean_project_artifacts() {
+    PURGE_RUN_OUTCOME=completed
+    PURGE_UNKNOWN_SIZE_COUNT=1
+    printf '0\n' > "$HOME/.cache/mole/purge_stats"
+    printf '1\n' > "$HOME/.cache/mole/purge_count"
+}
+perform_purge </dev/null
+EOF
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"1 unmeasured"* ]] || return 1
+	[[ "$output" == *"Items: 1"* ]] || return 1
+	[[ "$output" != *"No artifacts were removed"* ]] || return 1
+}
+
 @test "clean_project_artifacts: handles empty menu options under set -u" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
@@ -2005,7 +2193,7 @@ EOF
 	[[ "$output" == *"SIZE=0"* ]]
 }
 
-@test "clean_project_artifacts: skips size calculation errors instead of showing 0B (#869)" {
+@test "clean_project_artifacts: reports size errors as incomplete instead of an empty inventory" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -2019,11 +2207,148 @@ PURGE_SEARCH_PATHS=("$HOME/www")
 get_dir_size_kb() { echo ERROR; }
 
 clean_project_artifacts </dev/null
+printf 'OUTCOME=%s\n' "$PURGE_RUN_OUTCOME"
 EOF
 
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"No artifacts found to purge"* ]] || return 1
-	[[ "$output" != *"0B"* ]]
+	[[ "$output" == *"Could not measure ~/www/test-project/node_modules; skipped"* ]] || return 1
+	[[ "$output" == *"OUTCOME=incomplete"* ]] || return 1
+	[[ "$output" != *"No artifacts found to purge"* ]] || return 1
+}
+
+@test "clean_project_artifacts: preparation does not exhaust the activity evidence budget" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+artifact="$HOME/www/old-project/node_modules"
+mkdir -p "$artifact"
+printf 'payload\n' > "$artifact/file"
+touch "$HOME/www/old-project/package.json"
+touch -t 202001010101 "$artifact" "$artifact/file"
+PURGE_SEARCH_PATHS=("$HOME/www")
+fake_now=$(date +%s)
+get_epoch_seconds() { printf '%s\n' "$fake_now"; }
+eval "$(declare -f _mole_path_matches_identity | sed '1s/_mole_path_matches_identity/_original_path_matches_identity/')"
+_mole_path_matches_identity() {
+    fake_now=$((fake_now + 100))
+    _original_path_matches_identity "$@"
+}
+safe_remove() { printf 'DEFAULT_SELECTED:%s\n' "$1"; }
+MOLE_DRY_RUN=1 clean_project_artifacts </dev/null
+EOF
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"DEFAULT_SELECTED:$HOME/www/old-project/node_modules"* ]] || return 1
+}
+
+@test "clean_project_artifacts: removal cancellation stops the next eligible artifact" {
+	for cancellation_status in 124 130; do
+		run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" CANCELLATION_STATUS="$cancellation_status" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+for project in first second; do
+    artifact="$HOME/www/$project/node_modules"
+    mkdir -p "$artifact"
+    printf 'payload\n' > "$artifact/file"
+    touch "$HOME/www/$project/package.json"
+    touch -t 202001010101 "$artifact" "$artifact/file"
+done
+PURGE_SEARCH_PATHS=("$HOME/www")
+export MOLE_DRY_RUN=1
+safe_remove() {
+    printf 'REMOVE:%s\n' "$1"
+    case "$1" in
+        */first/node_modules) return "$CANCELLATION_STATUS" ;;
+        *) printf 'UNEXPECTED_SECOND_REMOVAL\n'; return 0 ;;
+    esac
+}
+set +e
+clean_project_artifacts </dev/null
+result=$?
+printf 'OUTCOME=%s\n' "$PURGE_RUN_OUTCOME"
+exit "$result"
+EOF
+		[ "$status" -eq "$cancellation_status" ] || return 1
+		[[ "$output" == *"REMOVE:$HOME/www/first/node_modules"* ]] || return 1
+		[[ "$output" == *"OUTCOME=cancelled"* ]] || return 1
+		[[ "$output" != *"UNEXPECTED_SECOND_REMOVAL"* ]] || return 1
+	done
+}
+
+@test "clean_project_artifacts: final activity cancellation stops before any removal" {
+	for cancellation_status in 124 130; do
+		run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" CANCELLATION_STATUS="$cancellation_status" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+for project in first second; do
+    artifact="$HOME/www/$project/node_modules"
+    mkdir -p "$artifact"
+    printf 'payload\n' > "$artifact/file"
+    touch "$HOME/www/$project/package.json"
+    touch -t 202001010101 "$artifact" "$artifact/file"
+done
+PURGE_SEARCH_PATHS=("$HOME/www")
+export MOLE_DRY_RUN=1
+purge_target_activity_still_safe() { return "$CANCELLATION_STATUS"; }
+safe_remove() {
+    printf 'REMOVE:%s\n' "$1"
+    case "$1" in
+        */first/node_modules) return "$CANCELLATION_STATUS" ;;
+        *) printf 'UNEXPECTED_SECOND_REMOVAL\n'; return 0 ;;
+    esac
+}
+set +e
+clean_project_artifacts </dev/null
+result=$?
+printf 'OUTCOME=%s\n' "$PURGE_RUN_OUTCOME"
+exit "$result"
+EOF
+		[ "$status" -eq "$cancellation_status" ] || return 1
+		[[ "$output" != *"REMOVE:"* ]] || return 1
+		[[ "$output" == *"OUTCOME=cancelled"* ]] || return 1
+		[[ "$output" != *"UNEXPECTED_SECOND_REMOVAL"* ]] || return 1
+	done
+}
+
+@test "clean_project_artifacts: manually selected uncertain activity never reaches removal" {
+	local script_file
+	script_file=$(mktemp "$HOME/uncertain_selection.XXXXXX.sh")
+
+	cat > "$script_file" <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+artifact="$HOME/www/uncertain-project/node_modules"
+mkdir -p "$artifact" "$HOME/.cache/mole"
+printf 'payload\n' > "$artifact/file"
+touch "$HOME/www/uncertain-project/package.json"
+touch -t 202001010101 "$artifact" "$artifact/file"
+PURGE_SEARCH_PATHS=("$HOME/www")
+get_dir_size_kb() { echo 1; }
+is_recently_modified() {
+    _PURGE_ACTIVITY_STATE=uncertain
+    return 124
+}
+select_purge_categories() {
+    PURGE_SELECTION_RESULT=0
+    return 0
+}
+confirm_purge_cleanup() { return 0; }
+safe_remove() {
+    printf 'UNEXPECTED_REMOVE:%s\n' "$1"
+    return 0
+}
+set +e
+clean_project_artifacts
+result=$?
+set -e
+printf 'RESULT=%s OUTCOME=%s\n' "$result" "$PURGE_RUN_OUTCOME"
+SCRIPT
+
+	run _run_in_pty "$script_file"
+	rm -f "$script_file"
+
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"RESULT=124 OUTCOME=cancelled"* ]] || return 1
+	[[ "$output" != *"UNEXPECTED_REMOVE:"* ]]
 }
 
 @test "clean_project_artifacts: dry-run does not count failed removals" {
@@ -2061,6 +2386,7 @@ echo "SIZE=$(cat "$stats_dir/purge_stats" 2> /dev/null || echo missing)"
 EOF
 
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"Skipped ~/www/test-project/node_modules (final removal check failed; re-run mo purge to review it again)"* ]] || return 1
 	[[ "$output" == *"COUNT=0"* ]] || return 1
 	[[ "$output" == *"SIZE=0"* ]]
 }
@@ -2476,7 +2802,10 @@ PURGE_SEARCH_PATHS=("$HOME/www")
 scan_purge_targets() {
     printf '%s\n' "$protected" "$unprotected" > "$2"
 }
-get_dir_size_kb() { echo 1; }
+get_dir_size_kb() {
+    [[ "$1" == "$protected" ]] && touch "$HOME/unexpected-protected-size"
+    echo 1
+}
 get_file_mtime() { echo 1577836800; }
 is_recently_modified() { return 1; }
 purge_target_activity_still_safe() { return 0; }
@@ -2492,6 +2821,7 @@ for pattern in "${WHITELIST_PATTERNS[@]}"; do
     fi
 done
 [[ "$protected_loaded" == "true" ]] || exit 1
+[[ ! -e "$HOME/unexpected-protected-size" ]] || exit 1
 [[ -d "$protected" ]] || exit 1
 [[ ! -e "$unprotected" ]] || exit 1
 EOF
@@ -2873,7 +3203,7 @@ PURGE_SEARCH_PATHS=("$HOME/www" "$HOME/Library/CloudStorage")
 
 select_purge_categories() {
 	local i=0
-	for option in "\$@"; do
+	for option in "\${PURGE_CATEGORY_PROJECT_PATHS_ARRAY[@]}"; do
 		echo "MENU[\$i]=\$option" >> "$capture_file"
 		i=\$((i + 1))
 	done
