@@ -1674,6 +1674,10 @@ perform_update() {
     check_requirements
 
     if homebrew_owns_mole; then
+        if [[ "$EUID" -eq 0 ]]; then
+            log_error "Run the Homebrew update without sudo."
+            return 1
+        fi
         resolve_source_dir 2> /dev/null || true
         local current_version
         current_version=$(get_installed_version || echo "unknown")

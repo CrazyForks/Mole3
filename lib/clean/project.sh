@@ -162,9 +162,10 @@ write_purge_config() {
     local tmp_file
     tmp_file=$(mktemp_file "mole-purge-paths") || return 1
 
-    if ! cat > "$tmp_file" << EOF; then
+    if ! cat > "$tmp_file" << EOF
 $header
 EOF
+    then
         rm -f "$tmp_file" 2> /dev/null || true
         return 1
     fi
@@ -500,9 +501,42 @@ is_protected_vendor_dir() {
 }
 
 # Check if an artifact should be protected from purge
+# Names do not prove rebuildability: target/deploy carries Anchor keys,
+# and build/coverage can contain tracked source. Reused at discovery and sink.
+purge_artifact_has_authored_content() {
+    local path="${1%/}"
+    [[ -d "$path" ]] || return 1
+    # A configured root can cross a symlink before reaching the candidate.
+    # Git ancestry must follow the actual repository, not the alias spelling.
+    path=$(cd "$path" 2> /dev/null && /bin/pwd -P) || return 0
+    local evidence=""
+    # Do not follow links or read key contents. A failed/bounded walk preserves
+    # the whole candidate, including nested repositories and worktrees.
+    evidence=$(run_with_timeout "$MOLE_TIMEOUT_QUICK_DETECT_SEC" /usr/bin/find "$path" \
+        \( -name .git -o -name '*-keypair.json' \) -print -quit 2> /dev/null) || return 0
+    [[ -z "$evidence" ]] || return 0
+
+    local ancestor="$path"
+    while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
+        if [[ -e "$ancestor/.git" || -L "$ancestor/.git" ]]; then
+            # Ignore inherited Git routing; inspect this directory's own repo.
+            evidence=$(run_with_timeout "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+                env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
+                GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 \
+                git -c core.fsmonitor=false --git-dir="$ancestor/.git" --work-tree="$ancestor" -C "$path" ls-files -- . 2> /dev/null) || return 0
+            [[ -n "$evidence" ]]
+            return $?
+        fi
+        ancestor="${ancestor%/*}"
+    done
+    return 1
+}
+
 is_protected_purge_artifact() {
     local path="${1%/}"
     local base="${path##*/}"
+
+    purge_artifact_has_authored_content "$path" && return 0
 
     case "$base" in
         bin)
@@ -1630,6 +1664,11 @@ confirm_purge_cleanup() {
 # work to failure. Signals and deletion-phase timeouts stop the run immediately.
 # PURGE_RUN_OUTCOME: completed, incomplete, no_candidates, cancelled, scan_failed.
 clean_project_artifacts() {
+    if [[ ! -t 0 && "${MOLE_DRY_RUN:-0}" != "1" && "${MOLE_PURGE_YES:-0}" != "1" ]]; then
+        PURGE_RUN_OUTCOME="cancelled"
+        echo "Purge requires confirmation. Run mo purge in a terminal, or use --dry-run to preview and --yes to confirm unattended cleanup." >&2
+        return 1
+    fi
     PURGE_RUN_OUTCOME="completed"
     [[ ${PURGE_DISCOVERY_STATUS:-0} -eq 0 ]] || PURGE_RUN_OUTCOME="incomplete"
     PURGE_UNKNOWN_SIZE_COUNT=0

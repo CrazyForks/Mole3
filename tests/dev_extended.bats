@@ -1881,100 +1881,6 @@ EOF
     [[ "$output" != *"$HOME/.claude/shell-snapshots"* ]]
 }
 
-@test "clean_xcode_simulator_runtime_volumes shows scan progress and skips sizing in-use volumes" {
-    local volumes_root="$HOME/sim-volumes"
-    local cryptex_root="$HOME/sim-cryptex"
-    mkdir -p "$volumes_root/in-use-runtime" "$volumes_root/unused-runtime"
-    mkdir -p "$cryptex_root"
-
-    # The "scanning N entries" line is deliberately gated behind MO_DEBUG (the
-    # spinner carries the feedback otherwise), so this case has to ask for it.
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$cryptex_root" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-
-size_log="$HOME/size-calls.log"
-: > "$size_log"
-DRY_RUN=false
-
-note_activity() { :; }
-has_sudo_session() { return 0; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-_sim_runtime_mount_points() {
-    printf '%s\n' "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/in-use-runtime"
-}
-_sim_runtime_size_kb() {
-    local target_path="$1"
-    echo "$target_path" >> "$size_log"
-    echo "1"
-}
-safe_sudo_remove() {
-    local target_path="$1"
-    echo "REMOVE:$target_path"
-    return 0
-}
-
-clean_xcode_simulator_runtime_volumes
-echo "SIZE_LOG_START"
-cat "$size_log"
-EOF
-
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Xcode runtime volumes · scanning 2 entries"* ]] || return 1
-    # 16a8bcaf consolidated the per-stage "cleaning N unused" line into one final
-    # result message; assert the line that survived.
-    [[ "$output" == *"Xcode runtime volumes · removed 1 ("* ]] || return 1
-    [[ "$output" == *"REMOVE:$volumes_root/unused-runtime"* ]] || return 1
-    [[ "$output" == *"$volumes_root/unused-runtime"* ]] || return 1
-    [[ "$output" != *"$volumes_root/in-use-runtime"* ]]
-}
-
-@test "clean_xcode_simulator_runtime_volumes dry-run does not size mounted runtimes" {
-    local volumes_root="$HOME/sim-volumes-dry"
-    local cryptex_root="$HOME/sim-cryptex-dry"
-    mkdir -p "$volumes_root/in-use-runtime" "$volumes_root/unused-runtime" "$cryptex_root"
-
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
-        MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" \
-        MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$cryptex_root" \
-        /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-
-size_log="$HOME/dry-size-calls.log"
-: > "$size_log"
-DRY_RUN=true
-
-note_activity() { :; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-record_dry_run_cleanup_target() { return 0; }
-_sim_runtime_mount_points() {
-    printf '%s\n' "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/in-use-runtime"
-}
-_sim_runtime_size_kb() {
-    printf '%s\n' "$1" >> "$size_log"
-    echo "1024"
-}
-
-clean_xcode_simulator_runtime_volumes
-printf 'SIZE_CALLS=%s\n' "$(wc -l < "$size_log" | tr -d ' ')"
-cat "$size_log"
-EOF
-
-    [ "$status" -eq 0 ] || {
-        echo "$output"
-        return 1
-    }
-    [[ "$output" == *"SIZE_CALLS=1"* ]] || return 1
-    [[ "$output" == *"$volumes_root/unused-runtime"* ]] || return 1
-    [[ "$output" == *"1 in use"* ]] || return 1
-    [[ "$output" == *"in-use not scanned"* ]] || return 1
-}
-
 @test "clean_xcode_simulator_runtime_volumes deletes nothing when mount enumeration fails" {
     local volumes_root="$HOME/sim-volumes"
     mkdir -p "$volumes_root/runtime-a" "$volumes_root/runtime-b"
@@ -1989,7 +1895,7 @@ note_activity() { :; }
 has_sudo_session() { return 0; }
 is_path_whitelisted() { return 1; }
 should_protect_path() { return 1; }
-# mount failed: no lines. Without the guard every runtime is UNUSED and deleted.
+# mount failed: no lines. Unknown state must not be reported as unmounted.
 _sim_runtime_mount_points() { printf ''; }
 _sim_runtime_size_kb() { echo "1"; }
 safe_sudo_remove() { echo "REMOVE:$1"; return 0; }
@@ -1997,8 +1903,8 @@ safe_sudo_remove() { echo "REMOVE:$1"; return 0; }
 clean_xcode_simulator_runtime_volumes
 
 # Positive control. The guard makes this path print nothing at all, so "no
-# REMOVE line" alone cannot tell a working guard from a run that never reached
-# the deletion branch. Same fixture, this time with mounts enumerable.
+# REMOVE line" alone is not a reporting probe. The control must report retained
+# storage when the mount inventory is available.
 echo "CONTROL"
 _sim_runtime_mount_points() { printf '%s\n' "/"; }
 clean_xcode_simulator_runtime_volumes
@@ -2011,117 +1917,10 @@ EOF
         echo "deleted a volume despite unknown mount state"
         return 1
     }
-    [[ "$control" == *"REMOVE:"* ]] || {
-        echo "control run removed nothing, so the guarded run proves nothing"
+    [[ "$control" == *"unmounted entries retained"* && "$control" != *"REMOVE:"* ]] || {
+        echo "control must report retained storage without deleting it"
         return 1
     }
-}
-
-@test "clean_xcode_simulator_runtime_volumes rechecks mounts after sizing" {
-    local volumes_root="$HOME/sim-volumes-race"
-    mkdir -p "$volumes_root/runtime-a"
-
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$HOME/none" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-DRY_RUN=false
-note_activity() { :; }
-has_sudo_session() { return 0; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-_sim_runtime_mount_points() {
-    printf 'probe\n' >> "$HOME/mount-probes"
-    local round
-    round=$(wc -l < "$HOME/mount-probes" | tr -d ' ')
-    if [[ $round -eq 1 ]]; then
-        printf '%s\n' "/"
-    else
-        printf '%s\n' "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-a"
-    fi
-}
-_sim_runtime_size_kb() { echo 1; }
-safe_sudo_remove() { echo "UNEXPECTED_REMOVE:$1"; return 0; }
-
-rm -f "$HOME/mount-probes"
-clean_xcode_simulator_runtime_volumes
-[[ -d "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-a" ]] || exit 1
-EOF
-
-    [ "$status" -eq 0 ] || {
-        echo "$output"
-        return 1
-    }
-    [[ "$output" == *"Xcode runtime volumes · stopped (runtime became mounted)"* ]] || return 1
-    [[ "$output" != *"UNEXPECTED_REMOVE"* ]]
-}
-
-@test "clean_xcode_simulator_runtime_volumes reports deletion failures" {
-    local volumes_root="$HOME/sim-volumes-failed"
-    mkdir -p "$volumes_root/runtime-a"
-
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$HOME/none" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-DRY_RUN=false
-note_activity() { :; }
-has_sudo_session() { return 0; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-_sim_runtime_mount_points() { printf '%s\n' "/"; }
-_sim_runtime_size_kb() { echo 1; }
-safe_sudo_remove() { return 1; }
-clean_xcode_simulator_runtime_volumes
-[[ -d "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-a" ]] || exit 1
-EOF
-
-    [ "$status" -eq 0 ] || {
-        echo "$output"
-        return 1
-    }
-    [[ "$output" == *"Xcode runtime volumes · could not remove 1 entries"* ]] || return 1
-    [[ "$output" != *"already clean"* ]]
-}
-
-@test "clean_xcode_simulator_runtime_volumes reports a mount stop after an earlier failure" {
-    local volumes_root="$HOME/sim-volumes-failure-stop"
-    mkdir -p "$volumes_root/runtime-a" "$volumes_root/runtime-b"
-
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$HOME/none" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-DRY_RUN=false
-note_activity() { :; }
-has_sudo_session() { return 0; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-_sim_runtime_mount_points() {
-    printf 'probe\n' >> "$HOME/mount-failure-stop-probes"
-    local round
-    round=$(wc -l < "$HOME/mount-failure-stop-probes" | tr -d ' ')
-    if [[ $round -le 2 ]]; then
-        printf '%s\n' "/"
-    else
-        printf '%s\n' "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-b"
-    fi
-}
-_sim_runtime_size_kb() { echo 1; }
-safe_sudo_remove() { return 1; }
-
-rm -f "$HOME/mount-failure-stop-probes"
-clean_xcode_simulator_runtime_volumes
-[[ -d "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-a" ]] || exit 1
-[[ -d "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/runtime-b" ]] || exit 1
-EOF
-
-    [ "$status" -eq 0 ] || {
-        echo "$output"
-        return 1
-    }
-    [[ "$output" == *"Xcode runtime volumes · could not remove 1 entries"* ]] || return 1
-    [[ "$output" == *"Xcode runtime volumes · stopped (runtime became mounted)"* ]]
 }
 
 @test "clean_dev_mobile leaves an idle section when no unavailable simulator exists" {
@@ -2928,4 +2727,26 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"DEVELOPER_RC:124 CANCEL:124"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_LATER_DELETE"* ]]
+}
+
+@test "simulator runtime directories remain report-only in real and dry modes" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT=$(mktemp -d "$HOME/runtime-owner.XXXXXX")
+MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/cryptex"
+mkdir -p "$MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT/Images" "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/not-a-runtime"
+_sim_runtime_mount_points() { echo /; }
+_sim_runtime_size_kb() { echo 1; }
+should_protect_path() { return 1; }
+is_path_whitelisted() { return 1; }
+has_sudo_session() { return 0; }
+safe_sudo_remove() { echo UNEXPECTED_REMOVE; }
+ensure_sudo_session() { echo UNEXPECTED_AUTH; return 1; }
+note_activity() { :; }
+for DRY_RUN in false true; do clean_xcode_simulator_runtime_volumes; done
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" != *UNEXPECTED* ]] || return 1
 }

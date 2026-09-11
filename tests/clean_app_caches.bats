@@ -2712,3 +2712,13 @@ EOF
     [[ "$output" == *"BOUND:$iso/Library/Containers/com.tencent.xinWeChat/Data/Documents/app_data/log/wechat.log"* ]] || return 1
     [[ "$output" == *"PARENT:$iso/Library/Containers/com.tencent.xinWeChat/Data/Documents/app_data/log"* ]]
 }
+
+@test "obsolete false and nonboolean values preserve installed extensions" {
+    local ext_root="$HOME/.vscode/extensions"
+    mkdir -p "$ext_root/keep-false" "$ext_root/keep-string" "$ext_root/remove-true"
+    printf '%s\n' '{"keep-false":false,"keep-string":"true","remove-true":true}' > "$ext_root/.obsolete"
+    run_editor_extension_cleanup
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"CLEAN:$ext_root/remove-true"* ]] || return 1
+    [[ "$output" != *"CLEAN:$ext_root/keep-"* ]] || return 1
+}

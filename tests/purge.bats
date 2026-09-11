@@ -1,6 +1,7 @@
 #!/usr/bin/env bats
 
 setup_file() {
+    export MOLE_PURGE_YES=1
 	PROJECT_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 	export PROJECT_ROOT
 
@@ -3242,4 +3243,81 @@ SCRIPT
 	[[ "$path1" == *"[cloud]"* ]] || return 1
 	[[ "$menu1" == *"cloud-project"* ]] || return 1
 	[[ "$path1" == *"cloud-project"* ]] || return 1
+}
+
+@test "purge protects deployment keys and tracked source but keeps ordinary artifacts eligible" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/protected-artifacts.XXXXXX")
+mkdir -p "$root/anchor[1]/target/deploy" "$root/rust/target/debug" "$root/repo/build"
+printf fixture > "$root/anchor[1]/target/deploy/demo-keypair.json"
+printf fixture > "$root/repo/build/default.nix"
+git init -q "$root/repo"
+git -C "$root/repo" add build/default.nix
+is_protected_purge_artifact "$root/anchor[1]/target" || exit 11
+is_protected_purge_artifact "$root/repo/build" || exit 12
+if is_protected_purge_artifact "$root/rust/target"; then exit 13; fi
+rm "$root/anchor[1]/target/deploy/demo-keypair.json"
+if is_protected_purge_artifact "$root/anchor[1]/target"; then exit 14; fi
+mkdir "$root/rust/target/nested"
+git init -q "$root/rust/target/nested"
+is_protected_purge_artifact "$root/rust/target" || exit 15
+EOF
+    [ "$status" -eq 0 ]
+}
+
+@test "purge protects artifacts when Git inspection fails" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/broken-git.XXXXXX")
+mkdir -p "$root/.git" "$root/target"
+is_protected_purge_artifact "$root/target" || exit 1
+EOF
+    [ "$status" -eq 0 ]
+}
+
+@test "purge refuses unattended real deletion without explicit consent" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+unset MOLE_PURGE_YES MOLE_DRY_RUN
+clean_project_artifacts
+EOF
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Purge requires confirmation"* ]] || return 1
+}
+
+@test "purge inspection never executes repository fsmonitor hooks" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/fsmonitor.XXXXXX")
+mkdir -p "$root/target"
+git init -q "$root"
+printf fixture > "$root/target/source.txt"
+git -C "$root" add target/source.txt
+printf '#!/bin/sh\ntouch "%s"\n' "$root/invoked" > "$root/hook"
+chmod +x "$root/hook"
+git -C "$root" config core.fsmonitor "$root/hook"
+is_protected_purge_artifact "$root/target" || exit 1
+[[ ! -e "$root/invoked" ]] || exit 2
+EOF
+    [ "$status" -eq 0 ]
+}
+
+@test "purge protects tracked source through a symlinked project ancestor" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/git-alias.XXXXXX")
+mkdir -p "$root/repo/subproject/child/build" "$root/aliases"
+printf authored > "$root/repo/subproject/child/build/source.txt"
+git init -q "$root/repo"
+git -C "$root/repo" add subproject/child/build/source.txt
+ln -s "$root/repo/subproject" "$root/aliases/project"
+is_protected_purge_artifact "$root/aliases/project/child/build" || exit 1
+EOF
+    [ "$status" -eq 0 ]
 }

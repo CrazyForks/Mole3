@@ -755,3 +755,16 @@ PY
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"watch_lines=3"* ]]
 }
+
+@test "user CLI entrypoints refuse root before loading shared user state" {
+    for entry in mole bin/clean.sh bin/optimize.sh bin/purge.sh bin/uninstall.sh bin/installer.sh bin/touchid.sh bin/completion.sh; do
+        prefix=$(awk '/^(SCRIPT_DIR|ROOT_DIR|LIB_DIR)=/ { exit } { print }' "$PROJECT_ROOT/$entry")
+        # Execute the actual source prefix, substituting only the read-only UID
+        # so the test never requests root or runs a maintenance command.
+        run /bin/bash -c "${prefix//\$EUID/0}"
+        [ "$status" -eq 1 ] || return 1
+        [[ "$output" == *"Run Mole without sudo"* ]] || return 1
+        run /bin/bash -c "${prefix//\$EUID/501}"
+        [ "$status" -eq 0 ] || return 1
+    done
+}

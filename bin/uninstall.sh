@@ -5,6 +5,13 @@
 
 set -euo pipefail
 
+# User state and installed tools must never run with inherited root privileges.
+# Individual maintenance operations request administrator access themselves.
+if [[ "$EUID" -eq 0 ]]; then
+    printf '%s\n' 'Run Mole without sudo; it requests administrator access when needed.' >&2
+    exit 1
+fi
+
 # Preserve user's locale for app display name lookup.
 readonly MOLE_UNINSTALL_USER_LC_ALL="${LC_ALL:-}"
 readonly MOLE_UNINSTALL_USER_LANG="${LANG:-}"

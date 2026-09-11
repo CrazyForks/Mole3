@@ -5,6 +5,13 @@
 
 set -euo pipefail
 
+# User state and installed tools must never run with inherited root privileges.
+# Individual maintenance operations request administrator access themselves.
+if [[ "$EUID" -eq 0 ]]; then
+    printf '%s\n' 'Run Mole without sudo; it requests administrator access when needed.' >&2
+    exit 1
+fi
+
 # Fix locale issues (avoid Perl warnings on non-English systems)
 export LC_ALL=C
 export LANG=C
@@ -310,6 +317,7 @@ show_help() {
     echo "  --paths         Edit custom scan directories"
     echo "  --dry-run       Preview purge actions without making changes"
     echo "  --include-empty Show zero-size project artifact directories"
+    echo "  --yes           Confirm unattended cleanup of eligible artifacts"
     echo "  --debug         Enable debug logging"
     echo "  --help          Show this help message"
     echo ""
@@ -338,6 +346,9 @@ main() {
                 ;;
             "--dry-run" | "-n")
                 export MOLE_DRY_RUN=1
+                ;;
+            "--yes")
+                export MOLE_PURGE_YES=1
                 ;;
             "--include-empty")
                 export MOLE_PURGE_INCLUDE_EMPTY=1

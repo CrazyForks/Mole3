@@ -119,6 +119,7 @@ Prefer a walkthrough? Watch the [Mole tutorial video](https://www.youtube.com/wa
 Mole can remove files, so it validates paths, protects shared and system-owned locations, and asks for confirmation when an action needs it. When Mole cannot prove an item is safe to change, it skips or refuses it.
 
 - `clean`, `uninstall`, `purge`, `installer`, and `remove` can delete files. Review them with `--dry-run` first, and add `--debug` when needed.
+- Run Mole without `sudo`; it requests administrator access only when needed.
 - `mo analyze` moves selected items to Trash after confirmation.
 - Cleanup activity is recorded in `~/Library/Logs/mole/operations.log`; review it with `mo history` or disable it with `MO_NO_OPLOG=1`.
 - Protect caches with `mo clean --whitelist`, or maintenance items with `mo optimize --whitelist`.
@@ -329,7 +330,7 @@ Status also supports read-only alerts for processes that stay above a CPU thresh
 
 ### Purge
 
-`mo purge` finds rebuildable project artifacts such as `node_modules`, `target`, `.build`, `build`, and `dist`. It groups artifacts by project and permanently deletes only the items you confirm. Artifacts with file activity in the last 7 days, or activity Mole cannot verify, are unselected by default. Mole uses `fd` when available and falls back to `find`.
+`mo purge` finds rebuildable project artifacts such as `node_modules`, `target`, `.build`, `build`, and `dist`. It groups artifacts by project and permanently deletes only the items you confirm. Artifacts with file activity in the last 7 days, or activity Mole cannot verify, are unselected by default. Mole uses `fd` when available and falls back to `find`. Directories containing deployment keypair files, nested Git repositories, or Git-tracked files are protected. Non-interactive runs require `mo purge --yes`; use `mo purge --dry-run` to review the candidates first.
 
 Use Page Up/Down or `h`/`l` to move a page, `[`/`]` to jump between projects, and `X` to skip a project and advance. `/` searches project paths and artifact names; `n` finds the next match without changing selections. Enter opens the final path review. Reported space is an estimate; unmeasured artifacts and incomplete scans are identified explicitly.
 
