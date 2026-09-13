@@ -2331,8 +2331,9 @@ EOF
 }
 
 # Regression for discussion #583: the only Dia row used to be
-# ~/Library/Caches/company.thebrowser.dia, which on a real install holds nothing
-# but Sentry crash state. The actual Chromium caches live under
+# ~/Library/Caches/company.thebrowser.dia, where that measurement found Sentry
+# state, not Chromium caches; the directory can also contain Sparkle updates.
+# The actual Chromium caches live under
 # ~/Library/Caches/Dia/User Data and ~/Library/Application Support/Dia/User Data,
 # so `mo clean` reclaimed 0 bytes from Dia. Paths below were measured on Dia
 # 1.41.1 (bundle company.thebrowser.dia), not inferred from Chromium convention.

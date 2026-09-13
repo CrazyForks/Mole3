@@ -1775,11 +1775,11 @@ clean_browsers() {
             clean_service_worker_cache "Arc" "${_arc_profile%/}/Service Worker/CacheStorage"
         done
     fi
-    # Dia Browser. company.thebrowser.dia only holds Sentry crash state; the real
-    # caches are the Chromium ones under ~/Library/Caches/Dia/User Data (HTTP and
-    # code cache) and ~/Library/Application Support/Dia/User Data (GPU and CRX
-    # caches). Dia has no ShaderCache / GrShaderCache / DawnCache / Crashpad tree
-    # like Arc, so those rows are intentionally absent.
+    # Dia Browser. The bundle-ID cache can hold Sentry state and Sparkle updates;
+    # should_protect_path keeps the Sparkle directory out of this wildcard sweep.
+    # Chromium caches live under ~/Library/Caches/Dia/User Data (HTTP and code)
+    # and ~/Library/Application Support/Dia/User Data (GPU and CRX).
+    # Only the observed cache leaves are listed below, not Arc's full layout.
     safe_clean ~/Library/Caches/company.thebrowser.dia/* "Dia cache"
     if [[ -d ~/Library/Application\ Support/Dia ]]; then
         local _dia_profile
