@@ -145,7 +145,6 @@ PROJECT_ARTIFACT_HINT_ESTIMATE_PARTIAL=false
 declare -a DRY_RUN_SEEN_IDENTITIES=()
 DRY_RUN_TOTAL_PARTIAL=false
 declare -a DEFERRED_CLEANUP_FAMILIES=()
-DEFERRED_CLEANUP_FAMILIES_FILE=""
 
 # shellcheck disable=SC2329
 note_activity() {
@@ -170,26 +169,7 @@ defer_cleanup_family() {
     fi
 
     DEFERRED_CLEANUP_FAMILIES+=("$family")
-    if [[ -n "${DEFERRED_CLEANUP_FAMILIES_FILE:-}" &&
-        -f "$DEFERRED_CLEANUP_FAMILIES_FILE" &&
-        ! -L "$DEFERRED_CLEANUP_FAMILIES_FILE" ]]; then
-        printf '%s\0' "$family" >> "$DEFERRED_CLEANUP_FAMILIES_FILE"
-    fi
     debug_log "Deferred cleanup while active: $family"
-}
-
-# Replay file-backed deferred-family records before rendering the summary.
-# defer_cleanup_family writes through DEFERRED_CLEANUP_FAMILIES_FILE when set.
-sync_deferred_cleanup_families() {
-    local record_file="${DEFERRED_CLEANUP_FAMILIES_FILE:-}"
-    local family
-    [[ -n "$record_file" && -f "$record_file" && ! -L "$record_file" ]] || return 0
-
-    DEFERRED_CLEANUP_FAMILIES_FILE=""
-    while IFS= read -r -d '' family; do
-        defer_cleanup_family "$family"
-    done < "$record_file"
-    DEFERRED_CLEANUP_FAMILIES_FILE="$record_file"
 }
 
 format_deferred_cleanup_families() {
@@ -1661,7 +1641,6 @@ perform_cleanup() {
     files_cleaned=0
     total_size_cleaned=0
     DEFERRED_CLEANUP_FAMILIES=()
-    DEFERRED_CLEANUP_FAMILIES_FILE=$(create_temp_file 2> /dev/null || true)
 
     local had_errexit=0
     [[ $- == *e* ]] && had_errexit=1
@@ -1831,8 +1810,6 @@ perform_cleanup() {
     if [[ "$DRY_RUN" == "true" ]]; then
         render_clean_preview_from_ledger
     fi
-
-    sync_deferred_cleanup_families
 
     local summary_heading=""
     local summary_status="success"
@@ -2044,15 +2021,6 @@ perform_cleanup() {
     return "$cleanup_cancel_rc"
 }
 
-run_with_shell_timeout() {
-    local duration="$1"
-    shift || true
-    # Functions (for example safe_clean) are available only in the current shell.
-    # Force the shell fallback path so timeout can execute shell functions directly.
-    MO_TIMEOUT_BIN="" MO_TIMEOUT_PERL_BIN="" run_with_timeout "$duration" "$@"
-}
-
-# shellcheck disable=SC2329  # Invoked indirectly via run_with_timeout fallback.
 run_cloud_and_office_cleanup() {
     local cleanup_rc=0
     local pending_clean_cancel=0

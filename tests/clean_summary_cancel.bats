@@ -44,8 +44,6 @@ run_perform_cleanup_with() {
 set -euo pipefail
 source "$PROJECT_ROOT/bin/clean.sh"
 # Stub every section so perform_cleanup never scans the real machine.
-# run_with_shell_timeout is stubbed too: its shell-fallback killer process
-# would otherwise outlive the test when pgrep is unavailable.
 for fn in clean_user_essentials clean_finder_metadata clean_app_caches \
     clean_browsers run_cloud_and_office_cleanup clean_developer_tools \
     clean_user_gui_applications clean_virtualization_tools \
@@ -57,7 +55,6 @@ for fn in clean_user_essentials clean_finder_metadata clean_app_caches \
     show_project_artifact_hint_notice; do
     eval "$fn() { return 0; }"
 done
-run_with_shell_timeout() { return 0; }
 clean_user_essentials() { return "$SECTION_RC"; }
 perform_cleanup
 EOF
@@ -239,13 +236,6 @@ clean_office_applications() {
 clean_developer_tools() {
     echo "UNEXPECTED_LATER_SECTION"
 }
-run_with_shell_timeout() {
-    shift
-    "$@" &
-    local worker_pid=$!
-    wait "$worker_pid"
-}
-
 perform_cleanup
 EOF
 
@@ -280,7 +270,6 @@ for fn in clean_user_essentials clean_finder_metadata clean_app_caches \
     show_project_artifact_hint_notice; do
     eval "$fn() { return 0; }"
 done
-run_with_shell_timeout() { return 0; }
 clean_user_essentials() { MOLE_CLEAN_REMOVAL_TIMEOUTS=3; return 0; }
 perform_cleanup
 EOF
@@ -307,7 +296,6 @@ for fn in clean_user_essentials clean_finder_metadata clean_app_caches \
     show_project_artifact_hint_notice; do
     eval "$fn() { return 0; }"
 done
-run_with_shell_timeout() { return 0; }
 clean_user_essentials() {
     MOLE_CLEAN_REMOVAL_TIMEOUTS=2
     _mole_record_removal_timeout_path "$HOME/Library/Developer/XCTestDevices/clone-one"
@@ -339,8 +327,6 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/bin/clean.sh"
 # Stub every section so perform_cleanup never scans the real machine.
-# run_with_shell_timeout is stubbed too: its shell-fallback killer process
-# would otherwise outlive the test when pgrep is unavailable.
 for fn in clean_finder_metadata clean_app_caches \
     clean_browsers run_cloud_and_office_cleanup clean_developer_tools \
     clean_user_gui_applications clean_virtualization_tools \
@@ -352,7 +338,6 @@ for fn in clean_finder_metadata clean_app_caches \
     show_project_artifact_hint_notice; do
     eval "$fn() { return 0; }"
 done
-run_with_shell_timeout() { return 0; }
 # Force every size check to hit the sizing budget.
 get_cleanup_path_size_kb() { return 124; }
 clean_user_essentials() {

@@ -537,10 +537,6 @@ function opt_secs(t,   n, a, p, d, first, h, m, s) {
 }
 '
 
-opt_diag_time_to_seconds() {
-    printf '%s\n' "${1:-}" | awk "$MOLE_OPT_DIAG_TIME_AWK"'{ printf "%d\n", opt_secs($0) }'
-}
-
 # Swap pressure, and the processes actually responsible for it. Silent when
 # memory is healthy.
 opt_diag_memory_pressure() {

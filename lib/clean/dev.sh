@@ -2315,27 +2315,6 @@ clean_xcode_device_support() {
     fi
 }
 
-_sim_runtime_mount_points() {
-    if [[ -n "${MOLE_XCODE_SIM_RUNTIME_MOUNT_POINTS:-}" ]]; then
-        printf '%s\n' "$MOLE_XCODE_SIM_RUNTIME_MOUNT_POINTS"
-        return 0
-    fi
-    mount 2> /dev/null | command awk '{print $3}' || true
-}
-
-_sim_runtime_is_path_in_use() {
-    local target_path="$1"
-    shift || true
-    local mount_path
-    for mount_path in "$@"; do
-        [[ -z "$mount_path" ]] && continue
-        if [[ "$mount_path" == "$target_path" || "$mount_path" == "$target_path"/* ]]; then
-            return 0
-        fi
-    done
-    return 1
-}
-
 _sim_runtime_size_kb() {
     local target_path="$1"
     local size_kb=0
@@ -2347,33 +2326,6 @@ _sim_runtime_size_kb() {
 
     [[ "$size_kb" =~ ^[0-9]+$ ]] || size_kb=0
     echo "$size_kb"
-}
-
-clean_xcode_simulator_runtime_volumes() {
-    local volumes_root="${MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT:-/Library/Developer/CoreSimulator/Volumes}"
-    local cryptex_root="${MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT:-/Library/Developer/CoreSimulator/Cryptex}"
-    local -a mount_points=()
-    local line root candidate
-    while IFS= read -r line; do
-        [[ -n "$line" ]] && mount_points+=("$line")
-    done < <(_sim_runtime_mount_points)
-    [[ ${#mount_points[@]} -gt 0 ]] || return 0
-
-    # Unmounted is not obsolete. Apple owns both roots; leave removal to
-    # Xcode's runtime management instead of inferring ownership from names.
-    local unmounted_count=0
-    for root in "$volumes_root" "$cryptex_root"; do
-        [[ -d "$root" ]] || continue
-        while IFS= read -r -d '' candidate; do
-            if ! _sim_runtime_is_path_in_use "$candidate" "${mount_points[@]}"; then
-                unmounted_count=$((unmounted_count + 1))
-            fi
-        done < <(command find "$root" -mindepth 1 -maxdepth 1 -type d -print0 2> /dev/null)
-    done
-    if [[ $unmounted_count -gt 0 ]]; then
-        echo "  Xcode runtime storage · $unmounted_count unmounted entries retained; manage runtimes in Xcode Settings"
-        note_activity
-    fi
 }
 
 _MOLE_SIMCTL_DEVELOPER_DIR=""
@@ -2515,10 +2467,11 @@ _debug_simctl_probe_stderr() {
 }
 
 # Installed simulator runtimes that no device uses. Distinct from
-# clean_xcode_simulator_runtime_volumes (stale mount points) and from
 # unavailable-simulator cleanup (devices orphaned by a removed runtime):
 # this is the inverse, a runtime left behind after its last device went
-# away. Nothing in macOS or Xcode reports it, so an 8GB download can sit
+# away. The runtime volume and cryptex roots under /Library/Developer/
+# CoreSimulator are Apple-owned and never touched or listed; mount absence
+# proves nothing about ownership or obsolescence. Nothing in macOS or Xcode reports it, so an 8GB download can sit
 # unreferenced indefinitely.
 #
 # Review-only by design. A runtime is a toolchain payload that only Apple
@@ -2646,7 +2599,6 @@ clean_dev_mobile() {
     check_android_ndk
     clean_xcode_documentation_cache || return $?
     clean_xcode_system_coresimulator_caches || return $?
-    clean_xcode_simulator_runtime_volumes || return $?
     clean_xcode_xctest_devices || return $?
 
     if command -v xcrun > /dev/null 2>&1; then

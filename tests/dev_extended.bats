@@ -1881,48 +1881,6 @@ EOF
     [[ "$output" != *"$HOME/.claude/shell-snapshots"* ]]
 }
 
-@test "clean_xcode_simulator_runtime_volumes deletes nothing when mount enumeration fails" {
-    local volumes_root="$HOME/sim-volumes"
-    mkdir -p "$volumes_root/runtime-a" "$volumes_root/runtime-b"
-
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT="$volumes_root" MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$HOME/none" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-
-DRY_RUN=false
-note_activity() { :; }
-has_sudo_session() { return 0; }
-is_path_whitelisted() { return 1; }
-should_protect_path() { return 1; }
-# mount failed: no lines. Unknown state must not be reported as unmounted.
-_sim_runtime_mount_points() { printf ''; }
-_sim_runtime_size_kb() { echo "1"; }
-safe_sudo_remove() { echo "REMOVE:$1"; return 0; }
-
-clean_xcode_simulator_runtime_volumes
-
-# Positive control. The guard makes this path print nothing at all, so "no
-# REMOVE line" alone is not a reporting probe. The control must report retained
-# storage when the mount inventory is available.
-echo "CONTROL"
-_sim_runtime_mount_points() { printf '%s\n' "/"; }
-clean_xcode_simulator_runtime_volumes
-EOF
-
-    [ "$status" -eq 0 ] || return 1
-    guarded="${output%%CONTROL*}"
-    control="${output#*CONTROL}"
-    [[ "$guarded" != *"REMOVE:"* ]] || {
-        echo "deleted a volume despite unknown mount state"
-        return 1
-    }
-    [[ "$control" == *"unmounted entries retained"* && "$control" != *"REMOVE:"* ]] || {
-        echo "control must report retained storage without deleting it"
-        return 1
-    }
-}
-
 @test "clean_dev_mobile leaves an idle section when no unavailable simulator exists" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 DRY_RUN=true \
         /bin/bash --noprofile --norc << 'EOF'
@@ -1931,7 +1889,6 @@ source "$PROJECT_ROOT/bin/clean.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 _xcode_safe_clean_guarded() { :; }
@@ -1966,7 +1923,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 _xcode_safe_clean_guarded() { :; }
@@ -2042,7 +1998,6 @@ mkdir -p "${_MOLE_SIMCTL_XCODE_APP_ROOTS[0]}"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { echo "DEVICE_SUPPORT:$2"; }
 safe_clean() { echo "SAFE_CLEAN:$2"; }
@@ -2097,7 +2052,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2151,7 +2105,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2246,7 +2199,6 @@ _MOLE_SIMCTL_XCODE_APP_ROOTS=("$HOME/Applications")
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2299,7 +2251,6 @@ _MOLE_SIMCTL_XCODE_APP_ROOTS=("$HOME/Applications")
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2351,7 +2302,6 @@ _MOLE_SIMCTL_XCODE_APP_ROOTS=("$HOME/Applications")
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2407,7 +2357,6 @@ _MOLE_SIMCTL_XCODE_APP_ROOTS=("$HOME/Applications")
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2461,7 +2410,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2519,7 +2467,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2550,7 +2497,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2623,7 +2569,6 @@ source "$PROJECT_ROOT/lib/clean/dev.sh"
 check_android_ndk() { :; }
 clean_xcode_documentation_cache() { :; }
 clean_xcode_system_coresimulator_caches() { :; }
-clean_xcode_simulator_runtime_volumes() { :; }
 clean_xcode_xctest_devices() { :; }
 clean_xcode_device_support() { :; }
 safe_clean() { :; }
@@ -2729,24 +2674,3 @@ EOF
     [[ "$output" != *"UNEXPECTED_LATER_DELETE"* ]]
 }
 
-@test "simulator runtime directories remain report-only in real and dry modes" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
-set -euo pipefail
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/dev.sh"
-MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT=$(mktemp -d "$HOME/runtime-owner.XXXXXX")
-MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT="$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/cryptex"
-mkdir -p "$MOLE_XCODE_SIM_RUNTIME_CRYPTEX_ROOT/Images" "$MOLE_XCODE_SIM_RUNTIME_VOLUMES_ROOT/not-a-runtime"
-_sim_runtime_mount_points() { echo /; }
-_sim_runtime_size_kb() { echo 1; }
-should_protect_path() { return 1; }
-is_path_whitelisted() { return 1; }
-has_sudo_session() { return 0; }
-safe_sudo_remove() { echo UNEXPECTED_REMOVE; }
-ensure_sudo_session() { echo UNEXPECTED_AUTH; return 1; }
-note_activity() { :; }
-for DRY_RUN in false true; do clean_xcode_simulator_runtime_volumes; done
-EOF
-    [ "$status" -eq 0 ]
-    [[ "$output" != *UNEXPECTED* ]] || return 1
-}
