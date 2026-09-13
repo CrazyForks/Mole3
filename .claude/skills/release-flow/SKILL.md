@@ -26,6 +26,8 @@ At the start of any release-flavored task, restate which channels this run will 
 5. `./scripts/check.sh --format` and `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 MOLE_TEST_JOBS=2 BATS_FORMATTER=tap ./scripts/test.sh` both exit 0.
 6. `go test ./...` and `make build` both pass.
 
+Use the Go version declared in `go.mod` for local release builds, matching `actions/setup-go` in CI, then run `scripts/check_release_minos.sh` on both architectures. A newer local Go can raise the minimum macOS version even with `CGO_ENABLED=0`; Go 1.27 produces macOS 13 binaries where this release's Go 1.25 toolchain preserves macOS 12. Rebuild with the declared toolchain instead of relaxing the minimum-OS gate.
+
 ## Tag and publish
 
 ```bash
