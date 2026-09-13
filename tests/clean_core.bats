@@ -1589,7 +1589,7 @@ EOF
 }
 
 @test "start_section recycles an idle section header in place on a TTY" {
-    if ! /usr/bin/script -q /dev/null /bin/true > /dev/null 2>&1; then
+    if ! /usr/bin/script -q /dev/null /usr/bin/true < /dev/null > /dev/null 2>&1; then
         skip "script cannot allocate a TTY in this environment"
     fi
 
@@ -1616,7 +1616,7 @@ EOF
 }
 
 @test "log_success rows mark section activity so headers keep their blank separator" {
-    if ! /usr/bin/script -q /dev/null /bin/true > /dev/null 2>&1; then
+    if ! /usr/bin/script -q /dev/null /usr/bin/true < /dev/null > /dev/null 2>&1; then
         skip "script cannot allocate a TTY in this environment"
     fi
 

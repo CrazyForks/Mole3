@@ -3352,6 +3352,8 @@ EOF_INNER
 @test "purge review names a candidate it could not inspect and marks the run incomplete" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
 set -euo pipefail
+# Match the physical paths returned by discovery when HOME contains a symlink.
+HOME=$(cd "$HOME" && pwd -P)
 source "$PROJECT_ROOT/lib/clean/project.sh"
 mkdir -p "$HOME/www/test-project/node_modules/pkg"
 printf x > "$HOME/www/test-project/node_modules/pkg/index.js"

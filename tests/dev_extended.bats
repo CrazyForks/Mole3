@@ -2673,4 +2673,3 @@ EOF
     [[ "$output" == *"DEVELOPER_RC:124 CANCEL:124"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_LATER_DELETE"* ]]
 }
-
