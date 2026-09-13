@@ -2679,3 +2679,66 @@ EOF
         return 1
     }
 }
+
+@test "external volume scan completes past root-owned metadata trees" {
+    local test_home="$HOME/external-owned-volume"
+    local volume="$test_home/External"
+    mkdir -p "$volume/.Spotlight-V100/Store-V2" "$volume/.fseventsd" \
+        "$volume/.DocumentRevisions-V100/staging" "$volume/Photos"
+    touch "$volume/Photos/._IMG_0001.jpg" "$volume/.Spotlight-V100/Store-V2/._index"
+    # Ownership-enabled volumes carry these as root-owned 700 directories.
+    chmod 000 "$volume/.Spotlight-V100/Store-V2" "$volume/.fseventsd" \
+        "$volume/.DocumentRevisions-V100/staging"
+
+    run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" VOLUME="$volume" \
+        /bin/bash --noprofile --norc <<'EOF_INNER'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+
+DRY_RUN=false
+PROTECT_FINDER_METADATA=true
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+files_cleaned=0
+total_size_cleaned=0
+total_items=0
+
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+clean_ds_store_tree() { :; }
+should_protect_path() { return 1; }
+is_path_whitelisted() { return 1; }
+get_path_size_kb() { printf '1\n'; }
+# The sink call discards stdout, so trace to a file.
+safe_remove() { printf 'REMOVE:%s\n' "$1" >> "$HOME/remove.trace"; return 0; }
+
+# Negative control: an unpruned walk over the same tree fails on EACCES.
+control_rc=0
+find -P "$VOLUME" -xdev -type f -name '._*' > /dev/null 2>&1 || control_rc=$?
+echo "CONTROL_FIND_RC=$control_rc"
+
+rc=0
+clean_external_volume_target "$VOLUME" || rc=$?
+echo "RC=$rc CANCEL=$MOLE_CLEAN_CANCEL_STATUS FILES=$files_cleaned"
+cat "$HOME/remove.trace"
+EOF_INNER
+    chmod 755 "$volume/.Spotlight-V100/Store-V2" "$volume/.fseventsd" \
+        "$volume/.DocumentRevisions-V100/staging"
+
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"CONTROL_FIND_RC=1"* ]] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"RC=0 CANCEL=0 FILES=1"* ]] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"REMOVE:$volume/Photos/._IMG_0001.jpg"* ]] || return 1
+    [[ "$output" != *"REMOVE:$volume/.Spotlight-V100"* ]]
+}

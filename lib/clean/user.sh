@@ -1556,8 +1556,14 @@ clean_external_volume_target() {
         return 1
     fi
     local metadata_scan_rc=0
+    # Any nonzero find status fails the scan closed, and BSD find returns 1
+    # after a single unreadable directory. The volume metadata trees are
+    # root-owned on ownership-enabled volumes and never hold user AppleDouble
+    # files, so prune them rather than report a healthy volume as failed.
     run_with_timeout "$metadata_scan_timeout" find -P "$volume" -xdev \
-        \( -path "$volume/.TemporaryItems" -o -path "$volume/.Trashes" \) -prune -o \
+        \( -path "$volume/.TemporaryItems" -o -path "$volume/.Trashes" \
+        -o -path "$volume/.Spotlight-V100" -o -path "$volume/.fseventsd" \
+        -o -path "$volume/.DocumentRevisions-V100" \) -prune -o \
         -type f -name "._*" -print0 > "$metadata_scan_file" 2> /dev/null || metadata_scan_rc=$?
     if [[ $metadata_scan_rc -ne 0 ]]; then
         : > "$metadata_scan_file" || true
