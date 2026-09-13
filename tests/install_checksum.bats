@@ -1338,3 +1338,27 @@ EOF
 		return 1
 	fi
 }
+
+@test "install.sh refuses a root invocation before writing anything" {
+	run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_INNER'
+set -euo pipefail
+eval "$(sed -n '/^refuse_root_invocation() {/,/^}/p' "$PROJECT_ROOT/install.sh")"
+if refuse_root_invocation 0 2> "$HOME/root.err"; then
+    echo "ROOT_ACCEPTED"
+else
+    echo "ROOT_REFUSED"
+fi
+cat "$HOME/root.err"
+refuse_root_invocation 501 && echo "USER_ACCEPTED"
+EOF_INNER
+	[ "$status" -eq 0 ] || {
+		echo "$output"
+		return 1
+	}
+	[[ "$output" == *"ROOT_REFUSED"* ]] || return 1
+	[[ "$output" == *"Run Mole without sudo"* ]] || return 1
+	[[ "$output" == *"USER_ACCEPTED"* ]] || return 1
+	# The gate must run at top level, before any install work starts.
+	run grep -Fn "refuse_root_invocation \"\${EUID:-0}\" || exit 1" "$PROJECT_ROOT/install.sh"
+	[ "$status" -eq 0 ]
+}

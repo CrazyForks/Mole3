@@ -5,6 +5,17 @@
 
 set -euo pipefail
 
+# The installed entrypoint refuses to run as root, so a root install would
+# write every file and then fail its own verification probe with the wrong
+# cause. Refuse up front with the same message, before anything is written.
+refuse_root_invocation() {
+    local uid="${1:-0}"
+    [[ "$uid" -eq 0 ]] || return 0
+    printf '%s\n' 'Run Mole without sudo; it requests administrator access when needed.' >&2
+    return 1
+}
+refuse_root_invocation "${EUID:-0}" || exit 1
+
 # Honor https://no-color.org: any non-empty NO_COLOR disables ANSI escapes.
 if [[ -n "${NO_COLOR:-}" ]]; then
     GREEN=''
