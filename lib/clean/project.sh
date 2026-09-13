@@ -500,27 +500,31 @@ is_protected_vendor_dir() {
 # Check if an artifact should be protected from purge
 # Names do not prove rebuildability: target/deploy carries Anchor keys,
 # and build/coverage can contain tracked source. Reused at discovery and sink.
+# Returns 0 when authored content is present, 1 when the walk completed and
+# found none, 2 when a probe timed out or failed. A 2 is not evidence either
+# way: callers keep the candidate but must say so instead of dropping it.
 purge_artifact_has_authored_content() {
     local path="${1%/}"
     [[ -d "$path" ]] || return 1
     # A configured root can cross a symlink before reaching the candidate.
     # Git ancestry must follow the actual repository, not the alias spelling.
-    path=$(cd "$path" 2> /dev/null && /bin/pwd -P) || return 0
+    path=$(cd "$path" 2> /dev/null && /bin/pwd -P) || return 2
     local evidence=""
-    # Do not follow links or read key contents. A failed/bounded walk preserves
-    # the whole candidate, including nested repositories and worktrees.
-    evidence=$(run_with_timeout "$MOLE_TIMEOUT_QUICK_DETECT_SEC" /usr/bin/find "$path" \
-        \( -name .git -o -name '*-keypair.json' \) -print -quit 2> /dev/null) || return 0
+    # Do not follow links or read key contents. This walks the whole artifact
+    # when nothing matches, so it takes the tree-walk budget, not the
+    # command-probe one.
+    evidence=$(run_with_timeout "$MOLE_TIMEOUT_HINT_SCAN_SEC" /usr/bin/find "$path" \
+        \( -name .git -o -name '*-keypair.json' \) -print -quit 2> /dev/null) || return 2
     [[ -z "$evidence" ]] || return 0
 
     local ancestor="$path"
     while [[ "$ancestor" != "/" && -n "$ancestor" ]]; do
         if [[ -e "$ancestor/.git" || -L "$ancestor/.git" ]]; then
             # Ignore inherited Git routing; inspect this directory's own repo.
-            evidence=$(run_with_timeout "$MOLE_TIMEOUT_QUICK_DETECT_SEC" \
+            evidence=$(run_with_timeout "$MOLE_TIMEOUT_HINT_SCAN_SEC" \
                 env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_COMMON_DIR \
                 GIT_OPTIONAL_LOCKS=0 GIT_LITERAL_PATHSPECS=1 \
-                git -c core.fsmonitor=false --git-dir="$ancestor/.git" --work-tree="$ancestor" -C "$path" ls-files -- . 2> /dev/null) || return 0
+                git -c core.fsmonitor=false --git-dir="$ancestor/.git" --work-tree="$ancestor" -C "$path" ls-files -- . 2> /dev/null) || return 2
             [[ -n "$evidence" ]]
             return $?
         fi
@@ -529,11 +533,22 @@ purge_artifact_has_authored_content() {
     return 1
 }
 
+# Set by is_protected_purge_artifact: true when the verdict came from an
+# unfinished content probe rather than evidence.
+PURGE_PROTECTION_UNVERIFIED=false
+
 is_protected_purge_artifact() {
     local path="${1%/}"
     local base="${path##*/}"
 
-    purge_artifact_has_authored_content "$path" && return 0
+    PURGE_PROTECTION_UNVERIFIED=false
+    local authored_rc=0
+    purge_artifact_has_authored_content "$path" || authored_rc=$?
+    if [[ $authored_rc -eq 2 ]]; then
+        PURGE_PROTECTION_UNVERIFIED=true
+        return 0
+    fi
+    [[ $authored_rc -ne 0 ]] || return 0
 
     case "$base" in
         bin)
@@ -847,7 +862,10 @@ filter_protected_artifacts() {
         if [[ "$deadline" =~ ^[0-9]+$ && $SECONDS -ge $deadline ]]; then
             return 124
         fi
-        if ! is_protected_purge_artifact "$item"; then
+        # An unfinished probe is not evidence either way. Keep the candidate
+        # visible; the in-process recheck before the menu reports it.
+        if ! is_protected_purge_artifact "$item" ||
+            [[ "$PURGE_PROTECTION_UNVERIFIED" == "true" ]]; then
             echo "$item"
         fi
     done
@@ -1671,6 +1689,7 @@ clean_project_artifacts() {
     PURGE_UNKNOWN_SIZE_COUNT=0
     local -a all_found_items=()
     local -a safe_to_clean=()
+    local -a uninspected_paths=()
     local -a safe_recent_flags=()
     local -a safe_activity_states=()
     local -a safe_expected_parents=()
@@ -2025,7 +2044,12 @@ clean_project_artifacts() {
             continue
         fi
         if is_protected_purge_artifact "$item"; then
-            debug_log "Skipping purge target that became protected after scanning: $item"
+            if [[ "$PURGE_PROTECTION_UNVERIFIED" == "true" ]]; then
+                PURGE_RUN_OUTCOME="incomplete"
+                uninspected_paths+=("$item")
+            else
+                debug_log "Skipping purge target that became protected after scanning: $item"
+            fi
             continue
         fi
 
@@ -2038,6 +2062,9 @@ clean_project_artifacts() {
     if [[ -t 1 ]]; then
         stop_inline_spinner
     fi
+    for item in "${uninspected_paths[@]+"${uninspected_paths[@]}"}"; do
+        echo -e "${YELLOW}${ICON_WARNING}${NC} Could not inspect ${item/#$HOME/~}; kept" >&2
+    done
     if [[ ${#safe_to_clean[@]} -eq 0 ]]; then
         echo -e "${GRAY}No eligible project artifacts to purge${NC}"
         [[ "$PURGE_RUN_OUTCOME" != "incomplete" ]] && PURGE_RUN_OUTCOME="no_candidates"
@@ -2607,7 +2634,11 @@ clean_project_artifacts() {
             continue
         fi
         if is_protected_purge_artifact "$item_path"; then
-            debug_log "Skipping purge target that became protected after review: $item_path"
+            if [[ "$PURGE_PROTECTION_UNVERIFIED" == "true" ]]; then
+                echo -e "${YELLOW}${ICON_WARNING}${NC} Skipped $display_item_path (could not inspect contents; re-run mo purge to review it again)"
+            else
+                debug_log "Skipping purge target that became protected after review: $item_path"
+            fi
             continue
         fi
         local activity_status=0

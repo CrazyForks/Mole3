@@ -3321,3 +3321,54 @@ is_protected_purge_artifact "$root/aliases/project/child/build" || exit 1
 EOF
     [ "$status" -eq 0 ]
 }
+
+@test "purge keeps and reports a candidate whose content probe could not finish" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/unverified.XXXXXX")
+mkdir -p "$root/proj/node_modules/pkg"
+printf x > "$root/proj/node_modules/pkg/index.js"
+# A timed-out or failed walk is status 2: neither authored nor clean.
+purge_artifact_has_authored_content() { return 2; }
+is_protected_purge_artifact "$root/proj/node_modules" || exit 11
+[[ "$PURGE_PROTECTION_UNVERIFIED" == "true" ]] || exit 12
+# Discovery must not drop it silently.
+kept=$(printf '%s\n' "$root/proj/node_modules" | filter_protected_artifacts)
+[[ "$kept" == "$root/proj/node_modules" ]] || exit 13
+# Evidence still protects, and clears the unverified flag.
+purge_artifact_has_authored_content() { return 0; }
+is_protected_purge_artifact "$root/proj/node_modules" || exit 14
+[[ "$PURGE_PROTECTION_UNVERIFIED" == "false" ]] || exit 15
+kept=$(printf '%s\n' "$root/proj/node_modules" | filter_protected_artifacts)
+[[ -z "$kept" ]] || exit 16
+EOF_INNER
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+}
+
+@test "purge review names a candidate it could not inspect and marks the run incomplete" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+mkdir -p "$HOME/www/test-project/node_modules/pkg"
+printf x > "$HOME/www/test-project/node_modules/pkg/index.js"
+printf '{}' > "$HOME/www/test-project/package.json"
+touch -t 202001010101 "$HOME/www/test-project/node_modules/pkg/index.js" \
+    "$HOME/www/test-project/node_modules" "$HOME/www/test-project/package.json" "$HOME/www/test-project"
+PURGE_SEARCH_PATHS=("$HOME/www")
+purge_artifact_has_authored_content() { return 2; }
+export MOLE_DRY_RUN=1
+clean_project_artifacts
+echo "OUTCOME=$PURGE_RUN_OUTCOME"
+[[ -d "$HOME/www/test-project/node_modules" ]]
+EOF_INNER
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"Could not inspect ~/www/test-project/node_modules; kept"* ]] || return 1
+    [[ "$output" == *"OUTCOME=incomplete"* ]] || return 1
+}
