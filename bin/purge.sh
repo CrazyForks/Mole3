@@ -183,7 +183,7 @@ perform_purge() {
 
         # Start background monitor: writes directly to /dev/tty to avoid stdout state issues
         (
-            local spinner_chars="|/-\\"
+            mo_load_spinner_frames
             local spinner_idx=0
             local last_path=""
             # Use parent-captured width; never refresh inside the loop (avoids unreliable tput in bg)
@@ -210,8 +210,8 @@ perform_purge() {
                     last_path="$display_path"
                 fi
 
-                local spin_char="${spinner_chars:$spinner_idx:1}"
-                spinner_idx=$(((spinner_idx + 1) % ${#spinner_chars}))
+                local spin_char="${MO_SPINNER_FRAMES[$spinner_idx]}"
+                spinner_idx=$(((spinner_idx + 1) % ${#MO_SPINNER_FRAMES[@]}))
 
                 # Write directly to /dev/tty: \033[2K clears entire current line, \r goes to start
                 if [[ -n "$last_path" ]]; then
