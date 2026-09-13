@@ -103,7 +103,7 @@ clean_trash() {
 
     if [[ $cleaned_count -gt 0 ]]; then
         if [[ $skipped_count -gt 0 ]]; then
-            echo -e "  ${YELLOW}${ICON_WARNING}${NC} Trash · removed $cleaned_count items, $skipped_count skipped"
+            echo -e "  ${YELLOW}${ICON_WARNING}${NC} Trash · removed $cleaned_count items, $skipped_count could not be removed"
         else
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} Trash · emptied, $cleaned_count items"
         fi

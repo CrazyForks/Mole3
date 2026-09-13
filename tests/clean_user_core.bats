@@ -576,7 +576,7 @@ clean_trash
 EOF
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Trash · removed 1 items, 1 skipped"* ]] || return 1
+    [[ "$output" == *"Trash · removed 1 items, 1 could not be removed"* ]] || return 1
     [[ -e "$HOME/.Trash/two.tmp" ]]
     [[ ! -e "$HOME/.Trash/one.tmp" ]]
 }
