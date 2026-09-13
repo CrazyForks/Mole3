@@ -3728,16 +3728,20 @@ clean_claude_desktop_bundled_versions() {
 
 # Headless browser trees leaked by dead Playwright/agent automation sessions.
 # When an MCP server or agent harness dies without cleanup, its browser
-# daemons reparent to launchd (ppid 1) and the Chrome tree keeps running
-# headless, holding RSS; the ephemeral temp profiles keep disk.
+# reparents to launchd (ppid 1) and the Chrome tree keeps running headless,
+# holding RSS; the ephemeral temp profiles keep disk.
 #
-# Only processes tied to playwright_chromiumdev_profile-* automation profiles
-# are ever touched, never a user's real browser, and the evidence of a leak is
-# ppid 1: the harness that owned this browser is gone. That is a fact about
-# the session rather than a guess from age, so it protects a live automation
-# run of any length (its parent is still alive) while catching a leak minutes
-# after it happens instead of a day later. The one-hour floor only keeps the
-# scan away from a browser that is mid-handoff between two parents.
+# Only browser processes tied to playwright_chromiumdev_profile-* automation
+# profiles are ever touched, never a user's real browser, and the evidence of
+# a leak is ppid 1: the node process that launched this browser is gone. That
+# is a fact about the session rather than a guess from age, so it protects a
+# live automation run of any length (its parent is still alive) while catching
+# a leak minutes after it happens. The one-hour floor only keeps the scan away
+# from a browser that is mid-handoff between two parents.
+#
+# The playwright-cli session daemon (cliDaemon.js) is deliberately not a
+# target: cli-client spawns it detached and unrefs it, so ppid 1 is its normal
+# state for the whole life of an active session, not evidence of a leak.
 #
 # Chrome helper processes keep the main browser as their parent, so this
 # matches roots only and the tree follows them down.
@@ -3754,8 +3758,7 @@ _automation_browser_process_records() {
             command = $9
             for (i = 10; i <= NF; i++) command = command " " $i
         }
-        command ~ /playwright-core\/lib\/entry\/cliDaemon\.js/ ||
-            command ~ /playwright_chromiumdev_profile/ {
+        command ~ /playwright_chromiumdev_profile/ {
             print $1 "|" $4 " " $5 " " $6 " " $7 " " $8
         }'
 }
@@ -3793,7 +3796,8 @@ clean_dev_automation_browsers() {
     fi
 
     # Ephemeral automation profiles: stale after 2h, and never one that a
-    # live process still references.
+    # live process still references. Only a clean "no match" (exit 1) proves
+    # that; any other pgrep status is an unknown state and keeps the profile.
     local -a stale_profiles=()
     local tmpdir
     tmpdir=$(getconf DARWIN_USER_TEMP_DIR 2> /dev/null) || tmpdir=""
@@ -3804,7 +3808,9 @@ clean_dev_automation_browsers() {
             [[ -d "$d" ]] || continue
             age_hours=$(((now - $(stat -f %m "$d" 2> /dev/null || echo "$now")) / 3600))
             [[ "$age_hours" -ge 2 ]] || continue
-            pgrep -qf "$d" 2> /dev/null && continue
+            local pgrep_rc=0
+            pgrep -qf "$d" 2> /dev/null || pgrep_rc=$?
+            [[ $pgrep_rc -eq 1 ]] || continue
             stale_profiles+=("$d")
         done
     fi
