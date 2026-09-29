@@ -34,6 +34,42 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 EOF
 }
 
+# Exercise the real result handling with only a sandboxed AppleScript fixture.
+run_finder_result_fixture() {
+    mkdir -p "$SANDBOX/FinderFixture.app"
+    run env PROJECT_ROOT="$PROJECT_ROOT" FIXTURE_RC="$1" FIXTURE_MOVE="${2:-0}" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+fixture="$SANDBOX/FinderFixture.app"
+_mole_path_is_application_bundle() { [[ "$1" == "$fixture" ]]; }
+_mole_trash_target_still_safe() { [[ "$1" == "$fixture" ]]; }
+_mole_owned_path_still_valid() { [[ "$1" == "$fixture" ]]; }
+debug_log() { printf '%s\n' "$*" >> "$SANDBOX/finder-debug.log"; }
+run_with_timeout() {
+    [[ $# -eq 4 && "$1" == "$MOLE_TIMEOUT_DISK_VERIFY_SEC" && "$2" == osascript && "$3" == - && "$4" == "$fixture" ]] || return 97
+    shift
+    "$@"
+}
+osascript() {
+    [[ $# -eq 2 && "$1" == - && "$2" == "$fixture" ]] || return 98
+    cat > "$SANDBOX/finder-script"
+    printf 'FINDER_STDOUT_MUST_STAY_HIDDEN\n'
+    printf 'Finder fixture diagnostic (-1743)\n' >&2
+    if [[ "$FIXTURE_MOVE" == 1 ]]; then
+        mv "$fixture" "$SANDBOX/MovedFixture.app"
+    fi
+    return "$FIXTURE_RC"
+}
+rc=0
+_mole_move_app_to_trash_via_finder "$fixture" || rc=$?
+printf 'RC=%s\n' "$rc"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" != *"FINDER_STDOUT_MUST_STAY_HIDDEN"* ]] || return 1
+    [[ "$output" != *"Finder fixture diagnostic"* ]] || return 1
+    [[ -s "$SANDBOX/finder-script" ]]
+}
+
 @test "mole_delete defaults to permanent mode and removes the target" {
     local victim="$SANDBOX/victim"
     mkdir -p "$victim"
@@ -719,7 +755,8 @@ EOF
 
     [ "$status" -eq 0 ]
     [[ -d "$victim" ]] || return 1
-    [[ "$output" == *"App Management, App Data, or Full Disk Access"* ]] || return 1
+    [[ "$output" == *"Try moving the item to Trash in Finder. Run with --debug for details"* ]] || return 1
+    [[ "$output" != *"Full Disk Access"* ]] || return 1
     [[ "$output" != *"Touch ID"* ]] || return 1
     [[ "$output" == *"RC=14"* ]] || return 1
     [[ ! -s "$trace" ]] || return 1
@@ -795,15 +832,16 @@ EOF
     [[ "$output" == *"refusing permanent delete"* ]]
 }
 
-@test "privacy denial diagnosis recommends terminal privacy access, not Touch ID" {
+@test "privacy denial diagnosis offers Finder and debug without guessing a permission pane" {
     run /bin/bash --noprofile --norc <<EOF
 $(prelude)
 diagnose_removal_failure "\$MOLE_ERR_PRIVACY_DENIED" "Microsoft Word"
 EOF
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"macOS could not authorize Trash access"* ]] || return 1
-    [[ "$output" == *"App Management, App Data, or Full Disk Access"* ]] || return 1
+    [[ "$output" == *"macOS denied Trash access"* ]] || return 1
+    [[ "$output" == *"Try moving the item to Trash in Finder. Run with --debug for details"* ]] || return 1
+    [[ "$output" != *"Full Disk Access"* ]] || return 1
     [[ "$output" != *"touchid"* ]] || return 1
     [[ "$output" != *"Touch ID"* ]]
 }
@@ -1544,4 +1582,57 @@ EOF
     [ "$status" -ne 0 ] || return 1
     # Nothing privileged may run against a symlinked root.
     [[ ! -s "$trace" ]]
+}
+
+
+@test "Finder failure records stderr and the actual exit status" {
+    run_finder_result_fixture 1
+    [[ "$output" == "RC=1" ]] || return 1
+    [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
+    local diagnostic
+    diagnostic=$(cat "$SANDBOX/finder-debug.log")
+    [[ "$diagnostic" == *"(exit 1)"* ]] || return 1
+    [[ "$diagnostic" == *"Finder fixture diagnostic (-1743)"* ]] || return 1
+    [[ "$diagnostic" != *"FINDER_STDOUT_MUST_STAY_HIDDEN"* ]]
+}
+
+@test "Finder success with a surviving app is diagnosed as an incomplete move" {
+    run_finder_result_fixture 0
+    [[ "$output" == "RC=1" ]] || return 1
+    [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
+    [[ "$(cat "$SANDBOX/finder-debug.log")" == *"Finder returned success but the application remains:"* ]]
+}
+
+@test "Finder timeout and signal preserve status and failure diagnostics" {
+    local rc diagnostic
+    for rc in 124 130; do
+        : > "$SANDBOX/finder-debug.log"
+        run_finder_result_fixture "$rc"
+        [[ "$output" == "RC=$rc" ]] || return 1
+        [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
+        diagnostic=$(cat "$SANDBOX/finder-debug.log")
+        [[ "$diagnostic" == *"(exit $rc)"* ]] || return 1
+        [[ "$diagnostic" == *"Finder fixture diagnostic (-1743)"* ]] || return 1
+    done
+}
+
+@test "Finder successful mock move remains quiet and verifies the survivor" {
+    run_finder_result_fixture 0 1
+    [[ "$output" == "RC=0" ]] || return 1
+    [[ ! -e "$SANDBOX/FinderFixture.app" && -d "$SANDBOX/MovedFixture.app" ]] || return 1
+    [[ "$(cat "$SANDBOX/finder-debug.log")" == *"Finder moved application to Trash:"* ]]
+}
+
+@test "Trash no-auth guard prevents both direct and Finder execution" {
+    run /bin/bash --noprofile --norc <<EOF
+$(prelude)
+unset MOLE_TEST_TRASH_DIR
+_mole_move_path_to_user_trash() { echo UNEXPECTED_DIRECT; return 99; }
+_mole_move_app_to_trash_via_finder() { echo UNEXPECTED_FINDER; return 99; }
+rc=0
+_mole_move_to_trash /Applications/Fixture.app false || rc=\$?
+printf 'RC=%s\n' "\$rc"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == "RC=1" ]]
 }

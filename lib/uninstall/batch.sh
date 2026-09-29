@@ -2265,7 +2265,11 @@ _batch_execute_removals() {
                     "$expected_app_identity" || removal_rc=$?
                 mole_rc_timeout_or_signal "$removal_rc" && return "$removal_rc"
                 if [[ $removal_rc -ne 0 ]]; then
-                    if [[ ! -w "$(dirname "$app_path")" ]]; then
+                    if [[ $removal_rc -eq $MOLE_ERR_PRIVACY_DENIED ]]; then
+                        local diagnosis
+                        diagnosis=$(diagnose_removal_failure "$removal_rc" "$app_name")
+                        IFS='|' read -r reason suggestion <<< "$diagnosis"
+                    elif [[ ! -w "$(dirname "$app_path")" ]]; then
                         reason="parent directory not writable"
                     else
                         reason="remove failed, check permissions"

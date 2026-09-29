@@ -4815,3 +4815,45 @@ SCRIPT
     [[ "$output" == *"Kept (app may be active): ~/Library/Caches/com.example.Shared"* ]] || return 1
     [[ "$output" == *"Could not remove: ~/Library/Caches/com.example.Shared"* ]] || return 1
 }
+
+
+@test "nonprivileged batch privacy denial retains the app and offers factual next steps" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mkdir -p "$HOME/Applications/Denied.app"
+app="$HOME/Applications/Denied.app"
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+mole_delete() {
+    [[ "$1" == "$app" && "$2" == false ]] || return 99
+    printf 'denied\n' > "$HOME/delete-called"
+    return "$MOLE_ERR_PRIVACY_DENIED"
+}
+remove_file_list() { printf 'unexpected leftovers\n' > "$HOME/leftovers-called"; return 99; }
+app_details=("Denied|$app|unknown|0|||false|false|false|||||guard_login|$(_batch_selected_app_identity "$app")|unknown||missing")
+success_count=0
+failed_count=0
+brew_apps_removed=0
+failed_items=()
+success_items=()
+success_dock_targets=()
+system_extension_warning_apps=()
+review_only_system_leftovers=()
+review_only_system_leftover_keys=()
+running_at_uninstall_apps=()
+total_size_freed=0
+files_cleaned=0
+total_items=0
+_batch_execute_removals
+[[ $success_count -eq 0 && $failed_count -eq 1 ]] || exit 1
+[[ -d "$app" && -s "$HOME/delete-called" && ! -e "$HOME/leftovers-called" ]] || exit 1
+printf 'FAILURE=%s\n' "${failed_items[0]}"
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"macOS denied Trash access"* ]] || return 1
+    [[ "$output" == *"Try moving the item to Trash in Finder. Run with --debug for details"* ]] || return 1
+    [[ "$output" != *"check permissions"* ]] || return 1
+    [[ "$output" != *"Full Disk Access"* ]]
+}

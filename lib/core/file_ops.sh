@@ -2502,7 +2502,7 @@ mole_delete() {
                 _MOLE_PRIVACY_DENIED_WARNED=1
                 export _MOLE_PRIVACY_DENIED_WARNED
                 declare -F stop_inline_spinner > /dev/null && stop_inline_spinner
-                printf 'Error: macOS could not authorize Trash access. Review App Management, App Data, or Full Disk Access for your terminal in System Settings, then retry.\n' >&2
+                printf 'Error: macOS denied Trash access. Try moving the item to Trash in Finder. Run with --debug for details.\n' >&2
             fi
             debug_log "macOS privacy permission denied while moving to Trash: $path"
             return "$MOLE_ERR_PRIVACY_DENIED"
@@ -2686,7 +2686,9 @@ _mole_move_app_to_trash_via_finder() {
         "$expected_file_sha256" "$expected_absent_path" \
         "$expected_parent" "$expected_parent_id" "$expected_target_id" || return $?
 
-    run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" osascript - "$path" > /dev/null 2>&1 << 'APPLESCRIPT' || finder_rc=$?
+    local finder_output=""
+    finder_output=$(
+        run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" osascript - "$path" 2>&1 > /dev/null << 'APPLESCRIPT'
 on run argv
     set p to POSIX file (item 1 of argv)
     tell application "Finder"
@@ -2694,11 +2696,14 @@ on run argv
     end tell
 end run
 APPLESCRIPT
+    ) || finder_rc=$?
 
-    if mole_rc_timeout_or_signal "$finder_rc"; then
-        return "$finder_rc"
-    elif [[ $finder_rc -ne 0 ]] || [[ -e "$path" || -L "$path" ]]; then
-        debug_log "Finder failed to move application to Trash: $path"
+    if [[ $finder_rc -ne 0 ]]; then
+        debug_log "Finder failed to move application to Trash (exit $finder_rc): $path: $finder_output"
+        mole_rc_timeout_or_signal "$finder_rc" && return "$finder_rc"
+        return 1
+    elif [[ -e "$path" || -L "$path" ]]; then
+        debug_log "Finder returned success but the application remains: $path"
         return 1
     fi
 
@@ -4035,8 +4040,8 @@ diagnose_removal_failure() {
             reason="protected by Mole safety rules"
             ;;
         "$MOLE_ERR_PRIVACY_DENIED")
-            reason="macOS could not authorize Trash access"
-            suggestion="Review App Management, App Data, or Full Disk Access for your terminal in System Settings"
+            reason="macOS denied Trash access"
+            suggestion="Try moving the item to Trash in Finder. Run with --debug for details"
             ;;
         "$MOLE_ERR_MUTABLE_PARENT")
             reason="Mole cannot safely use elevated deletion below a user-writable parent"
