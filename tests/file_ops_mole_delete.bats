@@ -368,8 +368,8 @@ osascript() {
     return 98
 }
 _mole_path_requires_direct_trash "/Applications/Microsoft Word.app"
-! _mole_path_requires_direct_trash "/Applications/Utilities/Microsoft Word.app"
-! _mole_path_requires_direct_trash "/Applications/Microsoft Word.app/Contents"
+! _mole_path_requires_direct_trash "/Applications/Utilities/Microsoft Word.app" || exit 1
+! _mole_path_requires_direct_trash "/Applications/Microsoft Word.app/Contents" || exit 1
 _mole_move_to_trash "/Applications/Microsoft Word.app" false
 EOF
 

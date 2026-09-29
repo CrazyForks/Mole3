@@ -1814,10 +1814,10 @@ grep -q "Review only: ~/system/com.example.review.helper" "$HOME/output.log"
 [[ "$(grep -cF "~/system/com.example.review.helper" "$HOME/output.log")" -eq 1 ]] || exit 1
 grep -q "Kept 1 system-level path, which Mole never removes" "$HOME/output.log"
 # Keeping system paths is the designed outcome, so the run is not "incomplete".
-! grep -q "Uninstall incomplete" "$HOME/output.log"
+! grep -q "Uninstall incomplete" "$HOME/output.log" || exit 1
 grep -q "Uninstall complete" "$HOME/output.log"
 # The point of the whole case: the file is reported, never deleted.
-! grep -q "$HOME/system/com.example.review.helper" "$HOME/remove.log"
+! grep -q "$HOME/system/com.example.review.helper" "$HOME/remove.log" || exit 1
 [[ -e "$HOME/system/com.example.review.helper" ]]
 EOF
 
@@ -2278,8 +2278,8 @@ stop_launch_services "com.example.TestApp" "false" ""
 
 	grep -Fq "launchctl unload $HOME/Library/LaunchAgents/com.example.TestApp.plist" "$trace"
 	grep -Fq "launchctl unload $HOME/Library/LaunchAgents/com.example.TestApp.helper.plist" "$trace"
-	! grep -Fq "com.example.TestApplication.plist" "$trace"
-	! grep -q "safe_remove" "$trace"
+	! grep -Fq "com.example.TestApplication.plist" "$trace" || exit 1
+	! grep -q "safe_remove" "$trace" || exit 1
 	[[ -f "$HOME/Library/LaunchAgents/com.example.TestApp.plist" ]] || exit 1
 	[[ -f "$HOME/Library/LaunchAgents/com.example.TestApp.helper.plist" ]] || exit 1
 	[[ -f "$HOME/Library/LaunchAgents/com.example.TestApplication.plist" ]] || exit 1

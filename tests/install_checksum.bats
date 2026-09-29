@@ -885,15 +885,15 @@ fi
 unlink "$lock_path"
 acquire_install_lock
 release_install_lock
-! compgen -G "$INSTALL_DIR/.mole-update.lock/control.*" > /dev/null
+! compgen -G "$INSTALL_DIR/.mole-update.lock/control.*" > /dev/null || exit 1
 
 declare -f acquire_install_lock | grep -q '/usr/bin/lockf'
-! grep -q 'trap cleanup_tmp EXIT' "$PROJECT_ROOT/install.sh"
+! grep -q 'trap cleanup_tmp EXIT' "$PROJECT_ROOT/install.sh" || exit 1
 grep -q "trap 'cleanup_installer' EXIT" "$PROJECT_ROOT/install.sh"
-! grep -qF 'Another Mole installation or update is already writing' "$PROJECT_ROOT/install.sh"
+! grep -qF 'Another Mole installation or update is already writing' "$PROJECT_ROOT/install.sh" || exit 1
 # Both call sites route through the reporter, and each cause keeps its own
 # remedy. A single catch-all lock message is the regression being pinned.
-! grep -qF 'Could not acquire the Mole installation lock for' "$PROJECT_ROOT/install.sh"
+! grep -qF 'Could not acquire the Mole installation lock for' "$PROJECT_ROOT/install.sh" || exit 1
 [[ "$(grep -c 'report_install_lock_failure$' "$PROJECT_ROOT/install.sh")" -eq 2 ]] || exit 1
 # Pin the reason codes, not the wording. Pinning a sentence is what let the
 # first fix swap one vague message for another and lock it in as a

@@ -116,8 +116,8 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 
 receipt_payload_path_is_allowlisted "/Library/LaunchAgents/com.example.foo.helper.plist" "com.example.foo"
 receipt_payload_path_is_allowlisted "/Library/PrivilegedHelperTools/com.example.foo.helper" "com.example.foo"
-! receipt_payload_path_is_allowlisted "/Library/Application Support/Foo" "com.example.foo"
-! receipt_payload_path_is_allowlisted "/Applications/Foo.app" "com.example.foo"
+! receipt_payload_path_is_allowlisted "/Library/Application Support/Foo" "com.example.foo" || exit 1
+! receipt_payload_path_is_allowlisted "/Applications/Foo.app" "com.example.foo" || exit 1
 ! receipt_payload_path_is_allowlisted "/usr/local/bin/foo" "com.example.foo"
 EOF
 
