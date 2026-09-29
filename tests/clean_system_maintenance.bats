@@ -35,35 +35,46 @@ mock_run_with_timeout_skipping_var_folders() {
 }
 export -f mock_run_with_timeout_skipping_var_folders
 
-@test "materialize_completed_system_scan discards a timed-out partial prefix" {
-    local slow_scan="$HOME/partial-system-scan.sh"
+@test "materialize_completed_system_scan discards every failed producer prefix" {
+    local producer="$HOME/partial-system-scan.sh"
     local trace="$HOME/partial-system-scan.trace"
-    cat > "$slow_scan" <<'SCRIPT'
+    cat > "$producer" <<'SCRIPT'
 #!/bin/bash
-printf 'started\n' >> "$SYSTEM_SCAN_TRACE"
+printf 'started:%s\n' "$PRODUCER_RC" >> "$SYSTEM_SCAN_TRACE"
 printf 'partial\0'
-exec sleep 4
+exit "$PRODUCER_RC"
 SCRIPT
-    chmod +x "$slow_scan"
+    chmod +x "$producer"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" SLOW_SCAN="$slow_scan" \
-        SYSTEM_SCAN_TRACE="$trace" \
-        /bin/bash --noprofile --norc <<'SCRIPT'
+    local code
+    for code in 124 1 130; do
+        : > "$trace"
+        run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PRODUCER="$producer" \
+            SYSTEM_SCAN_TRACE="$trace" PRODUCER_RC="$code" \
+            /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/system.sh"
+# The timeout backend has its own real-clock tests. This case exercises the
+# materializer's command boundary and complete-output contract deterministically.
+run_with_timeout() {
+    [[ $# -eq 2 && "$1" == 5 && "$2" == "$PRODUCER" ]] || return 99
+    shift
+    "$@"
+}
 scan_file=$(create_temp_file)
 rc=0
-materialize_completed_system_scan "$scan_file" 1 "$SLOW_SCAN" || rc=$?
+materialize_completed_system_scan "$scan_file" 5 "$PRODUCER" || rc=$?
 printf 'RC=%s\n' "$rc"
 printf 'BYTES=%s\n' "$(wc -c < "$scan_file" | tr -d ' ')"
 rm -f -- "$scan_file"
 SCRIPT
 
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"RC=124"* ]] || return 1
-    [[ "$(< "$trace")" == "started" ]] || return 1
-    [[ "$output" == *"BYTES=0"* ]]
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"RC=$code"* ]] || return 1
+        [[ "$(< "$trace")" == "started:$code" ]] || return 1
+        [[ "$output" == *"BYTES=0"* ]] || return 1
+    done
 }
 
 @test "materialize_completed_system_scan preserves NUL-delimited paths with newlines" {
@@ -79,16 +90,22 @@ SCRIPT
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/system.sh"
+run_with_timeout() {
+    [[ $# -eq 2 && "$1" == 5 && "$2" == "$PRODUCER" ]] || return 99
+    shift
+    "$@"
+}
 scan_file=$(create_temp_file)
-materialize_completed_system_scan "$scan_file" 1 "$PRODUCER"
+materialize_completed_system_scan "$scan_file" 5 "$PRODUCER"
 record=""
-IFS= read -r -d '' record < "$scan_file" || true
+IFS= read -r -d '' record < "$scan_file" || exit 1
 [[ "$record" == $'/Volumes/Backup/line\nbreak.inProgress' ]] || exit 1
+[[ "$(wc -c < "$scan_file" | tr -d ' ')" == 38 ]] || exit 1
 printf 'PRESERVED\n'
 rm -f -- "$scan_file"
 SCRIPT
 
-    [ "$status" -eq 0 ] || return 1
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == "PRESERVED" ]]
 }
 

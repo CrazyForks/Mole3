@@ -54,6 +54,13 @@ set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/dev.sh"
 DRY_RUN="$DRY"
+# These cases exercise process identity, not timeout backend scheduling.
+# Keep the real ps fixtures and PID rebind checks behind the same call boundary.
+run_with_timeout() {
+    [[ $# -ge 2 && "$1" == "$MOLE_TIMEOUT_QUICK_DETECT_SEC" && "$2" == ps ]] || return 99
+    shift
+    "$@"
+}
 kill() { printf 'KILL %s\n' "$*" >> "$TRACE"; return 0; }
 sleep() { :; }
 safe_clean() {
@@ -74,8 +81,10 @@ EOF
 @test "does not signal a PID replaced between discovery and TERM" {
     make_process_stubs
     : > "$HOME/kill.trace"
+    : > "$HOME/ps.trace"
     cat > "$HOME/bin/ps" <<'SCRIPT'
 #!/bin/bash
+printf '%s\n' "$*" >> "$HOME/ps.trace"
 if [[ "$1" == "-Ao" ]]; then
     printf '%s\n' '  902     1 01-20:00:00 Tue Sep  1 02:03:04 2026 /Applications/Chrome.app/x --user-data-dir=/tmp/playwright_chromiumdev_profile-old'
 else
@@ -86,6 +95,7 @@ SCRIPT
 
     run_cleanup false
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$(cat "$HOME/ps.trace")" == $'-Ao pid=,ppid=,etime=,lstart=,command= -ww\n-p 902 -o pid=,ppid=,etime=,lstart=,command= -ww' ]] || { cat "$HOME/ps.trace"; return 1; }
     [[ "$output" == *"stopped 0 processes"* ]] || { echo "$output"; return 1; }
     [ ! -s "$HOME/kill.trace" ] || { cat "$HOME/kill.trace"; return 1; }
 }

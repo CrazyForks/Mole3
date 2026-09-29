@@ -409,19 +409,29 @@ EOF
     export INSTALLER_TRACE="$BATS_TEST_TMPDIR/archive-trace"
     # shellcheck disable=SC2016 # Expanded by the fake command at execution time.
     mole_test_fake_command fd 'printf "%s\0" "$HOME/Downloads/first.zip" "$HOME/Downloads/second.zip" "$HOME/Downloads/third.zip"'
-    # shellcheck disable=SC2016 # Expanded by the fake command at execution time.
-    mole_test_fake_command zipinfo 'printf "%s\n" "$2" >> "$INSTALLER_TRACE"; sleep 3; printf "Installer.app/\n"'
+    mole_test_fake_command zipinfo 'printf "Installer.app/\n"'
     # shellcheck disable=SC2016 # The child shell evaluates this script.
     run env MOLE_TIMEOUT_DISK_VERIFY_SEC=6 MOLE_TIMEOUT_SHORT_QUERY_SEC=7 /bin/bash --noprofile --norc -c '
         export MOLE_TEST_MODE=1
         source "$1"
+        # Isolate cumulative deadline arithmetic from shell startup and scheduling.
+        # Unsetting SECONDS removes its automatic clock before assigning test time.
+        unset SECONDS
+        SECONDS=0
+        run_with_timeout() {
+            local duration="$1"
+            shift
+            if [[ "$1" == zipinfo ]]; then
+                printf "%s %s\n" "$duration" "${3##*/}" >> "$INSTALLER_TRACE"
+                SECONDS=$((SECONDS + 3))
+            fi
+            "$@"
+        }
         rc=0
         scan_installers_in_path "$HOME/Downloads" > "$2" || rc=$?
         mole_rc_timeout "$rc" || exit 1
-        [[ ! -s "$2" && $SECONDS -lt 9 ]] || exit 1
-        grep -q first.zip "$INSTALLER_TRACE" || exit 1
-        grep -q second.zip "$INSTALLER_TRACE" || exit 1
-        ! grep -q third.zip "$INSTALLER_TRACE" || exit 1
+        [[ ! -s "$2" && $SECONDS -eq 6 ]] || exit 1
+        [[ "$(cat "$INSTALLER_TRACE")" == "$(printf "6 first.zip\n3 second.zip")" ]] || exit 1
     ' bash "$PROJECT_ROOT/bin/installer.sh" "$BATS_TEST_TMPDIR/scan-output"
     [ "$status" -eq 0 ]
 }

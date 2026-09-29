@@ -401,3 +401,39 @@ EOF
         return 1
     }
 }
+
+@test "test runner only passes parallel flags for multiple jobs" {
+    local options_script="$HOME/bats-options.sh"
+    # Exercise the actual option-selection block without starting another
+    # full test runner. Both anchors must exist exactly once.
+    python3 - "$PROJECT_ROOT/scripts/test.sh" "$options_script" <<'PYTHON'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+start = '\n    bats_help="$(bats --help 2>&1 || true)"'
+end = '\n    if [[ "${MOLE_TEST_TIMING:-0}" == "1" ]]; then'
+assert source.count(start) == source.count(end) == 1
+Path(sys.argv[2]).write_text(start + source.split(start, 1)[1].split(end, 1)[0])
+PYTHON
+    local jobs
+    for jobs in 1 2; do
+        run env MOLE_TEST_JOBS="$jobs" OPTIONS_SCRIPT="$options_script" \
+            /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+bats() { printf '%s\n' '--jobs --formatter'; }
+parallel() { :; }
+sysctl() { echo 4; }
+source "$OPTIONS_SCRIPT"
+printf 'COUNT=%s\n' "${#bats_opts[@]}"
+if [[ ${#bats_opts[@]} -gt 0 ]]; then
+    printf 'ARG=%s\n' "${bats_opts[@]}"
+fi
+SCRIPT
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        if [[ "$jobs" == 1 ]]; then
+            [[ "$output" == 'COUNT=0' ]] || { echo "$output"; return 1; }
+        else
+            [[ "$output" == $'COUNT=3\nARG=--jobs\nARG=2\nARG=--no-parallelize-within-files' ]] || { echo "$output"; return 1; }
+        fi
+    done
+}

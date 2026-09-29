@@ -249,7 +249,9 @@ if command -v bats > /dev/null 2>&1 && [ -d "tests" ]; then
         # --no-parallelize-within-files ensures each test file's tests run
         # sequentially (they share a $HOME set by setup_file and are not safe
         # to run concurrently). Parallelism is only across files.
-        bats_opts+=("--jobs" "$_jobs" "--no-parallelize-within-files")
+        if [[ $_jobs -gt 1 ]]; then
+            bats_opts+=("--jobs" "$_jobs" "--no-parallelize-within-files")
+        fi
         unset _ncpu _jobs
     fi
     if [[ "${MOLE_TEST_TIMING:-0}" == "1" ]]; then
