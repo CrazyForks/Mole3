@@ -437,7 +437,7 @@ stop_inline_spinner() {
         INLINE_SPINNER_CONTROL_DIR=""
 
         # Clear the line - use \033[2K to clear entire line, not just to end
-        [[ -t 1 ]] && printf "\r\033[2K" >&2 || true
+        [[ -t 2 ]] && printf "\r\033[2K" >&2 || true
     fi
 }
 

@@ -1009,3 +1009,42 @@ SCRIPT
     [ "$status" -eq 0 ]
     [[ "$output" == *"DRY_RUN=false"* ]]
 }
+
+@test "Trash refusal stops the spinner with stdout redirected and clears only a terminal stderr" {
+    if ! /usr/bin/script -q /dev/null /usr/bin/true < /dev/null > /dev/null 2>&1; then
+        skip "script cannot allocate a TTY in this environment"
+    fi
+    local raw="$HOME/trash-spinner.raw"
+    local fixture="$HOME/trash-spinner.sh"
+    cat > "$fixture" <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+export MOLE_DELETE_MODE=trash
+mkdir -p "$HOME/spinner-victim"
+_mole_move_to_trash() { return "$MOLE_ERR_PRIVACY_DENIED"; }
+start_inline_spinner "Cleaning fixture..."
+/bin/sleep 0.15
+rc=0
+mole_delete "$HOME/spinner-victim" false > /dev/null || rc=$?
+after="$INLINE_SPINNER_PID"
+printf 'AFTER:%s:%s\n' "$rc" "$after" >&2
+stop_inline_spinner
+start_inline_spinner "Second fixture..."
+/bin/sleep 0.15
+stop_inline_spinner 2> "$HOME/non-tty-stop"
+/bin/sleep 0.15
+[[ $rc -eq $MOLE_ERR_PRIVACY_DENIED && -z "$after" && -d "$HOME/spinner-victim" ]] || exit 1
+[[ ! -s "$HOME/non-tty-stop" ]] || exit 1
+SCRIPT
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" TERM=xterm-256color \
+        /usr/bin/script -q "$raw" /bin/bash --noprofile --norc "$fixture" < /dev/null
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    python3 - "$raw" <<'PY'
+import pathlib, sys
+raw = pathlib.Path(sys.argv[1]).read_bytes().replace(b'\r\n', b'\n')
+assert b'Cleaning fixture...' in raw, raw
+assert b'\r\x1b[2KError:' in raw, raw
+assert b'AFTER:14:\n' in raw, raw
+assert b'Cleaning fixture...' not in raw.split(b'Error:', 1)[1], raw
+PY
+}

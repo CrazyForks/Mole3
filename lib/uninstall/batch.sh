@@ -1692,6 +1692,17 @@ _batch_scan_app_details() {
                 fi
             fi
         fi
+        # Preview and execution share the uninstall protection policy. Do not
+        # probe live handles here: the sudo session is not established yet.
+        local eligible_related_files="" related_path=""
+        while IFS= read -r related_path; do
+            [[ -n "$related_path" ]] || continue
+            if MOLE_UNINSTALL_MODE=1 should_protect_path "$related_path"; then
+                continue
+            fi
+            eligible_related_files=$(append_line "$eligible_related_files" "$related_path")
+        done <<< "$related_files"
+        related_files="$eligible_related_files"
         local related_size_kb="0"
         local related_size_rc=0
         related_size_kb=$(calculate_total_size "$related_files") || related_size_rc=$?
@@ -1946,6 +1957,9 @@ _batch_execute_removals() {
         local login_item_helpers=$(decode_bundle_id_list "$encoded_login_item_helpers" "$app_name")
         local reason=""
         local suggestion=""
+        # Dynamic scope keeps actual refusal evidence inside this app's attempt.
+        local _MOLE_UNINSTALL_REFUSALS_ACTIVE=1
+        local -a _MOLE_UNINSTALL_REFUSAL_PATHS=() _MOLE_UNINSTALL_REFUSAL_REASONS=()
         _batch_exec_app_name="$app_name"
         _batch_exec_stage="app verification"
 
@@ -2403,7 +2417,19 @@ _batch_execute_removals() {
             # Warn about files that could not be removed and exclude them from freed total.
             if [[ ${#leftover_paths[@]} -gt 0 ]]; then
                 for _lpath in "${leftover_paths[@]}"; do
-                    echo -e "  ${YELLOW}${ICON_WARNING}${NC} Could not remove: ${_lpath/#$HOME/$tilde_display}"
+                    local kept_reason="" refusal_index
+                    for ((refusal_index = 0; refusal_index < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; refusal_index++)); do
+                        if [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[$refusal_index]}" == "$_lpath" ]]; then
+                            kept_reason="${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}"
+                        fi
+                    done
+                    local kept_label="Could not remove"
+                    case "$kept_reason" in
+                        protected) kept_label="Kept (protected by Mole)" ;;
+                        live-cache) kept_label="Kept (app may be active)" ;;
+                        access-denied) kept_label="macOS denied access" ;;
+                    esac
+                    echo -e "  ${YELLOW}${ICON_WARNING}${NC} $kept_label: ${_lpath/#$HOME/$tilde_display}"
                 done
                 total_kb=$((total_kb - leftover_kb))
                 ((total_kb < 0)) && total_kb=0

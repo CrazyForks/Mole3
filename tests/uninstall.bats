@@ -4719,3 +4719,99 @@ INNER
     [[ "$output" != *"UNEXPECTED_TEARDOWN"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_DELETE"* ]]
 }
+
+@test "uninstall preview excludes protected leftovers before sizing and execution" {
+    mkdir -p "$HOME/Applications/ChatGPT.app" "$HOME/Library/Logs/com.openai.codex" "$HOME/eligible-leftover"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+brew() { :; }
+request_sudo_access() { :; }
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+enter_alt_screen() { :; }
+leave_alt_screen() { :; }
+hide_cursor() { :; }
+show_cursor() { :; }
+remove_apps_from_dock() { :; }
+force_kill_app() { :; }
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+bootout_login_item_helpers() { :; }
+pgrep() { return 1; }
+pkill() { :; }
+get_file_owner() { whoami; }
+get_path_size_kb() { echo 10; }
+calculate_total_size() { printf '%s\n' "$1" > "$HOME/sized-plan"; echo 17; }
+find_app_files() { printf '%s\n' "$HOME/Library/Logs/com.openai.codex" "$HOME/eligible-leftover"; }
+find_app_system_files() { :; }
+get_diagnostic_report_paths_for_app() {
+    [[ "$3" == "$HOME/Library/Logs/DiagnosticReports" ]] || return 0
+    printf '%s\n' "$HOME/Library/Logs/com.openai.codex"
+}
+_mole_complete_lsof_mode() { echo unexpected-lsof >> "$HOME/forbidden"; return 2; }
+validate_path_for_deletion() { echo unexpected-validation >> "$HOME/forbidden"; return 2; }
+remove_file_list() {
+    [[ -n "$1" ]] || return 0
+    printf '%s\n' "$1" >> "$HOME/executed-plan"
+    [[ "$1" == "$HOME/eligible-leftover" ]] || return 1
+    rmdir "$1"
+}
+mole_delete() { rmdir "$1"; }
+selected_apps=("0|$HOME/Applications/ChatGPT.app|ChatGPT|unknown|0|Never")
+files_cleaned=0
+total_items=0
+total_size_cleaned=0
+printf '\n' | batch_uninstall_applications > "$HOME/output.log" 2>&1
+[[ "$(cat "$HOME/sized-plan")" == "$HOME/eligible-leftover" ]] || exit 1
+[[ "$(cat "$HOME/executed-plan")" == "$HOME/eligible-leftover" ]] || exit 1
+[[ -d "$HOME/Library/Logs/com.openai.codex" ]] || exit 1
+[[ ! -e "$HOME/Applications/ChatGPT.app" && ! -e "$HOME/eligible-leftover" ]] || exit 1
+[[ ! -e "$HOME/forbidden" ]] || { cat "$HOME/forbidden"; exit 1; }
+! grep -q 'Logs/com.openai.codex' "$HOME/output.log" || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; cat "$HOME/output.log"; return 1; }
+}
+
+@test "batch uninstall explains actual refusal and clears it for the next app" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=trash
+export MOLE_TEST_TRASH_DIR="$HOME/Trash"
+mkdir -p "$HOME/Applications/First.app" "$HOME/Applications/Second.app" "$HOME/Library/Caches/com.example.Shared"
+shared="$HOME/Library/Caches/com.example.Shared"
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+_mole_should_refuse_live_user_cache_path() { [[ "$1" == "$shared" && "$app_name" == First ]]; }
+_mole_is_critical_deletion_path() { [[ "$1" == "$shared" && "$app_name" == Second ]]; }
+first="$HOME/Applications/First.app"
+second="$HOME/Applications/Second.app"
+encoded=$(printf '%s\n' "$shared" | base64 | tr -d '\n')
+app_details=(
+    "First|$first|unknown|0|$encoded||false|false|false|||||guard_login|$(_batch_selected_app_identity "$first")|unknown||missing"
+    "Second|$second|unknown|0|$encoded||false|false|false|||||guard_login|$(_batch_selected_app_identity "$second")|unknown||missing"
+)
+success_count=0
+failed_count=0
+brew_apps_removed=0
+failed_items=()
+success_items=()
+success_dock_targets=()
+system_extension_warning_apps=()
+review_only_system_leftovers=()
+review_only_system_leftover_keys=()
+running_at_uninstall_apps=()
+total_size_freed=0
+files_cleaned=0
+total_items=0
+_batch_execute_removals
+[[ $success_count -eq 2 && $failed_count -eq 0 ]] || exit 1
+[[ ! -e "$first" && ! -e "$second" && -d "$shared" ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Kept (app may be active): ~/Library/Caches/com.example.Shared"* ]] || return 1
+    [[ "$output" == *"Could not remove: ~/Library/Caches/com.example.Shared"* ]] || return 1
+}

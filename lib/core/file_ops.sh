@@ -1116,6 +1116,14 @@ _mole_is_user_trash_top_level_item() {
     [[ "${policy_path%/*}" == "$trash_dir" ]]
 }
 
+# The batch uninstall caller owns these arrays. Record evidence at the gate,
+# not by probing again after removal or reading a previous operation's log.
+_mole_record_uninstall_refusal() {
+    [[ "${_MOLE_UNINSTALL_REFUSALS_ACTIVE:-0}" == "1" ]] || return 0
+    _MOLE_UNINSTALL_REFUSAL_PATHS+=("$1")
+    _MOLE_UNINSTALL_REFUSAL_REASONS+=("$2")
+}
+
 # Validate path for deletion (absolute, no traversal, not system dir)
 validate_path_for_deletion() {
     local path="$1"
@@ -1215,6 +1223,7 @@ validate_path_for_deletion() {
                 return 1
             fi
             if declare -f should_protect_path > /dev/null 2>&1 && should_protect_path "$resolved_path"; then
+                _mole_record_uninstall_refusal "$path" protected
                 if [[ "${MO_DEBUG:-0}" == "1" ]]; then
                     log_warning "Path validation: resolves into a protected path: $path -> $resolved_path"
                 fi
@@ -1243,6 +1252,7 @@ validate_path_for_deletion() {
     local live_cache_guard_rc=0
     _mole_should_refuse_live_user_cache_path "$policy_path" || live_cache_guard_rc=$?
     if [[ $live_cache_guard_rc -eq 0 ]]; then
+        _mole_record_uninstall_refusal "$path" live-cache
         debug_log "Path validation: live user cache kept: $policy_path"
         return 1
     fi
@@ -1320,6 +1330,7 @@ validate_path_for_deletion() {
         if _mole_is_user_trash_top_level_item "$policy_path"; then
             :
         elif should_protect_path "$policy_path"; then
+            _mole_record_uninstall_refusal "$path" protected
             if [[ "${MO_DEBUG:-0}" == "1" ]]; then
                 log_warning "Path validation: protected path skipped: $policy_path"
             fi
@@ -2484,11 +2495,13 @@ mole_delete() {
             return 0
         fi
         if [[ $trash_rc -eq $MOLE_ERR_PRIVACY_DENIED ]]; then
+            _mole_record_uninstall_refusal "$path" access-denied
             _mole_delete_log "trash" "$size_kb" "privacy-denied" "$path"
             log_operation "${MOLE_CURRENT_COMMAND:-uninstall}" "SKIPPED" "$path" "privacy permission denied"
             if [[ -z "${_MOLE_PRIVACY_DENIED_WARNED:-}" ]]; then
                 _MOLE_PRIVACY_DENIED_WARNED=1
                 export _MOLE_PRIVACY_DENIED_WARNED
+                declare -F stop_inline_spinner > /dev/null && stop_inline_spinner
                 printf 'Error: macOS could not authorize Trash access. Review App Management, App Data, or Full Disk Access for your terminal in System Settings, then retry.\n' >&2
             fi
             debug_log "macOS privacy permission denied while moving to Trash: $path"
@@ -2516,6 +2529,7 @@ mole_delete() {
         if [[ -z "${_MOLE_TRASH_UNAVAILABLE_WARNED:-}" ]]; then
             _MOLE_TRASH_UNAVAILABLE_WARNED=1
             export _MOLE_TRASH_UNAVAILABLE_WARNED
+            declare -F stop_inline_spinner > /dev/null && stop_inline_spinner
             printf 'Error: Trash unavailable; refusing permanent delete. Use --permanent to delete immediately.\n' >&2
         fi
         debug_log "Trash move failed, refusing permanent delete: $path"
@@ -2630,6 +2644,7 @@ _mole_trash_target_still_safe() {
     local live_cache_guard_rc=0
     _mole_should_refuse_live_user_cache_path "$path" || live_cache_guard_rc=$?
     if [[ $live_cache_guard_rc -eq 0 ]]; then
+        _mole_record_uninstall_refusal "$path" live-cache
         debug_log "Skipped Trash move after live user cache appeared: $path"
         log_operation "${MOLE_CURRENT_COMMAND:-uninstall}" "SKIPPED" "$path" "live user cache"
         return 1
@@ -3080,6 +3095,7 @@ _mole_move_path_to_user_trash() {
         case "$move_output" in
             *"Operation not permitted"* | *"operation not permitted"* | \
                 *"Permission denied"* | *"permission denied"*)
+                _mole_record_uninstall_refusal "$path" access-denied
                 return "$MOLE_ERR_PRIVACY_DENIED"
                 ;;
         esac

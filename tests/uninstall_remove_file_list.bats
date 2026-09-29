@@ -685,3 +685,84 @@ EOF
     [[ "$output" != *"trash CLI must not be called"* ]] || return 1
     [[ "$output" != *"Finder must not be called"* ]]
 }
+
+@test "uninstall refusal evidence survives protection and live-cache gates" {
+    run /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_UNINSTALL_MODE=1
+protected="$HOME/Library/Logs/com.openai.codex"
+active="$HOME/Library/Caches/com.example.Active"
+ordinary="$HOME/ordinary"
+mkdir -p "$protected" "$active" "$ordinary"
+_mole_should_refuse_live_user_cache_path() { [[ "$1" == "$active" ]]; }
+collect() {
+    local _MOLE_UNINSTALL_REFUSALS_ACTIVE=1
+    local -a _MOLE_UNINSTALL_REFUSAL_PATHS=() _MOLE_UNINSTALL_REFUSAL_REASONS=()
+    remove_file_list "$(printf '%s\n' "$protected" "$active" "$ordinary")" false
+    [[ ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]} -eq 2 ]] || exit 1
+    [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[0]}" == "$protected" && "${_MOLE_UNINSTALL_REFUSAL_REASONS[0]}" == protected ]] || exit 1
+    [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[1]}" == "$active" && "${_MOLE_UNINSTALL_REFUSAL_REASONS[1]}" == live-cache ]] || exit 1
+}
+collect
+[[ -d "$protected" && -d "$active" && ! -e "$ordinary" ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "uninstall records a live cache appearing at the final Trash guard" {
+    run /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_UNINSTALL_MODE=1
+active="$HOME/Library/Caches/com.example.Active"
+mkdir -p "$active"
+probes=0
+_mole_should_refuse_live_user_cache_path() {
+    probes=$((probes + 1))
+    [[ $probes -gt 1 ]]
+}
+collect() {
+    local _MOLE_UNINSTALL_REFUSALS_ACTIVE=1
+    local -a _MOLE_UNINSTALL_REFUSAL_PATHS=() _MOLE_UNINSTALL_REFUSAL_REASONS=()
+    remove_file_list "$active" false
+    [[ $probes -eq 2 ]] || exit 1
+    [[ ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]} -eq 1 ]] || exit 1
+    [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[0]}" == "$active" && "${_MOLE_UNINSTALL_REFUSAL_REASONS[0]}" == live-cache ]] || exit 1
+}
+collect
+[[ -d "$active" ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "uninstall records access denial from the actual direct Trash mover" {
+    run /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+unset MOLE_TEST_TRASH_DIR MOLE_TEST_NO_AUTH
+export MOLE_UNINSTALL_MODE=1
+victim="$HOME/Library/Group Containers/com.example.Privacy"
+mkdir -p "$victim"
+_mole_should_refuse_live_user_cache_path() { return 1; }
+mv() { printf 'mv: Permission denied\n' >&2; return 1; }
+osascript() { echo unexpected-Finder >> "$HOME/unexpected"; return 99; }
+safe_remove() { echo unexpected-delete >> "$HOME/unexpected"; return 99; }
+collect() {
+    local _MOLE_UNINSTALL_REFUSALS_ACTIVE=1
+    local -a _MOLE_UNINSTALL_REFUSAL_PATHS=() _MOLE_UNINSTALL_REFUSAL_REASONS=()
+    remove_file_list "$victim" false
+    [[ ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]} -gt 0 ]] || exit 1
+    local i
+    for ((i = 0; i < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; i++)); do
+        [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[$i]}" == "$victim" && "${_MOLE_UNINSTALL_REFUSAL_REASONS[$i]}" == access-denied ]] || exit 1
+    done
+}
+collect
+[[ -d "$victim" && ! -e "$HOME/unexpected" ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
