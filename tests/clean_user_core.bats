@@ -1442,12 +1442,16 @@ safe_clean() {
 files_cleaned=0
 total_size_cleaned=0
 total_items=0
+# clean_utm_caches only reaches its sinks when a UTM target exists.
+mkdir -p "$HOME/Library/Containers/com.utmapp.UTM/Data/Library/Caches"
+echo x > "$HOME/Library/Containers/com.utmapp.UTM/Data/Library/Caches/blob"
 
 clean_app_caches
 clean_office_applications
 clean_utm_caches
 EOF
 
+    rm -rf "$HOME/Library/Containers/com.utmapp.UTM"
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"SCOPED=Wallpaper agent cache"* ]] || return 1
     [[ "$output" == *"SCOPED=Microsoft Word container cache"* ]] || return 1
@@ -2241,6 +2245,92 @@ EOF
     [[ "$output" != *"QQ Browser GPU cache"* ]] || return 1
 
     rm -rf "$HOME/Library"
+}
+
+@test "user cleanup process guards keep caches when pgrep cannot tell" {
+    # These guards used `pgrep -x App && running=true` or `if pgrep; then
+    # skip`, so a pgrep error (exit 2/3, or no pgrep) read as "not running"
+    # and the cleanup ran against a possibly live app. Each case runs with
+    # pgrep reporting a clean miss first, proving the fixture reaches the
+    # sink, then with pgrep failing, where the sink must not run.
+    local row case_name sink display_name pgrep_rc case_home failures=""
+    for row in \
+        "mail|Mail Downloads/old.bin|Mail Downloads" \
+        "arc|Arc code cache|Arc profile caches" \
+        "brave|Brave code cache|Brave profile caches" \
+        "vivaldi|Vivaldi code cache|Vivaldi profile caches" \
+        "qqbrowser|QQ Browser code cache|QQ Browser profile caches" \
+        "utm|UTM app cache|UTM caches"; do
+        IFS='|' read -r case_name sink display_name <<< "$row"
+        for pgrep_rc in 1 2; do
+            case_home="$HOME/pgrep-unknown-$case_name-$pgrep_rc"
+            mkdir -p "$case_home"
+            run env HOME="$case_home" PROJECT_ROOT="$PROJECT_ROOT" \
+                CASE="$case_name" PGREP_RC="$pgrep_rc" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+pgrep() { return "$PGREP_RC"; }
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+clean_service_worker_cache() { :; }
+get_path_size_kb() { echo 6000; }
+safe_clean() { local n=$#; echo "SINK:${!n}"; }
+safe_remove() { echo "SINK:$1"; }
+support="$HOME/Library/Application Support"
+case "$CASE" in
+    mail)
+        mkdir -p "$HOME/Library/Mail Downloads"
+        echo x > "$HOME/Library/Mail Downloads/old.bin"
+        touch -t 202401010000 "$HOME/Library/Mail Downloads/old.bin"
+        _clean_mail_downloads
+        ;;
+    arc)
+        mkdir -p "$support/Arc/User Data/Default/Code Cache"
+        clean_browsers
+        ;;
+    brave)
+        mkdir -p "$support/BraveSoftware/Brave-Browser/Default/Code Cache"
+        clean_browsers
+        ;;
+    vivaldi)
+        mkdir -p "$support/Vivaldi/Default/Code Cache"
+        clean_browsers
+        ;;
+    qqbrowser)
+        mkdir -p "$support/QQBrowser3/Default/Code Cache"
+        clean_browsers
+        ;;
+    utm)
+        mkdir -p "$HOME/Library/Caches/com.utmapp.UTM"
+        echo x > "$HOME/Library/Caches/com.utmapp.UTM/blob"
+        clean_utm_caches
+        ;;
+esac
+EOF
+            rm -rf "$case_home"
+            if [[ "$status" -ne 0 ]]; then
+                failures+="$case_name pgrep=$pgrep_rc exited $status: $output"$'\n'
+            elif [[ $pgrep_rc -eq 1 ]]; then
+                if [[ "$output" != *"SINK:"*"$sink"* ]]; then
+                    failures+="$case_name positive control never reached the sink: $output"$'\n'
+                fi
+            else
+                if [[ "$output" == *"SINK:"*"$sink"* ]]; then
+                    failures+="$case_name cleaned while pgrep could not tell"$'\n'
+                fi
+                if [[ "$output" != *"$display_name · stopped (process state unknown)"* ]]; then
+                    failures+="$case_name did not report the unknown process state"$'\n'
+                fi
+            fi
+        done
+    done
+    # Every row runs before failing, so one red run names every broken guard.
+    [ -z "$failures" ] || {
+        printf '%s' "$failures"
+        return 1
+    }
 }
 
 @test "clean_application_support_logs skips when no access" {
