@@ -1992,7 +1992,7 @@ EOF
 }
 
 @test "clean_dev_mise respects MISE_CACHE_DIR and only targets cache" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MISE_CACHE_DIR="/tmp/mise-cache" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PATH="/usr/bin:/bin" MISE_CACHE_DIR="/tmp/mise-cache" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/dev.sh"
@@ -3591,4 +3591,200 @@ EOF
         return 1
     }
     [[ "$output" == *"PROTECTION_SHAPE_OK"* ]]
+}
+
+@test "clean_tool_cache keeps ordinary owner failures quiet without claiming success" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+activities=0
+note_activity() { activities=$((activities + 1)); }
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+clean_tool_cache "ok cache" "" true
+clean_tool_cache "failing cache" "" false
+owner_timeout() { return 124; }
+clean_tool_cache "slow cache" "" owner_timeout
+printf 'ACTIVITIES=%s\n' "$activities"
+printf 'CANCEL=%s\n' "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"ok cache"* ]] || return 1
+    [[ "$output" != *"failing cache"* ]] || return 1
+    [[ "$output" != *"slow cache"* ]] || return 1
+    [[ "$output" == *"ACTIVITIES=1"* ]] || return 1
+    [[ "$output" == *"CANCEL=0"* ]]
+}
+
+@test "an interrupted owner command stops the next pnpm store before its probe or prune" {
+    # Ctrl-C while `pnpm store prune` holds the terminal reaches only the
+    # child. Whichever store runs first is interrupted; the other one must
+    # not even be probed.
+    local test_home="$HOME/pnpm-cancel-home"
+    mkdir -p "$test_home/bin" "$test_home/.local/share/mise/installs/pnpm/10.34.5"
+    local bin
+    for bin in "$test_home/bin/pnpm" "$test_home/.local/share/mise/installs/pnpm/10.34.5/pnpm"; do
+        cat > "$bin" <<'SCRIPT'
+#!/bin/bash
+marker="$HOME/first-prune-interrupted"
+case "${1:-}" in
+    --version)
+        [[ -e "$marker" ]] && echo "SECOND-PROBE-RAN" >> "$HOME/trace"
+        echo "10.34.5"
+        exit 0
+        ;;
+    store)
+        if [[ "${2:-}" == "path" ]]; then
+            echo "$HOME/store-$(basename "$(dirname "$0")")"
+            exit 0
+        fi
+        if [[ "${2:-}" == "prune" ]]; then
+            if [[ -e "$marker" ]]; then
+                echo "SECOND-OWNER-RAN" >> "$HOME/trace"
+                exit 0
+            fi
+            touch "$marker"
+            exit 130
+        fi
+        ;;
+esac
+exit 2
+SCRIPT
+        chmod +x "$bin"
+    done
+
+    run env HOME="$test_home" PATH="$test_home/bin:/usr/bin:/bin" PROJECT_ROOT="$PROJECT_ROOT" \
+        MOLE_CURRENT_COMMAND=clean /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+run_with_timeout() { shift; "$@"; }
+pgrep() { return 1; }
+is_path_whitelisted() { return 1; }
+is_safe_pnpm_store_path() { [[ -n "$1" ]]; }
+export -f pgrep
+DRY_RUN=false
+rc=0
+clean_pnpm_stores || rc=$?
+printf 'RC=%s CANCEL=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-none}"
+EOF
+
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [ -e "$test_home/first-prune-interrupted" ] || return 1
+    [[ "$output" == *"RC=130 CANCEL=130"* ]] || return 1
+    [ ! -e "$test_home/trace" ]
+}
+
+
+@test "pip and mise owner interruptions stop later developer cleanup" {
+    local tool code test_home
+    for tool in pip3 mise; do
+        for code in 130 143; do
+            test_home="$HOME/owner-$tool-$code"
+            mkdir -p "$test_home/bin"
+            cat > "$test_home/bin/$tool" <<'SCRIPT'
+#!/bin/bash
+case "$*" in
+    --version) echo test-version ;;
+    'cache dir' | 'cache path') echo "$HOME/cache" ;;
+    'cache purge' | 'cache clear') echo owner >> "$HOME/trace"; exit "$OWNER_RC" ;;
+    *) exit 2 ;;
+esac
+SCRIPT
+            chmod +x "$test_home/bin/$tool"
+            run env HOME="$test_home" PATH="$test_home/bin:/usr/bin:/bin"                 PROJECT_ROOT="$PROJECT_ROOT" TOOL="$tool" OWNER_RC="$code"                 MOLE_CURRENT_COMMAND=clean /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+run_with_timeout() { shift; "$@"; }
+is_path_whitelisted() { return 1; }
+note_activity() { :; }
+stop_section_spinner() { :; }
+safe_clean() { echo later-sink >> "$HOME/trace"; }
+clean_uv_cache() { :; }
+clean_pyinstaller_bincache() { :; }
+clean_conda_metadata_caches() { :; }
+clean_dev_npm() { :; }
+if [[ "$TOOL" == pip3 ]]; then
+    clean_dev_go() { echo later-section >> "$HOME/trace"; return 143; }
+else
+    clean_dev_python() { :; }
+    clean_dev_go() { :; }
+fi
+clean_dev_rust() { echo later-section >> "$HOME/trace"; return 143; }
+rc=0
+clean_developer_tools || rc=$?
+printf 'RC=%s CANCEL=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+            [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+            [[ "$output" == *"RC=$code CANCEL=$code"* ]] || { echo "$tool: $output"; return 1; }
+            [[ "$(cat "$test_home/trace")" == owner ]] || { cat "$test_home/trace"; return 1; }
+        done
+    done
+}
+
+@test "clean_tool_cache honors pending cancellation before real and dry-run work" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+owner() { echo UNEXPECTED_OWNER; }
+is_path_whitelisted() { echo UNEXPECTED_WHITELIST; return 1; }
+for pending in 124 130; do
+    for DRY_RUN in false true; do
+        MOLE_CLEAN_CANCEL_STATUS="$pending"
+        rc=0
+        clean_tool_cache "pending cache" "$HOME/cache" owner || rc=$?
+        [[ "$rc" == "$pending" ]] || exit 1
+    done
+done
+echo PENDING_KEPT
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == PENDING_KEPT ]] || return 1
+}
+
+@test "mise owner failures never fall back to direct removal" {
+    local code test_home
+    for code in 0 1 124; do
+        test_home="$HOME/mise-owner-$code"
+        mkdir -p "$test_home/bin" "$test_home/cache"
+        printf keep > "$test_home/cache/blob"
+        cat > "$test_home/bin/mise" <<'SCRIPT'
+#!/bin/bash
+case "$*" in
+    'cache path') echo "$HOME/cache" ;;
+    'cache clear') echo owner > "$HOME/trace"; exit "$OWNER_RC" ;;
+    *) exit 2 ;;
+esac
+SCRIPT
+        chmod +x "$test_home/bin/mise"
+        run env HOME="$test_home" PATH="$test_home/bin:/usr/bin:/bin"             PROJECT_ROOT="$PROJECT_ROOT" OWNER_RC="$code" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+run_with_timeout() { shift; "$@"; }
+is_path_whitelisted() { return 1; }
+note_activity() { :; }
+safe_clean() { echo direct-removal >> "$HOME/trace"; }
+clean_dev_mise
+printf 'CANCEL=%s\n' "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$(cat "$test_home/trace")" == owner ]] || { cat "$test_home/trace"; return 1; }
+        [[ "$output" == *"CANCEL=0"* ]] || return 1
+    done
 }
