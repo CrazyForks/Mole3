@@ -1836,6 +1836,102 @@ EOF
     [ "$status" -eq 0 ]
 }
 
+
+# Exercise the production removal/accounting phase with fixture-only sinks.
+run_leftover_accounting_case() {
+    local du_status="$1" expected_status="$2" expected_freed="$3" du_shape="${4:-total}"
+    # shellcheck disable=SC2016 # Expanded by the PATH stub when du runs.
+    mole_test_fake_command du '
+printf "%s\n" "$*" >> "$HOME/du.log"
+case "$DU_SHAPE" in
+    total) printf "40\t%s\n60\t%s\n100\ttotal\n" "$HOME/retained-one" "$HOME/retained-two" ;;
+    no-total) printf "40\t%s\n" "$HOME/retained-one" ;;
+    invalid-total) printf "unknown\ttotal\n" ;;
+esac
+exit "$DU_STATUS"'
+    run env HOME="$HOME/leftover-accounting-$du_status-$du_shape" PROJECT_ROOT="$PROJECT_ROOT" \
+        DU_STATUS="$du_status" DU_SHAPE="$du_shape" EXPECTED_STATUS="$expected_status" EXPECTED_FREED="$expected_freed" \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mkdir -p "$HOME/Applications/First.app" "$HOME/Applications/Second.app" \
+    "$HOME/retained-one" "$HOME/retained-two"
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+remove_file_list() { :; }
+mole_delete() {
+    printf '%s\n' "$1" >> "$HOME/removed.log"
+    rmdir "$1"
+}
+
+first="$HOME/Applications/First.app"
+second="$HOME/Applications/Second.app"
+encoded=$(printf '%s\n' "$HOME/retained-one" "$HOME/retained-two" | base64 | tr -d '\n')
+app_details=(
+    "First|$first|unknown|150|$encoded||false|false|false|||||guard_login|$(_batch_selected_app_identity "$first")|unknown||missing"
+    "Second|$second|unknown|10|||false|false|false|||||guard_login|$(_batch_selected_app_identity "$second")|unknown||missing"
+)
+success_count=0
+failed_count=0
+brew_apps_removed=0
+failed_items=()
+success_items=()
+success_dock_targets=()
+system_extension_warning_apps=()
+review_only_system_leftovers=()
+review_only_system_leftover_keys=()
+running_at_uninstall_apps=()
+total_size_freed=0
+files_cleaned=0
+total_items=0
+rc=0
+_batch_execute_removals || rc=$?
+printf 'RC=%s FREED=%s\n' "$rc" "$total_size_freed"
+[[ $rc -eq $EXPECTED_STATUS ]] || exit 1
+[[ $total_size_freed -eq $EXPECTED_FREED ]] || exit 1
+[[ -d "$HOME/retained-one" && -d "$HOME/retained-two" ]] || exit 1
+grep -Fxq -- "-skcP $HOME/retained-one $HOME/retained-two" "$HOME/du.log" || exit 1
+grep -Fxq "$first" "$HOME/removed.log" || exit 1
+if [[ $EXPECTED_STATUS -eq 0 ]]; then
+    [[ $success_count -eq 2 && $failed_count -eq 0 ]] || exit 1
+    grep -Fxq "$second" "$HOME/removed.log" || exit 1
+else
+    [[ $success_count -eq 0 && -d "$second" ]] || exit 1
+    ! grep -Fxq "$second" "$HOME/removed.log" || exit 1
+fi
+EOF
+}
+
+@test "batch leftover accounting subtracts totals even when du reports partial failure" {
+    run_leftover_accounting_case 0 0 60
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    run_leftover_accounting_case 1 0 60
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "batch leftover accounting requires an actual total row" {
+    run_leftover_accounting_case 1 0 160 no-total
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "batch leftover accounting rejects a nonnumeric total" {
+    run_leftover_accounting_case 1 0 160 invalid-total
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "batch leftover accounting rejects an unexpected du error" {
+    run_leftover_accounting_case 2 0 160 total
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "batch leftover accounting preserves timeout and signal cancellation" {
+    run_leftover_accounting_case 124 124 0
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    run_leftover_accounting_case 130 130 0
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "batch_uninstall_applications dry-run does not report expected leftovers as failures" {
     create_app_artifacts
 

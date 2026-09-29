@@ -2295,13 +2295,17 @@ _batch_execute_removals() {
                 done <<< "$related_files"
 
                 if [[ ${#leftover_paths[@]} -gt 0 ]]; then
-                    local _du_total=""
+                    local _du_output="" _du_total=""
                     local _du_rc=0
-                    _du_total=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
-                        du -skcP "${leftover_paths[@]}" 2> /dev/null | awk 'END {print $1}') || _du_rc=$?
+                    _du_output=$(LC_ALL=C run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" \
+                        du -skcP "${leftover_paths[@]}" 2> /dev/null) || _du_rc=$?
                     mole_rc_timeout_or_signal "$_du_rc" && return "$_du_rc"
-                    if [[ $_du_rc -eq 0 && "$_du_total" =~ ^[0-9]+$ ]]; then
-                        leftover_kb=$_du_total
+                    # An unreadable survivor can leave a valid partial total.
+                    # Only accept du's final total, never a truncated path row.
+                    if [[ $_du_rc -eq 0 || $_du_rc -eq 1 ]]; then
+                        _du_total=$(printf '%s\n' "$_du_output" | awk -F '\t' \
+                            'END {if (NF == 2 && $1 ~ /^[0-9]+$/ && $2 == "total") print $1}')
+                        [[ "$_du_total" =~ ^[0-9]+$ ]] && leftover_kb=$_du_total
                     fi
                 fi
             fi
