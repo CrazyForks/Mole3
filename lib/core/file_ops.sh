@@ -2349,7 +2349,15 @@ mole_delete() {
     # up front to avoid a no-op Trash move followed by a validation failure.
     # The rejection itself is recorded in the forensic log so audit trails
     # can distinguish refused-by-policy from never-attempted.
-    if ! validate_path_for_deletion "$path"; then
+    local validation_rc=0
+    validate_path_for_deletion "$path" || validation_rc=$?
+    if mole_rc_timeout_or_signal "$validation_rc"; then
+        local validation_status="interrupted"
+        mole_rc_timeout "$validation_rc" && validation_status="timed-out"
+        _mole_delete_log "$mode" "unknown" "$validation_status" "$path"
+        return "$validation_rc"
+    fi
+    if [[ $validation_rc -ne 0 ]]; then
         _mole_delete_log "$mode" "0" "rejected" "$path"
         return 1
     fi
@@ -3224,9 +3232,9 @@ _mole_move_to_trash_batch() {
                 "$p" \
                 "${expected_parents[$index]}" \
                 "${expected_parent_ids[$index]}" \
-                "${expected_target_ids[$index]}" || return 1
+                "${expected_target_ids[$index]}" || return $?
             dest="$MOLE_TEST_TRASH_DIR/$(basename "$p").$$.${ts}.$RANDOM"
-            /bin/mv "$p" "$dest" 2> /dev/null || return 1
+            /bin/mv "$p" "$dest" 2> /dev/null || return $?
             _MOLE_TRASH_BATCH_MOVED_PATHS+=("$p")
         done
         return 0
@@ -3254,18 +3262,21 @@ _mole_move_to_trash_batch() {
         _MOLE_TRASH_MOVE_EXPECTED_PARENT="${expected_parents[$index]}"
         _MOLE_TRASH_MOVE_EXPECTED_PARENT_ID="${expected_parent_ids[$index]}"
         _MOLE_TRASH_MOVE_EXPECTED_TARGET_ID="${expected_target_ids[$index]}"
+        local move_rc=0
         if _mole_move_path_to_user_trash "$p" false \
             "${expected_parents[$index]}" \
             "${expected_parent_ids[$index]}" \
             "${expected_target_ids[$index]}"; then
             _MOLE_TRASH_BATCH_MOVED_PATHS+=("$p")
         else
+            move_rc=$?
             failed=1
         fi
         _MOLE_TRASH_MOVE_EXPECTED_PATH=""
         _MOLE_TRASH_MOVE_EXPECTED_PARENT=""
         _MOLE_TRASH_MOVE_EXPECTED_PARENT_ID=""
         _MOLE_TRASH_MOVE_EXPECTED_TARGET_ID=""
+        mole_rc_timeout_or_signal "$move_rc" && return "$move_rc"
     done
     [[ $failed -eq 0 ]]
 }

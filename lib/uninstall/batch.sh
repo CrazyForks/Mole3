@@ -596,9 +596,10 @@ remove_file_list() {
     while IFS= read -r file; do
         [[ -n "$file" && -e "$file" ]] || continue
 
-        if ! validate_path_for_deletion "$file"; then
-            continue
-        fi
+        local validation_rc=0
+        validate_path_for_deletion "$file" || validation_rc=$?
+        mole_rc_timeout_or_signal "$validation_rc" && return "$validation_rc"
+        [[ $validation_rc -eq 0 ]] || continue
 
         local launch_agent=false
         local launch_agent_identity=""

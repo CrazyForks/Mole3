@@ -1636,3 +1636,83 @@ EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == "RC=1" ]]
 }
+
+
+@test "mole_delete preserves validation cancellation status" {
+    local probe_rc failures=0
+    for probe_rc in 1 124 130; do
+        run env PROJECT_ROOT="$PROJECT_ROOT" PROBE_RC="$probe_rc" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+export MOLE_CURRENT_COMMAND=uninstall
+victim="$SANDBOX/validation-victim"
+mkdir -p "$victim"
+validate_path_for_deletion() { return "$PROBE_RC"; }
+get_path_size_kb() { echo UNEXPECTED_SIZE_PROBE; return 97; }
+rc=0
+mole_delete "$victim" false || rc=$?
+[[ $rc -eq $PROBE_RC && -d "$victim" ]] || exit 1
+case "$PROBE_RC" in
+    1) reason=rejected ;;
+    124) reason=timed-out ;;
+    130) reason=interrupted ;;
+esac
+grep -q "$(printf '\t%s\t' "$reason")" "$MOLE_DELETE_LOG" || exit 1
+EOF
+        [ "$status" -eq 0 ] || { echo "probe=$probe_rc: $output"; failures=$((failures + 1)); }
+        [[ "$output" != *UNEXPECTED_SIZE_PROBE* ]] || return 1
+    done
+    [ "$failures" -eq 0 ]
+}
+
+@test "Trash batch preserves cancellation and completed paths at both sinks" {
+    local probe_rc sink failures=0
+    for sink in direct test-trash; do
+        for probe_rc in 1 124 130; do
+            run env PROJECT_ROOT="$PROJECT_ROOT" PROBE_RC="$probe_rc" SINK="$sink" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+export MOLE_CURRENT_COMMAND=uninstall
+fixture="$SANDBOX/batch-$SINK-$PROBE_RC"
+mkdir -p "$fixture/first" "$fixture/second" "$fixture/third"
+first="$fixture/first"
+second="$fixture/second"
+third="$fixture/third"
+if [[ "$SINK" == direct ]]; then
+    unset MOLE_TEST_TRASH_DIR
+    MOLE_TEST_NO_AUTH=0
+    _mole_move_path_to_user_trash() {
+        printf '%s\n' "$1" >> "$fixture/trace"
+        [[ "$1" == "$second" ]] && return "$PROBE_RC"
+        rmdir "$1"
+    }
+else
+    MOLE_TEST_TRASH_DIR="$fixture/Trash"
+    _mole_trash_target_still_safe() {
+        printf '%s\n' "$1" >> "$fixture/trace"
+        [[ "$1" == "$second" ]] && return "$PROBE_RC"
+        return 0
+    }
+fi
+rc=0
+_mole_move_to_trash_batch "$first" "$second" "$third" || rc=$?
+[[ $rc -eq $PROBE_RC ]] || exit 1
+[[ ! -e "$first" && -d "$second" ]] || exit 1
+[[ "${_MOLE_TRASH_BATCH_MOVED_PATHS[0]}" == "$first" ]] || exit 1
+grep -Fxq "$first" "$fixture/trace" || exit 1
+grep -Fxq "$second" "$fixture/trace" || exit 1
+if [[ "$SINK" == direct && $PROBE_RC -eq 1 ]]; then
+    [[ ! -e "$third" && ${#_MOLE_TRASH_BATCH_MOVED_PATHS[@]} -eq 2 ]] || exit 1
+    grep -Fxq "$third" "$fixture/trace" || exit 1
+else
+    [[ -d "$third" && ${#_MOLE_TRASH_BATCH_MOVED_PATHS[@]} -eq 1 ]] || exit 1
+    ! grep -Fxq "$third" "$fixture/trace" || exit 1
+fi
+[[ -z "$_MOLE_TRASH_MOVE_EXPECTED_PATH" && -z "$_MOLE_TRASH_MOVE_EXPECTED_PARENT" &&
+    -z "$_MOLE_TRASH_MOVE_EXPECTED_PARENT_ID" && -z "$_MOLE_TRASH_MOVE_EXPECTED_TARGET_ID" ]] || exit 1
+EOF
+            [ "$status" -eq 0 ] || { echo "sink=$sink probe=$probe_rc: $output"; failures=$((failures + 1)); }
+        done
+    done
+    [ "$failures" -eq 0 ]
+}

@@ -766,3 +766,38 @@ collect
 SCRIPT
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+
+@test "remove_file_list propagates validation cancellation before later candidates" {
+    local probe_rc failures=0
+    for probe_rc in 1 124 130; do
+        run env PROJECT_ROOT="$PROJECT_ROOT" PROBE_RC="$probe_rc" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_CURRENT_COMMAND=uninstall
+first="$HOME/first"
+second="$HOME/second"
+mkdir -p "$first" "$second"
+validate_path_for_deletion() {
+    printf '%s\n' "$1" >> "$HOME/probed-$PROBE_RC"
+    [[ "$1" == "$first" ]] && return "$PROBE_RC"
+    return 0
+}
+_mole_move_to_trash_batch() { printf '%s\n' "$@" > "$HOME/moved-$PROBE_RC"; }
+rc=0
+remove_file_list "$first"$'\n'"$second" false || rc=$?
+grep -Fxq "$first" "$HOME/probed-$PROBE_RC" || exit 1
+if [[ $PROBE_RC -eq 1 ]]; then
+    [[ $rc -eq 0 ]] || exit 1
+    grep -Fxq "$second" "$HOME/moved-$PROBE_RC" || exit 1
+else
+    [[ $rc -eq $PROBE_RC ]] || exit 1
+    ! grep -Fxq "$second" "$HOME/probed-$PROBE_RC" || exit 1
+    [[ ! -e "$HOME/moved-$PROBE_RC" ]] || exit 1
+fi
+EOF
+        [ "$status" -eq 0 ] || { echo "probe=$probe_rc: $output"; failures=$((failures + 1)); }
+    done
+    [ "$failures" -eq 0 ]
+}
