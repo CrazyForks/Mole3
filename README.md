@@ -327,6 +327,10 @@ reuse the latest successful sample with its original `process_collected_at` and 
 no zombies. Parent summaries contain at most three known owners;
 `zombie_parents_complete: false` means attribution was unavailable, incomplete, or truncated.
 
+If one collector fails, `mo status --json` still prints the metrics that were collected, reports the
+failure on stderr, and exits successfully, the same way `--watch` keeps streaming. It exits 1
+when none of CPU, memory, disk, or process metrics are available, or when JSON output fails.
+
 Status also supports read-only alerts for processes that stay above a CPU threshold. Use `--proc-cpu-threshold`, `--proc-cpu-window`, or `--proc-cpu-alerts=false` to tune or disable them.
 
 </details>
