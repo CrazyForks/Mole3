@@ -2709,6 +2709,13 @@ APPLESCRIPT
     if [[ $finder_rc -ne 0 ]]; then
         debug_log "Finder failed to move application to Trash (exit $finder_rc): $path: $finder_output"
         mole_rc_timeout_or_signal "$finder_rc" && return "$finder_rc"
+        if [[ "$finder_output" == *"(-1743)"* && -z "${_MOLE_FINDER_AUTOMATION_WARNED:-}" ]]; then
+            _MOLE_FINDER_AUTOMATION_WARNED=1
+            _MOLE_PRIVACY_DENIED_WARNED=1
+            export _MOLE_PRIVACY_DENIED_WARNED
+            declare -F stop_inline_spinner > /dev/null && stop_inline_spinner
+            printf 'Error: macOS blocked Finder automation. Allow your terminal app to control Finder in System Settings > Privacy & Security > Automation, then retry.\n' >&2
+        fi
         return 1
     elif [[ -e "$path" || -L "$path" ]]; then
         debug_log "Finder returned success but the application remains: $path"

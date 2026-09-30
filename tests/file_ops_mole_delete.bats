@@ -1585,9 +1585,10 @@ EOF
 }
 
 
-@test "Finder failure records stderr and the actual exit status" {
+@test "Finder automation denial names the permission and records the actual error (#1644)" {
     run_finder_result_fixture 1
-    [[ "$output" == "RC=1" ]] || return 1
+    [[ "$output" == *"Privacy & Security > Automation"* ]] || return 1
+    [[ "$output" == *"RC=1"* ]] || return 1
     [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
     local diagnostic
     diagnostic=$(cat "$SANDBOX/finder-debug.log")
@@ -1715,4 +1716,12 @@ EOF
         done
     done
     [ "$failures" -eq 0 ]
+}
+
+@test "Finder Automation denial is explained after an earlier generic privacy refusal (#1644)" {
+    export _MOLE_PRIVACY_DENIED_WARNED=1
+    run_finder_result_fixture 1
+    [[ "$output" == *"Privacy & Security > Automation"* ]] || return 1
+    [[ "$output" == *"RC=1"* ]] || return 1
+    [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
 }
