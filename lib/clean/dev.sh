@@ -4144,6 +4144,8 @@ codex_sparkle_staging_has_open_files() {
         lsof_rc=$?
     fi
 
+    # An inconclusive read keeps this staging root without cancelling other cleanup.
+    mole_rc_timeout "$lsof_rc" && return 2
     if mole_rc_timeout_or_signal "$lsof_rc"; then
         return "$lsof_rc"
     fi

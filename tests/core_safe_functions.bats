@@ -25,6 +25,95 @@ teardown() {
     rm -rf "$TEST_DIR"
 }
 
+# Exercise production guards and sinks with only lsof's response scripted.
+# Each case gets a separate home, and the later ordinary file is independently
+# removable, so a preserved file cannot mask a sticky-cancellation regression.
+check_handle_probe_outcome() {
+    local kind="$1" scripted_rc="$2" stage="$3" dry_run="${4:-0}"
+    local fixture="$TEST_DIR/probe-$kind-$scripted_rc-$stage-$dry_run"
+    mkdir -p "$fixture"
+    run env HOME="$fixture" PROJECT_ROOT="$PROJECT_ROOT" kind="$kind" \
+        scripted_rc="$scripted_rc" stage="$stage" MOLE_DRY_RUN="$dry_run" \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+[[ "$MOLE_DRY_RUN" == 0 ]] || DRY_RUN=true
+case "$kind" in
+    download) target="$HOME/Downloads/first.crdownload" ;;
+    container) target="$HOME/Library/Containers/com.example.Probe/Data/Library/Caches/First" ;;
+    group) target="$HOME/Library/Group Containers/TEAM.com.example.probe/Library/Caches/first.log" ;;
+esac
+mkdir -p "$(dirname "$target")"
+if [[ "$kind" == container ]]; then
+    mkdir -p "$target"
+    printf 'keep\n' > "$target/state"
+else
+    printf 'keep\n' > "$target"
+fi
+next="$HOME/next.log"
+printf 'later\n' > "$next"
+: > "$HOME/probes"
+: > "$HOME/sinks"
+: > "$HOME/previews"
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_mole_user_cache_owner_process_state() { return 1; }
+[[ "$stage" == visibility ]] || _MOLE_COMPLETE_LSOF_MODE=direct
+lsof() {
+    printf '%s\n' "$*" >> "$HOME/probes"
+    # Return a genuinely idle result until sizing completes in the final case.
+    if [[ "$stage" == final && ! -f "$HOME/sized" ]]; then
+        return 1
+    fi
+    return "$scripted_rc"
+}
+run_with_timeout() { shift; "$@"; }
+oplog_enabled() { return 0; }
+get_path_size_kb() { touch "$HOME/sized"; printf '1\n'; }
+rm() {
+    printf '%s\n' "$*" >> "$HOME/sinks"
+    command rm "$@" # SAFE: production safe_remove validates isolated fixture paths before this mock
+}
+register_dry_run_cleanup_target() { printf '%s\n' "$*" >> "$HOME/previews"; }
+first_rc=0
+safe_remove "$target" true || first_rc=$?
+second_rc=0
+safe_remove "$next" true 1 || second_rc=$?
+printf 'CASE=%s/%s/%s DRY=%s\n' "$kind" "$scripted_rc" "$stage" "$MOLE_DRY_RUN"
+printf 'FIRST=%s SECOND=%s CANCEL=%s TARGET=%s NEXT=%s\n' \
+    "$first_rc" "$second_rc" "$MOLE_CLEAN_CANCEL_STATUS" \
+    "$(test -e "$target" && echo kept || echo removed)" \
+    "$(test -e "$next" && echo kept || echo removed)"
+[[ -s "$HOME/probes" ]] || exit 1
+if [[ "$stage" == visibility ]]; then
+    grep -q -- '-F pu -p 1' "$HOME/probes" || exit 1
+else
+    grep -qF -- "$target" "$HOME/probes" || exit 1
+fi
+if [[ "$stage" == final ]]; then
+    [[ -f "$HOME/sized" ]] || exit 1
+fi
+if [[ "$MOLE_DRY_RUN" == 1 ]]; then
+    [[ ! -s "$HOME/sinks" ]] || exit 1
+    grep -qF -- "$next" "$HOME/previews" || exit 1
+    if grep -qF -- "$target" "$HOME/previews"; then exit 1; fi
+elif [[ "$scripted_rc" == 124 ]]; then
+    grep -qF -- "$next" "$HOME/sinks" || exit 1
+    if grep -qF -- "$target" "$HOME/sinks"; then exit 1; fi
+else
+    [[ ! -s "$HOME/sinks" ]] || exit 1
+fi
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    if [[ "$scripted_rc" == 124 ]]; then
+        local next_state=removed
+        [[ "$dry_run" == 0 ]] || next_state=kept
+        [[ "$output" == *"FIRST=1 SECOND=0 CANCEL=0 TARGET=kept NEXT=$next_state"* ]] || { echo "$output"; return 1; }
+    else
+        [[ "$output" == *"FIRST=$scripted_rc SECOND=$scripted_rc CANCEL=$scripted_rc TARGET=kept NEXT=kept"* ]] || { echo "$output"; return 1; }
+    fi
+}
+
 @test "validate_path_for_deletion rejects empty path" {
     run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion ''"
     [ "$status" -eq 1 ]
@@ -925,11 +1014,7 @@ validate_path_for_deletion "$cache_dir" || validation_rc=$?
 printf 'PROBE=%s RC=%s\n' "$probe_rc" "$validation_rc"
 EOF
         [ "$status" -eq 0 ] || return 1
-        if [[ "$probe_rc" -eq 124 ]]; then
-            [[ "$output" == *"PROBE=124 RC=124"* ]] || return 1
-        else
-            [[ "$output" == *"PROBE=2 RC=1"* ]] || return 1
-        fi
+        [[ "$output" == *"PROBE=$probe_rc RC=1"* ]] || return 1
     done
 
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" cache_dir="$cache_dir" /bin/bash --noprofile --norc <<'EOF'
@@ -3476,4 +3561,76 @@ printf 'RC=%s CANCEL=%s EXISTS=%s SIZED=%s\n' "$rc" "$MOLE_CLEAN_CANCEL_STATUS" 
 EOF
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"RC=1 CANCEL=0 EXISTS=yes SIZED=yes"* ]]
+}
+
+
+@test "container probe timeout keeps its target and permits later cleanup (#1653)" {
+    local stage
+    for stage in visibility query final; do
+        check_handle_probe_outcome container 124 "$stage" || return 1
+    done
+}
+
+@test "group container probe timeout keeps its target and permits later cleanup (#1653)" {
+    local stage
+    for stage in visibility query final; do
+        check_handle_probe_outcome group 124 "$stage" || return 1
+    done
+}
+
+@test "download probe timeout keeps its target and permits later cleanup (#1653)" {
+    local stage
+    for stage in visibility query final; do
+        check_handle_probe_outcome download 124 "$stage" || return 1
+    done
+}
+
+@test "handle probe timeouts keep targets out of dry-run previews (#1653)" {
+    local kind stage
+    for kind in container group download; do
+        for stage in visibility query final; do
+            check_handle_probe_outcome "$kind" 124 "$stage" 1 || return 1
+        done
+    done
+}
+
+@test "handle probe signals remain sticky and prevent a later eligible sink (#1653)" {
+    local kind stage scripted_rc
+    for kind in container group download; do
+        for stage in visibility query final; do
+            for scripted_rc in 130 143; do
+                check_handle_probe_outcome "$kind" "$scripted_rc" "$stage" || return 1
+            done
+        done
+    done
+}
+
+@test "read-only handle timeouts retain paths without cancelling cleanup (#1653)" {
+    local cache_dir="$HOME/Library/Group Containers/TEAM.com.example.shared/Library/Caches/Timeout"
+    mkdir -p "$cache_dir"
+    touch "$cache_dir/payload"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" cache_dir="$cache_dir" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+lsof() { return 1; }
+run_with_timeout() { return "$PROBE_STATUS"; }
+for probe in _mole_paths_have_open_handle _mole_container_cache_has_open_handle; do
+    for visibility in direct unknown; do
+        for PROBE_STATUS in 124 130 143; do
+            if [[ "$visibility" == direct ]]; then
+                _MOLE_COMPLETE_LSOF_MODE=direct
+            else
+                unset _MOLE_COMPLETE_LSOF_MODE
+            fi
+            rc=0
+            "$probe" "$cache_dir" || rc=$?
+            printf '%s:%s:%s=%s\n' "$probe" "$visibility" "$PROBE_STATUS" "$rc"
+            [[ "$PROBE_STATUS" != 124 || "$rc" == 2 ]] || exit 1
+            [[ "$PROBE_STATUS" == 124 || "$rc" == "$PROBE_STATUS" ]] || exit 1
+        done
+    done
+done
+EOF
+    [ "$status" -eq 0 ] || return 1
+    [[ -e "$cache_dir/payload" ]] || return 1
 }

@@ -1767,7 +1767,7 @@ EOF
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"skipped (open-file check unavailable)"* ]] || return 1
-    [[ "$output" == *"CANCEL=124"* ]] || return 1
+    [[ "$output" == *"CANCEL=0"* ]] || return 1
     [[ "$output" != *"SAFE_CLEAN:"* ]] || return 1
 
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" DRY_RUN=true /bin/bash --noprofile --norc << 'EOF'
@@ -3869,4 +3869,43 @@ EOF
         [[ "$(cat "$test_home/trace")" == owner ]] || { cat "$test_home/trace"; return 1; }
         [[ "$output" == *"CANCEL=0"* ]] || return 1
     done
+}
+
+@test "Codex staging query timeout keeps the target without cancelling later cleanup (#1653)" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+_MOLE_COMPLETE_LSOF_MODE=direct
+_MOLE_CODEX_STAGING_ROOT="$HOME/Library/Caches/com.openai.codex/staging"
+mkdir -p "$_MOLE_CODEX_STAGING_ROOT"
+target="$_MOLE_CODEX_STAGING_ROOT/payload"
+printf 'keep' > "$target"
+_codex_staging_entry_is_still_stale() { return 0; }
+codex_desktop_process_state() { return 1; }
+codex_sparkle_updater_running() { return 1; }
+lsof() { return "$scripted_rc"; }
+run_with_timeout() { shift; "$@"; }
+MOLE_CURRENT_COMMAND=clean
+for scripted_rc in 124 130 143; do
+    MOLE_CLEAN_CANCEL_STATUS=0
+    probe_rc=0
+    codex_sparkle_staging_has_open_files "$_MOLE_CODEX_STAGING_ROOT" || probe_rc=$?
+    guard_rc=0
+    _codex_staging_delete_guard_allows || guard_rc=$?
+    [[ $guard_rc -ne 0 ]] || safe_remove "$target" true 1
+    next="$HOME/later-$scripted_rc.log"
+    printf 'later' > "$next"
+    next_rc=0
+    safe_remove "$next" true 1 || next_rc=$?
+    printf 'STATUS=%s PROBE=%s GUARD=%s CANCEL=%s NEXT=%s\n' "$scripted_rc" "$probe_rc" "$guard_rc" "$MOLE_CLEAN_CANCEL_STATUS" "$next_rc"
+    [[ -f "$target" ]] || exit 1
+    if [[ "$scripted_rc" == 124 ]]; then
+        [[ $probe_rc -eq 2 && $guard_rc -ne 0 && $MOLE_CLEAN_CANCEL_STATUS -eq 0 && $next_rc -eq 0 && ! -e "$next" ]] || exit 1
+    else
+        [[ $probe_rc -eq $scripted_rc && $guard_rc -ne 0 && $MOLE_CLEAN_CANCEL_STATUS -eq $scripted_rc && $next_rc -eq $scripted_rc && -f "$next" ]] || exit 1
+    fi
+done
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
