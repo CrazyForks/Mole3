@@ -252,6 +252,8 @@ Select a location to explore:
 
 `mo status` is a read-only dashboard for hardware, system pressure, disk activity, network traffic, power, and processes.
 
+When the IPv4 default route uses a tunnel, network graphs use that interface’s rates to avoid counting the same traffic again on its physical carrier. JSON retains per-interface rates, including the routed tunnel; idle non-default tunnels stay hidden.
+
 ```text
 $ mo status
 
