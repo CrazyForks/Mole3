@@ -441,7 +441,8 @@ clean_editor_obsolete_extensions() {
 clean_code_editors() {
     safe_clean ~/Library/Application\ Support/Code/logs/* "VS Code logs"
     safe_clean ~/Library/Application\ Support/Code/Cache/* "VS Code cache"
-    safe_clean ~/Library/Application\ Support/Code/CachedExtensions/* "VS Code extension cache"
+    safe_clean ~/Library/Application\ Support/Code/CachedExtensionVSIXs/* "VS Code extension cache"
+    safe_clean ~/Library/Application\ Support/Cursor/CachedExtensionVSIXs/* "Cursor extension cache"
     safe_clean ~/Library/Application\ Support/Code/CachedData/* "VS Code data cache"
     safe_clean ~/Library/Application\ Support/Code/WebStorage/*/CacheStorage/* "VS Code webview cache"
     safe_clean ~/Library/Caches/com.sublimetext.*/* "Sublime Text cache"
