@@ -9,7 +9,7 @@ setup_file() {
     MOLE_TEST_MODE=1
     export MOLE_TEST_MODE
 
-    # Two tests below run the real pipeline (MOLE_TEST_MODE=0), which otherwise
+    # Full-pipeline tests below run the real pipeline (MOLE_TEST_MODE=0), which otherwise
     # scans the host: a full lsregister -dump. That cost seconds per test and
     # scaled with whatever LaunchServices happened to hold, which made this
     # file the critical path of the whole CI suite. The scan feeds no
@@ -73,7 +73,7 @@ run_clean_dry_run() {
         "$PROJECT_ROOT/mole" clean --dry-run
 }
 
-# Stub the two host toolchains the real pipeline shells out to, so what these
+# Stub the host toolchains the real pipeline shells out to, so what these
 # tests measure does not depend on the machine's Homebrew or Xcode. brew is
 # required to be mocked by project policy: no verification run may reach a real
 # package manager. xcrun follows for the same reason, and returning non-zero is
@@ -99,6 +99,16 @@ esac
 exit 0
 MOCK
 
+    cat > "$MOCK_TOOLCHAIN_BIN/go" << 'MOCK'
+#!/bin/bash
+# Shim: resolve empty fixture caches without downloading a host toolchain.
+case "$*" in
+    'env GOMODCACHE') printf '%s\n' "$HOME/go/pkg/mod" ;;
+    'env GOCACHE') printf '%s\n' "$HOME/Library/Caches/go-build" ;;
+    *) printf 'Unexpected Go command in clean fixture: %s\n' "$*" >&2; exit 99 ;;
+esac
+MOCK
+
     cat > "$MOCK_TOOLCHAIN_BIN/xcrun" << 'MOCK'
 #!/bin/bash
 # Shim: no simulator toolchain, which is the CLT-only shape clean handles.
@@ -120,7 +130,7 @@ MOCK
 printf '  PID  PPID COMM ARGS\n'
 MOCK
 
-    chmod +x "$MOCK_TOOLCHAIN_BIN/brew" "$MOCK_TOOLCHAIN_BIN/xcrun" \
+    chmod +x "$MOCK_TOOLCHAIN_BIN/brew" "$MOCK_TOOLCHAIN_BIN/go" "$MOCK_TOOLCHAIN_BIN/xcrun" \
         "$MOCK_TOOLCHAIN_BIN/lsof" "$MOCK_TOOLCHAIN_BIN/ps"
 }
 
