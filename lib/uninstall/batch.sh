@@ -800,7 +800,17 @@ _uninstall_materialize_complete_find0() {
             < /dev/null > "$output_file" 2> "$scan_errors" || scan_rc=$?
         if [[ "${MO_DEBUG:-0}" == "1" && $scan_rc -ne 0 ]]; then
             local scan_error_detail=""
-            IFS= read -r scan_error_detail < "$scan_errors" || true
+            # Timeout-backend startup messages precede find's actual error.
+            # Keep the first cause line instead of reporting that preamble.
+            while IFS= read -r scan_error_detail || [[ -n "$scan_error_detail" ]]; do
+                case "$scan_error_detail" in
+                    '[TIMEOUT] Perl fallback, '* | '[TIMEOUT] Running with '* | '[TIMEOUT] Shell fallback, '*)
+                        scan_error_detail=""
+                        continue
+                        ;;
+                esac
+                [[ -z "$scan_error_detail" ]] || break
+            done < "$scan_errors"
             debug_log "Sibling application listing failed (exit $scan_rc): $(mole_terminal_safe_text "$1"): $(mole_terminal_safe_text "${scan_error_detail:0:512}")"
         fi
         if [[ $scan_rc -eq 1 && -s "$scan_errors" ]]; then
@@ -1126,6 +1136,13 @@ uninstall_live_bundle_has_other_install() {
     local -a live_paths=()
     local result=1
     for root in "${live_roots[@]+"${live_roots[@]}"}"; do
+        # Default find does not traverse a symlink used as its starting root.
+        # An empty listing there cannot prove that no sibling app survives.
+        if [[ -L "$root" ]]; then
+            debug_log "Sibling application root is a symlink; installation state is unknown: $(mole_terminal_safe_text "$root")"
+            result=2
+            break
+        fi
         [[ -e "$root" ]] || continue
         if [[ ! -d "$root" || ! -r "$root" ]]; then
             debug_log "Sibling application root is not a readable directory: $(mole_terminal_safe_text "$root")"
