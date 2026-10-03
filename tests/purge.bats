@@ -1382,6 +1382,62 @@ EOF
 	[[ "$output" == "STATUS=124 CALLS=3" ]] || return 1
 }
 
+@test "scan_purge_targets: does not rediscover completed fd results after filtering fails" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/filter-failure.XXXXXX")
+mkdir -p "$fixture/project/node_modules" "$fixture/bin"
+cat > "$fixture/bin/fd" <<'STUB'
+#!/bin/bash
+case " $* " in
+    *" --type d "*) printf '%s\n' "$FIXTURE/project/node_modules" ;;
+esac
+exit 0
+STUB
+cat > "$fixture/bin/find" <<'STUB'
+#!/bin/bash
+printf 'FIND_CALLED\n' >> "$FIXTURE/find-called"
+exit 0
+STUB
+chmod +x "$fixture/bin/fd" "$fixture/bin/find"
+export FIXTURE="$fixture" PATH="$fixture/bin:$PATH"
+filter_protected_artifacts() {
+    printf 'FILTER_CALLED\n' >> "$fixture/filter-called"
+    return 124
+}
+result=0
+MO_DEBUG=1 scan_purge_targets "$fixture" "$fixture/output" || result=$?
+printf 'STATUS=%s\n' "$result"
+[[ -s "$fixture/filter-called" ]] || exit 1
+[[ ! -e "$fixture/find-called" ]] || exit 1
+[[ ! -s "$fixture/output" ]] || exit 1
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"STATUS=124"* ]] || return 1
+	[[ "$output" == *"Purge result filtering failed (status 124)"* ]] || return 1
+	[[ "$output" != *"fd scan failed"* ]] || return 1
+}
+
+@test "scan_purge_targets: reports find result filtering failure as its own stage" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/find-filter-failure.XXXXXX")
+mkdir -p "$fixture/project/node_modules"
+filter_protected_artifacts() { printf 'FILTER_CALLED\n' >&2; return 7; }
+result=0
+MO_DEBUG=1 MO_USE_FIND=1 scan_purge_targets "$fixture" "$fixture/output" || result=$?
+printf 'STATUS=%s\n' "$result"
+[[ ! -s "$fixture/output" ]] || exit 1
+EOF
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"FILTER_CALLED"* ]] || return 1
+	[[ "$output" == *"STATUS=7"* ]] || return 1
+	[[ "$output" == *"Purge result filtering failed (status 7)"* ]] || return 1
+	[[ "$output" != *"find scan failed"* ]] || return 1
+}
+
 @test "scan_purge_targets: bounds nested filtering within the shared deadline" {
 	mkdir -p "$HOME/.config/mole" "$HOME/www/test-project/node_modules"
 	printf '%s\n' "$HOME/www" > "$HOME/.config/mole/purge_paths"
