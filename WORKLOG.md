@@ -3,6 +3,16 @@
 Snapshot date: 2026-10-03, Asia/Taipei.
 Authorization updated: the maintainer approved release of V1.57.0 Steady after reviewing the bilingual draft. This includes the release commit, capital-V tag, GitHub Stable publication, and the existing workflow-driven Homebrew Core update. The maintainer still sends the Issue 1669 follow-up personally; this release does not authorize sending the saved email draft or closing that unresolved report.
 
+## V1.57.0 published
+
+V1.57.0 Steady is published at https://github.com/tw93/Mole/releases/tag/V1.57.0. The immutable tag points to `6bca4812acd6a3d54ffe97291734c3556a174057`; Check, Validation (including macOS 14/15 and security jobs), and CodeQL all completed successfully on that exact commit before tagging. The frozen local full runner passed with no skipped cases, as did static checks, Go build/vet/test, and the declared-toolchain build. The test isolation correction is `4848df7118d0e4ce925bb8e23fbcab255b322a33`.
+
+All seven public assets were downloaded and verified. Six payload checksums passed; seven attestations bound their payload hashes to the tag, exact source commit, and release workflow. Both archives matched their raw binaries and executable modes. All four binaries carried Go 1.26.0, the correct source revision, and macOS 12.0 minimum versions. Native arm64 Analyze and Status JSON probes passed.
+
+A fresh V1.56.1 script installation upgraded successfully to V1.57.0 in an isolated physical user-owned prefix. The installed version probe passed, the Stable channel and per-attempt receipt were present, both Go helpers matched the public arm64 assets, and all 56 files in the installer's source-copy contract matched the tag (allowing its intended entrypoint config-path rewrite). A second update reported the current version with exit 0. The approved bilingual body and title were read back exactly, along with all six standard reactions. No Issue 1669 email or public follow-up was sent; the issue remains open pending the reporter's real Mac result.
+
+The release workflow opened https://github.com/Homebrew/homebrew-core/pull/315146. Its source URL and checksum match a fresh tag archive, whose contents also match the immutable commit. At this checkpoint the PR is open and upstream macOS 15/26/27 arm64 builds are pending; the public Homebrew API still reports 1.56.1. GitHub script-channel Stable is available, while Homebrew availability remains an upstream gate. No stable tag was rewritten and no replacement release is needed.
+
 ## V1.57.0 release preparation
 
 The approved draft describes eight user-visible outcomes from V1.56.1 through the reviewed source at `0292ef090fa8b0bdaec3fe5d4a747b9d4c268cb3`. The complete local runner, declared Go 1.26.0 builds, macOS 12 minimum-version checks, exact Nightly source archive, six review angles, and Check/Validation/CodeQL all passed for that source. The release preparation changes only the source version, this security-document date/version, and this record; it introduces no new command, setting, cleanup target, or animation change beyond the already approved loading mark.
