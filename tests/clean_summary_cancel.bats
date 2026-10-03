@@ -280,6 +280,36 @@ EOF
     [[ "$output" != *"Cleanup cancelled"* ]]
 }
 
+@test "real-run summary colors the tracked cleanup size by unit" {
+    # MOLE_TEST_MODE would stop perform_cleanup before the summary;
+    # MOLE_TEST_NO_AUTH alone keeps ANSI colors on without a terminal.
+    run env -u NO_COLOR -u MOLE_TEST_MODE HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
+        MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+for fn in clean_user_essentials clean_finder_metadata clean_app_caches \
+    clean_browsers run_cloud_and_office_cleanup clean_developer_tools \
+    clean_user_gui_applications clean_virtualization_tools \
+    clean_application_support_logs clean_orphaned_app_data \
+    clean_orphaned_system_services clean_orphaned_container_stubs \
+    show_user_launch_agent_hint_notice \
+    clean_apple_silicon_caches clean_cached_device_firmware \
+    clean_time_machine_failed_backups check_large_file_candidates \
+    show_project_artifact_hint_notice; do
+    eval "$fn() { return 0; }"
+done
+clean_user_essentials() {
+    total_size_cleaned=10485760
+    files_cleaned=42
+    total_items=9
+}
+perform_cleanup
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *$'Tracked cleanup: \033[0;31m10.74GB\033[0m'* ]]
+}
+
 @test "partial cleanup keeps routine timeouts out of the default summary" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=0 \
         /bin/bash --noprofile --norc << 'EOF'

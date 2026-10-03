@@ -159,7 +159,7 @@ setup() {
     rm -rf "$test_cache"
 }
 
-@test "clean_service_worker_cache colors cleaned size with success color" {
+@test "clean_service_worker_cache colors cleaned size by unit" {
     local test_cache="$HOME/test_sw_cache_colored"
     mkdir -p "$test_cache/abc123_https_example.com_0"
 
@@ -189,7 +189,8 @@ EOF
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"TestBrowser Service Worker"* ]] || return 1
-    [[ "$output" == *$'\033[0;32m1.0MB\033[0m'* ]] || return 1
+    [[ "$output" == *$'\033[0;32m✓\033[0m'* ]] || return 1
+    [[ "$output" == *$'\033[0;33m1.0MB\033[0m'* ]] || return 1
 
     rm -rf "$test_cache"
 }

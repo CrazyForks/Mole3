@@ -597,7 +597,7 @@ _clean_chromium_old_versions() {
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size")
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} ${label} old versions${NC} · ${line_color}${cleaned_count} dirs, $size_human${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} ${label} old versions${NC} · ${line_color}${cleaned_count} dirs, $(colorize_human_size "${size_human}")"
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size"
         note_activity
@@ -858,7 +858,7 @@ clean_edge_updater_old_versions() {
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size")
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Edge updater old versions${NC} · ${line_color}${cleaned_count} dirs, $size_human${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Edge updater old versions${NC} · ${line_color}${cleaned_count} dirs, $(colorize_human_size "${size_human}")"
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size"
         note_activity
@@ -1072,7 +1072,7 @@ clean_app_caches() {
                 size_human=$(bytes_to_human "$((total_size * 1024))")
                 local line_color
                 line_color=$(cleanup_result_color_kb "$total_size")
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Sandboxed app caches${NC} · ${line_color}$size_human${NC}"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Sandboxed app caches${NC} · $(colorize_human_size "${size_human}")"
             fi
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size"
@@ -1134,7 +1134,7 @@ clean_handoff_pasteboard_cache() {
     else
         local line_color
         line_color=$(cleanup_result_color_kb "$total_kb")
-        echo -e "  ${line_color}${ICON_SUCCESS}${NC} Handoff clipboard cache${NC} · ${line_color}$size_human${NC}"
+        echo -e "  ${line_color}${ICON_SUCCESS}${NC} Handoff clipboard cache${NC} · $(colorize_human_size "${size_human}")"
     fi
     mole_add_cleaned_row "$cleaned_count" "$total_kb"
     note_activity
@@ -1427,7 +1427,7 @@ clean_group_container_caches() {
                 size_human=$(bytes_to_human "$((total_size * 1024))")
                 local line_color
                 line_color=$(cleanup_result_color_kb "$total_size")
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Group Containers logs/caches${NC} · ${line_color}$size_human${NC}"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Group Containers logs/caches${NC} · $(colorize_human_size "${size_human}")"
             fi
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size"
@@ -1697,7 +1697,7 @@ clean_external_volume_target() {
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size")
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} External volume cleanup${NC} · ${line_color}${volume_name}, $size_human${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} External volume cleanup${NC} · ${line_color}${volume_name}, $(colorize_human_size "${size_human}")"
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size"
         note_activity
@@ -2496,9 +2496,9 @@ clean_application_support_logs() {
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size_kb")
             if [[ "$total_size_partial" == "true" ]]; then
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Application Support logs/caches${NC} · ${line_color}at least $size_human${NC}"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Application Support logs/caches${NC} · ${line_color}at least $(colorize_human_size "${size_human}")"
             else
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Application Support logs/caches${NC} · ${line_color}$size_human${NC}"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} Application Support logs/caches${NC} · $(colorize_human_size "${size_human}")"
             fi
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size_kb"
@@ -2583,7 +2583,7 @@ clean_cached_device_firmware() {
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$total_size_kb")
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Cached device firmware${NC} · ${line_color}${cleaned_count} files, $size_human${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Cached device firmware${NC} · ${line_color}${cleaned_count} files, $(colorize_human_size "${size_human}")"
         fi
         mole_add_cleaned_row "$cleaned_count" "$total_size_kb"
         note_activity

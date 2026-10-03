@@ -163,6 +163,38 @@ EOF
     rm -rf "$base"
 }
 
+@test "safe_clean colors a real cleanup size by unit like the dry-run preview" {
+    local base="$HOME/safe_clean_color"
+    mkdir -p "$base"
+    /bin/dd if=/dev/zero of="$base/blob" bs=1024 count=2048 2> /dev/null
+
+    run env -u NO_COLOR HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_MODE=1 /bin/bash --noprofile --norc << EOF
+set -euo pipefail
+source "\$PROJECT_ROOT/lib/core/common.sh"
+source "\$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+files_cleaned=0
+total_size_cleaned=0
+total_items=0
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+note_activity() { :; }
+safe_remove() { /bin/rm -rf "\$1"; return 0; }
+safe_clean "$base/blob" "Test cache"
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    # The success icon stays green; only the size takes its unit color.
+    [[ "$output" == *$'\033[0;32m✓\033[0m Test cache'* ]] || return 1
+    local yellow_mb=$'\033\\[0;33m[0-9.]+MB\033\\[0m'
+    [[ "$output" =~ $yellow_mb ]] || return 1
+    [[ ! -e "$base/blob" ]] || return 1
+
+    rm -rf "$base"
+}
+
 @test "safe_clean_guarded rechecks after parallel size probes before deletion" {
     local base="$HOME/safe_clean_guarded"
     mkdir -p "$base/a" "$base/b" "$base/c" "$base/d"

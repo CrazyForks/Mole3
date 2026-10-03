@@ -1202,7 +1202,7 @@ clean_time_machine_failed_backups() {
                 if [[ $tm_delete_rc -eq 0 ]]; then
                     local line_color
                     line_color=$(cleanup_result_color_kb "$size_kb")
-                    echo -e "  ${line_color}${ICON_SUCCESS}${NC} Incomplete backup: $backup_name${NC} · ${line_color}$size_human${NC}"
+                    echo -e "  ${line_color}${ICON_SUCCESS}${NC} Incomplete backup: $backup_name${NC} · $(colorize_human_size "${size_human}")"
                     tm_cleaned=$((tm_cleaned + 1))
                     mole_add_cleaned_row 1 "$size_kb"
                     note_activity
@@ -1354,7 +1354,7 @@ clean_time_machine_failed_backups() {
                     if [[ $tm_delete_rc -eq 0 ]]; then
                         local line_color
                         line_color=$(cleanup_result_color_kb "$size_kb")
-                        echo -e "  ${line_color}${ICON_SUCCESS}${NC} Incomplete APFS backup in $bundle_name: $backup_name${NC} · ${line_color}$size_human${NC}"
+                        echo -e "  ${line_color}${ICON_SUCCESS}${NC} Incomplete APFS backup in $bundle_name: $backup_name${NC} · $(colorize_human_size "${size_human}")"
                         tm_cleaned=$((tm_cleaned + 1))
                         mole_add_cleaned_row 1 "$size_kb"
                         note_activity

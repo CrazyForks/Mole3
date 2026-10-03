@@ -99,7 +99,7 @@ clean_ds_store_tree() {
         else
             local line_color
             line_color=$(cleanup_result_color_kb "$size_kb")
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} $label${NC} · ${line_color}$file_count files, $size_human${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} $label${NC} · ${line_color}$file_count files, $(colorize_human_size "${size_human}")"
         fi
         mole_add_cleaned_row "$file_count" "$size_kb"
         note_activity

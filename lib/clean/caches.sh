@@ -187,9 +187,9 @@ clean_service_worker_cache() {
         line_color=$(cleanup_result_color_kb "$cleaned_size")
         if [[ "$DRY_RUN" != "true" ]]; then
             if [[ $protected_count -gt 0 ]]; then
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} $browser_name Service Worker${NC} · ${line_color}${cleaned_human}${NC}, ${protected_count} protected"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} $browser_name Service Worker${NC} · $(colorize_human_size "${cleaned_human}"), ${protected_count} protected"
             else
-                echo -e "  ${line_color}${ICON_SUCCESS}${NC} $browser_name Service Worker${NC} · ${line_color}${cleaned_human}${NC}"
+                echo -e "  ${line_color}${ICON_SUCCESS}${NC} $browser_name Service Worker${NC} · $(colorize_human_size "${cleaned_human}")"
             fi
         else
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} $browser_name Service Worker, would clean $(colorize_human_size "$cleaned_human"), ${protected_count} protected"
@@ -611,9 +611,9 @@ clean_python_bytecode_cache_group() {
         local line_color
         line_color=$(cleanup_result_color_kb "$total_size_kb")
         if [[ $skipped_count -gt 0 ]]; then
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Python bytecode cache · ${display_root}${NC} · ${line_color}${removed_count} dirs, ${size_human}${NC}, ${skipped_count} skipped"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Python bytecode cache · ${display_root}${NC} · ${line_color}${removed_count} dirs, $(colorize_human_size "${size_human}"), ${skipped_count} skipped"
         else
-            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Python bytecode cache · ${display_root}${NC} · ${line_color}${removed_count} dirs, ${size_human}${NC}"
+            echo -e "  ${line_color}${ICON_SUCCESS}${NC} Python bytecode cache · ${display_root}${NC} · ${line_color}${removed_count} dirs, $(colorize_human_size "${size_human}")"
         fi
     fi
 
