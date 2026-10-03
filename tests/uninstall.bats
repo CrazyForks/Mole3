@@ -86,6 +86,173 @@ EOF
     fi
 }
 
+# Exercise the production sibling scan with real find permission failures.
+assert_time_machine_volume_scan() {
+    local status output
+    run env HOME="$HOME/time-machine" PROJECT_ROOT="$PROJECT_ROOT" \
+        SCAN_CASE="$1" EXPECTED_RC="$2" /bin/bash --noprofile --norc <<'EOF_TM'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+if [[ "$SCAN_CASE" == bounded ]]; then
+    MO_TIMEOUT_BIN=""
+    MO_TIMEOUT_PERL_BIN="$(command -v perl)"
+    mkdir -p "$HOME/bin"
+    cat > "$HOME/bin/stat" <<'STAT'
+#!/bin/bash
+if [[ "$1" == -f && "$2" == '%u:%d' ]]; then
+    printf '0:42\n0:42\n'
+else
+    exec /usr/bin/stat "$@"
+fi
+STAT
+    chmod +x "$HOME/bin/stat"
+    export PATH="$HOME/bin:$PATH"
+else
+    run_with_timeout() { shift; "$@"; }
+fi
+pkg_receipt_nonstandard_app_paths() { :; }
+mkdir -p "$HOME/Volumes/com.apple.TimeMachine.localsnapshots" "$HOME/Selected.app"
+volumes="$HOME/Volumes"
+snapshots="$volumes/com.apple.TimeMachine.localsnapshots"
+trap 'chmod 700 "$snapshots" "$volumes/Ordinary" 2>/dev/null || true' EXIT
+# Simulate system ownership without creating root-owned fixtures or mounting disks.
+stat() {
+    if [[ "$1" == -f && "$2" == '%u:%d' ]]; then
+        case "$SCAN_CASE" in
+            mounted) printf '0:43\n0:42\n' ;;
+            user-owned) printf '501:42\n0:42\n' ;;
+            missing-metadata) return 1 ;;
+            interrupted) return 130 ;;
+            *) printf '0:42\n0:42\n' ;;
+        esac
+    else
+        /usr/bin/stat "$@"
+    fi
+}
+case "$SCAN_CASE" in
+    mounted) survivor="$snapshots/Survivor.app" ;;
+    lookalike) survivor="$volumes/com.apple.TimeMachine.localsnapshots-copy/Survivor.app" ;;
+    sibling) survivor="$volumes/External/Applications/Survivor.app" ;;
+    first-level) survivor="$volumes/Survivor.app" ;;
+    *) survivor="" ;;
+esac
+if [[ -n "$survivor" ]]; then
+    mkdir -p "$survivor/Contents"
+    printf '%s\n' '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.snapshot</string></dict></plist>' > "$survivor/Contents/Info.plist"
+fi
+if [[ "$SCAN_CASE" != mounted ]]; then chmod 000 "$snapshots"; fi
+if [[ "$SCAN_CASE" == ordinary ]]; then mkdir -p "$volumes/Ordinary"; chmod 000 "$volumes/Ordinary"; fi
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=()
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$volumes"
+selected_apps=("0|$HOME/Selected.app|Selected|com.example.snapshot|0|Never")
+rc=0
+uninstall_live_bundle_has_other_install com.example.snapshot "$HOME/Selected.app" || rc=$?
+printf 'SCAN_CASE=%s RC=%s\n' "$SCAN_CASE" "$rc"
+[[ "$rc" -eq "$EXPECTED_RC" ]] || exit 1
+if [[ "$EXPECTED_RC" -eq 0 ]]; then
+    [[ ${#_MOLE_UNINSTALL_LIVE_SIBLING_PATHS[@]} -eq 1 && "${_MOLE_UNINSTALL_LIVE_SIBLING_PATHS[0]}" == "$survivor" ]] || exit 1
+fi
+EOF_TM
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+assert_time_machine_batch_plan() {
+    local status output
+    run env HOME="$HOME/snapshot-plan" PROJECT_ROOT="$PROJECT_ROOT" BATCH_CASE="$1" /bin/bash --noprofile --norc <<'EOF_ROOT'
+set -euo pipefail
+export MOLE_TEST_NO_AUTH=1 TERM=dumb
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+# Bounded helpers only invoke fixture find/plutil/stat; no authorization or sink.
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/Volumes"
+snapshots="$HOME/Volumes/com.apple.TimeMachine.localsnapshots"
+mkdir -p "$snapshots"
+chmod 000 "$snapshots"
+trap 'chmod 700 "$snapshots"' EXIT
+stat() {
+    if [[ "$1" == -f && "$2" == '%u:%d' ]]; then
+        printf '0:42\n0:42\n'
+    else
+        /usr/bin/stat "$@"
+    fi
+}
+
+export MO_DEBUG=1
+mkdir -p "$HOME/selected/Chosen.app/Contents" "$HOME/Library/Preferences"
+for app in "$HOME/selected/Chosen.app"; do
+    printf '%s\n' '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.shared</string></dict></plist>' > "$app/Contents/Info.plist"
+done
+printf 'survivor data\n' > "$HOME/Library/Preferences/com.example.shared.plist"
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=()
+app_path="$HOME/selected/Chosen.app"
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+_batch_refresh_selected_app_bundle_id() { printf 'com.example.shared\n'; }
+official_uninstaller_vendor() { return 1; }
+uninstall_bundle_id_has_surviving_sibling() { return 1; }
+pgrep() { return 1; }
+get_brew_cask_name() { return 1; }
+get_file_owner() { whoami; }
+get_path_size_kb() { printf '1\n'; }
+calculate_total_size() { printf '0\n'; }
+find_app_files() {
+    printf 'discovery\n' >> "$HOME/unexpected-discovery"
+    printf '%s\n' "$HOME/Library/Preferences/com.example.shared.plist"
+}
+find_app_system_files() { :; }
+get_diagnostic_report_paths_for_app() { :; }
+discover_login_item_helper_bundle_ids() { :; }
+has_sensitive_data() { return 1; }
+selected_apps=("0|$app_path|Chosen|com.example.shared|0|Never")
+running_apps=() sudo_apps=() brew_cask_apps=() blocked_apps=() manual_removal_apps=() app_details=() total_estimated_size=0
+_batch_scan_app_details
+[[ ${#app_details[@]} -eq 1 ]] || exit 1
+IFS='|' read -r stored_name stored_path stored_id stored_size stored_related stored_system stored_sensitive stored_sudo stored_brew stored_cask stored_diag stored_review stored_login stored_guard rest <<< "${app_details[0]}"
+printf 'PREVIEW_ID=%s GUARD=%s RELATED=%s\n' "$stored_id" "$stored_guard" "$stored_related"
+[[ "$stored_id" == com.example.shared && "$stored_guard" != guard_login && -n "$stored_related" && -z "$stored_system" ]] || exit 1
+[[ -s "$HOME/unexpected-discovery" ]] || exit 1
+if [[ "$BATCH_CASE" == new-sibling ]]; then
+    mkdir -p "$HOME/Volumes/External/Survivor.app/Contents"
+    cp "$app_path/Contents/Info.plist" "$HOME/Volumes/External/Survivor.app/Contents/Info.plist"
+fi
+# Invoke the production final installation recheck, but replace every mutation.
+stop_launch_services() { printf 'app-only teardown\n' >> "$HOME/teardown"; }
+unregister_app_bundle() { :; }
+remove_login_item() { :; }
+force_kill_app() { :; }
+bootout_login_item_helpers() { [[ -z "$1" ]] && return 0; printf 'unexpected-helper\n' >> "$HOME/forbidden"; return 99; }
+remove_file_list() {
+    [[ -z "$1" ]] && return 0
+    [[ "$BATCH_CASE" == allowed && "$1" == "$HOME/Library/Preferences/com.example.shared.plist" && "$2" == false && "$3" == com.example.shared ]] || return 99
+    printf '%s\n' "$1" >> "$HOME/leftover-sink-attempt"
+}
+mole_delete() {
+    [[ "$1" == "$HOME/selected/Chosen.app" && "$2" == false && -n "${3:-}" ]] || return 99
+    printf '%s\n' "$1" >> "$HOME/app-sink-attempt"
+    return 0
+}
+success_count=0 failed_count=0 brew_apps_removed=0 total_size_freed=0 files_cleaned=0 total_items=0
+failed_items=() success_items=() success_dock_targets=() system_extension_warning_apps=()
+review_only_system_leftovers=() review_only_system_leftover_keys=() running_at_uninstall_apps=()
+rc=0
+_batch_execute_removals || rc=$?
+printf 'FINAL_RC=%s SUCCESS=%s FAILED=%s\n' "$rc" "$success_count" "$failed_count"
+[[ $rc -eq 0 ]] || exit 1
+if [[ "$BATCH_CASE" == allowed ]]; then
+    [[ $success_count -eq 1 && $failed_count -eq 0 && -s "$HOME/app-sink-attempt" && -s "$HOME/leftover-sink-attempt" ]] || exit 1
+else
+    [[ $success_count -eq 0 && $failed_count -eq 1 && ! -e "$HOME/app-sink-attempt" && ! -e "$HOME/leftover-sink-attempt" ]] || exit 1
+fi
+[[ ! -e "$HOME/forbidden" && -f "$HOME/Library/Preferences/com.example.shared.plist" && -d "$HOME/selected/Chosen.app" ]] || exit 1
+printf 'TIME_MACHINE_PLAN_VERIFIED_WITHOUT_REAL_DELETION\n'
+EOF_ROOT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *TIME_MACHINE_PLAN_VERIFIED_WITHOUT_REAL_DELETION* ]] || return 1
+}
+
 @test "find_app_files discovers user-level leftovers" {
     create_app_artifacts
 
@@ -1027,6 +1194,46 @@ EOF
         echo "$output"
         return 1
     }
+}
+
+@test "system Time Machine snapshots do not make live sibling discovery incomplete" {
+    assert_time_machine_volume_scan system 1
+}
+
+@test "system Time Machine exclusion works through the real Perl timeout backend" {
+    assert_time_machine_volume_scan bounded 1
+}
+
+@test "Time Machine exclusion preserves real external application siblings" {
+    assert_time_machine_volume_scan sibling 0
+}
+
+@test "Time Machine exclusion does not hide similarly named external volumes" {
+    assert_time_machine_volume_scan lookalike 0
+}
+
+@test "Time Machine named mounted volumes are still scanned for siblings" {
+    assert_time_machine_volume_scan mounted 0
+}
+
+@test "unverified Time Machine ownership keeps sibling discovery unknown" {
+    assert_time_machine_volume_scan user-owned 3
+}
+
+@test "missing Time Machine metadata keeps sibling discovery unknown" {
+    assert_time_machine_volume_scan missing-metadata 3
+}
+
+@test "ordinary unreadable volumes still make sibling discovery incomplete" {
+    assert_time_machine_volume_scan ordinary 3
+}
+
+@test "Time Machine exclusion preserves depth-two volume discovery" {
+    assert_time_machine_volume_scan first-level 1
+}
+
+@test "Time Machine metadata interruption cancels sibling discovery" {
+    assert_time_machine_volume_scan interrupted 130
 }
 
 @test "live same-bundle scan covers exact package receipt apps" {
@@ -5119,6 +5326,14 @@ printf 'SHARED_LEFTOVERS_PRESERVED_WITHOUT_REAL_DELETION\n'
 EOF_ROOT
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == *SHARED_LEFTOVERS_PRESERVED_WITHOUT_REAL_DELETION* ]] || return 1
+}
+
+@test "system Time Machine snapshots permit the same leftover plan in preview and execution" {
+    assert_time_machine_batch_plan allowed
+}
+
+@test "new external sibling after Time Machine preview prevents final removal" {
+    assert_time_machine_batch_plan new-sibling
 }
 
 @test "sibling find diagnostics show the cause after a Perl timeout preamble" {

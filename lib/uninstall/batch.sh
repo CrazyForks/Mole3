@@ -1105,9 +1105,35 @@ uninstall_live_bundle_has_other_install() {
             return 2
         }
         local volume_scan_rc=0
+        local snapshot_root="$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT/com.apple.TimeMachine.localsnapshots"
+        local -a volume_exclusion=()
+        if [[ -d "$snapshot_root" && ! -L "$snapshot_root" && ! -L "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" ]]; then
+            # Only exclude Apple's internal snapshot namespace, not a mounted
+            # disk with the same name. Unknown metadata keeps the normal scan.
+            local snapshot_metadata="" snapshot_rc=0 metadata_timeout
+            metadata_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" "$deadline_seconds") || snapshot_rc=$?
+            if [[ $snapshot_rc -eq 0 ]]; then
+                snapshot_metadata=$(run_with_timeout "$metadata_timeout" stat -f '%u:%d' \
+                    "$snapshot_root" "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" < /dev/null 2> /dev/null) || snapshot_rc=$?
+            fi
+            if [[ $snapshot_rc -ge 128 ]]; then
+                rm -f -- "$volume_roots_file" "$scan_file" "$pkg_paths_file" 2> /dev/null || true # SAFE: exact tracked temp files created above
+                return "$snapshot_rc"
+            fi
+            if [[ $snapshot_rc -eq 0 && "$snapshot_metadata" == *$'\n'* ]]; then
+                local snapshot_identity="${snapshot_metadata%%$'\n'*}"
+                local volume_identity="${snapshot_metadata#*$'\n'}"
+                if [[ "$snapshot_identity" == 0:* && "$volume_identity" == "$snapshot_identity" &&
+                    "${snapshot_identity#0:}" =~ ^[0-9]+$ ]]; then
+                    volume_exclusion=(-name com.apple.TimeMachine.localsnapshots -prune -o)
+                fi
+            fi
+        fi
+        # mindepth suppresses prune at depth one. Filter the completed output
+        # below instead, retaining the original depth-two candidate scope.
         _uninstall_materialize_complete_find0 "$volume_roots_file" \
             "$deadline_seconds" "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" \
-            -mindepth 2 -maxdepth 2 \
+            -maxdepth 2 "${volume_exclusion[@]+"${volume_exclusion[@]}"}" \
             \( \
             \( -type d -name Applications \) -o \
             \( \( -type d -o -type l \) -iname '*.app' \) \
@@ -1126,6 +1152,8 @@ uninstall_live_bundle_has_other_install() {
         fi
         local volume_root
         while IFS= read -r -d '' volume_root; do
+            local volume_relative="${volume_root#"$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT"/}"
+            [[ "$volume_relative" != "$volume_root" && "$volume_relative" == */* ]] || continue
             live_roots+=("$volume_root")
         done < "$volume_roots_file"
         rm -f -- "$volume_roots_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
