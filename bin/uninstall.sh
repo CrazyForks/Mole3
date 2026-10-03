@@ -391,7 +391,7 @@ start_uninstall_metadata_refresh() {
             max_parallel=4
         fi
         local -a worker_pids=()
-        local worker_idx=0
+        local worker_idx=0 wait_rc=0
 
         while IFS='|' read -r app_path app_mtime bundle_id display_name language_signature; do
             [[ -n "$app_path" && -d "$app_path" ]] || continue
@@ -422,10 +422,35 @@ start_uninstall_metadata_refresh() {
             worker_pids+=($!)
 
             if ((${#worker_pids[@]} >= max_parallel)); then
-                wait "${worker_pids[0]}" 2> /dev/null || true
-                worker_pids=("${worker_pids[@]:1}")
+                local completed_pid="" worker_slot
+                wait_rc=0
+                mole_wait_for_any_worker completed_pid "${worker_pids[@]}" || wait_rc=$?
+                if [[ $wait_rc -ge 128 ]]; then
+                    for worker_pid in "${worker_pids[@]}"; do
+                        kill "$worker_pid" 2> /dev/null || true
+                    done
+                    for worker_pid in "${worker_pids[@]}"; do
+                        wait "$worker_pid" 2> /dev/null || true
+                    done
+                    break
+                fi
+                for worker_slot in "${!worker_pids[@]}"; do
+                    if [[ "${worker_pids[$worker_slot]}" == "$completed_pid" ]]; then
+                        unset 'worker_pids[worker_slot]'
+                        break
+                    fi
+                done
             fi
         done < "$refresh_file"
+
+        if [[ $wait_rc -ge 128 ]]; then
+            local output_idx
+            for ((output_idx = 1; output_idx <= worker_idx; output_idx++)); do
+                rm -f "${updates_file}.${output_idx}" # SAFE: exact scratch output of this refresh worker
+            done
+            rm -f "$updates_file" "$refresh_file" # SAFE: exact scratch files owned by this detached refresh
+            exit "$wait_rc"
+        fi
 
         local worker_pid
         for worker_pid in "${worker_pids[@]}"; do
@@ -635,18 +660,66 @@ uninstall_resolve_eligible_bundle_id() {
 
 uninstall_print_app_paths_with_mtime() {
     local app_dir="$1"
-    local app_path app_mtime
+    local include_info_mtime="${2:-false}"
 
     [[ -d "$app_dir" ]] || return 0
 
-    while IFS= read -r -d '' app_path; do
-        [[ -n "$app_path" ]] || continue
-        app_mtime=$(get_file_mtime "$app_path")
-        printf '%s\t%s\n' "${app_mtime:-0}" "$app_path"
-    done < <(command find "$app_dir" -maxdepth 3 -iname "*.app" -print0 2> /dev/null)
+    # shellcheck disable=SC2016 # The child shell expands the batch arguments.
+    command find "$app_dir" -maxdepth 3 -iname "*.app" -exec /bin/bash -c '
+        stat_cmd="$1"
+        include_info="$2"
+        shift 2
+        stat_paths=("$@")
+        if [[ "$include_info" == true ]]; then
+            for app_path in "$@"; do
+                if [[ -e "$app_path/Contents/Info.plist" || -L "$app_path/Contents/Info.plist" ]]; then
+                    stat_paths+=("$app_path/Contents/Info.plist")
+                fi
+            done
+        fi
+        if rows=$("$stat_cmd" -f "%m%t%N" "${stat_paths[@]}" 2>/dev/null); then
+            if [[ "$include_info" == true ]]; then
+                printf "%s\n" "$rows" | awk -F "\t" '\''
+                    {
+                        path = substr($0, index($0, "\t") + 1)
+                        mtimes[path] = $1 ~ /^[0-9]+$/ ? $1 : 0
+                        if (tolower(path) ~ /[.]app$/) paths[++count] = path
+                    }
+                    END {
+                        for (i = 1; i <= count; i++) {
+                            path = paths[i]
+                            info = mtimes[path "/Contents/Info.plist"]
+                            printf "%s\t%s\t%s\n", mtimes[path], (info == "" ? 0 : info), path
+                        }
+                    }
+                '\''
+            else
+                printf "%s\n" "$rows" | awk -F "\t" '\''
+                    { printf "%s\t%s\n", ($1 ~ /^[0-9]+$/ ? $1 : 0), substr($0, index($0, "\t") + 1) }
+                '\''
+            fi
+        else
+            # Discard a partial batch and preserve the old zero-mtime fallback.
+            for app_path in "$@"; do
+                app_mtime=$("$stat_cmd" -f%m "$app_path" 2>/dev/null) || app_mtime=0
+                [[ "$app_mtime" =~ ^[0-9]+$ ]] || app_mtime=0
+                if [[ "$include_info" == true ]]; then
+                    info_mtime=$("$stat_cmd" -f%m "$app_path/Contents/Info.plist" 2>/dev/null) || info_mtime=0
+                    [[ "$info_mtime" =~ ^[0-9]+$ ]] || info_mtime=0
+                    printf "%s\t%s\t%s\n" "$app_mtime" "$info_mtime" "$app_path"
+                else
+                    printf "%s\t%s\n" "$app_mtime" "$app_path"
+                fi
+            done
+        fi
+    ' _ "$STAT_BSD" "$include_info_mtime" {} + 2> /dev/null
 }
 
 uninstall_app_inventory_fingerprint() {
+    if [[ -n "${1:-}" && -s "$1" ]]; then
+        LC_ALL=C sort -u "$1"
+        return $?
+    fi
     local app_dir app_path app_mtime info_mtime pkg_app_path
 
     {
@@ -659,12 +732,16 @@ uninstall_app_inventory_fingerprint() {
 
         while IFS= read -r app_dir; do
             [[ -d "$app_dir" ]] || continue
-            while IFS=$'\t' read -r app_mtime app_path; do
+            while IFS=$'\t' read -r app_mtime info_mtime app_path; do
+                if [[ ! "$info_mtime" =~ ^[0-9]+$ ]]; then
+                    app_path="${info_mtime}${app_path:+$'\t'$app_path}"
+                    info_mtime=""
+                fi
                 [[ -n "$app_path" ]] || continue
                 uninstall_should_skip_app_path "$app_path" && continue
-                info_mtime=$(get_file_mtime "$app_path/Contents/Info.plist")
+                [[ "$info_mtime" =~ ^[0-9]+$ ]] || info_mtime=$(get_file_mtime "$app_path/Contents/Info.plist")
                 printf '%s|%s|%s\n' "$app_path" "${app_mtime:-0}" "${info_mtime:-0}"
-            done < <(uninstall_print_app_paths_with_mtime "$app_dir")
+            done < <(uninstall_print_app_paths_with_mtime "$app_dir" true)
         done < <(uninstall_print_app_search_dirs)
     } | LC_ALL=C sort -u
 }
@@ -702,11 +779,43 @@ uninstall_inventory_can_reuse_cached_apps() {
 # declared in the orchestrator's scope via bash dynamic scoping; do not
 # call them outside scan_applications.
 
+# Both metadata phases publish their live workers to scan_applications so
+# interruption can stop and reap them before removing the scan scratch files.
+_scan_stop_metadata_workers() {
+    if [[ ${#metadata_worker_pids[@]} -gt 0 ]]; then
+        local metadata_pid
+        for metadata_pid in "${metadata_worker_pids[@]}"; do
+            kill "$metadata_pid" 2> /dev/null || true
+        done
+        for metadata_pid in "${metadata_worker_pids[@]}"; do
+            wait "$metadata_pid" 2> /dev/null || true
+        done
+    fi
+    metadata_worker_pids=()
+    if [[ ${#metadata_worker_outputs[@]} -gt 0 ]]; then
+        local metadata_output
+        for metadata_output in "${metadata_worker_outputs[@]}"; do
+            rm -f "$metadata_output" # SAFE: exact per-worker scan scratch path
+        done
+    fi
+    metadata_worker_outputs=()
+    if [[ -n "${metadata_worker_output_dir:-}" ]]; then
+        rmdir "$metadata_worker_output_dir" 2> /dev/null || true
+        metadata_worker_output_dir=""
+    fi
+}
+
+_scan_record_inventory_app() {
+    local app_path="$1" app_mtime="$2" info_mtime="${3:-}"
+    [[ "$info_mtime" =~ ^[0-9]+$ ]] || info_mtime=$(get_file_mtime "$app_path/Contents/Info.plist")
+    printf '%s|%s|%s\n' "$app_path" "${app_mtime:-0}" "${info_mtime:-0}" >> "$scan_inventory_file"
+}
+
 # Phase 2 (Pass 1): discover candidate .app paths by combining the
 # configured app search directories with pkg-receipt non-standard install
 # locations, skipping bundles flagged by uninstall_should_skip_app_path.
 # Each row in discovered_file is encoded as <app_path>|<app_name>|<app_mtime>.
-# Writes: discovered_file
+# Writes: discovered_file and scan_inventory_file
 _scan_discover_apps() {
     local -a app_dirs=()
     local app_dir
@@ -718,6 +827,12 @@ _scan_discover_apps() {
     local pkg_app_path
     while IFS= read -r pkg_app_path; do
         [[ -n "$pkg_app_path" ]] || continue
+
+        local app_mtime
+        app_mtime=$(get_file_mtime "$pkg_app_path")
+        if [[ -d "$pkg_app_path" ]]; then
+            _scan_record_inventory_app "$pkg_app_path" "$app_mtime"
+        fi
 
         local already_scanned=false
         for app_dir in "${app_dirs[@]}"; do
@@ -731,16 +846,18 @@ _scan_discover_apps() {
         local app_name="${pkg_app_path##*/}"
         app_name="${app_name%.[aA][pP][pP]}"
 
-        local app_mtime
-        app_mtime=$(get_file_mtime "$pkg_app_path")
-
         printf "%s|%s|%s\n" "$pkg_app_path" "$app_name" "${app_mtime:-0}" >> "$discovered_file"
     done < <(pkg_receipt_nonstandard_app_paths)
 
     for app_dir in "${app_dirs[@]}"; do
         if [[ ! -d "$app_dir" ]]; then continue; fi
 
-        while IFS=$'\t' read -r app_mtime app_path; do
+        local info_mtime
+        while IFS=$'\t' read -r app_mtime info_mtime app_path; do
+            if [[ ! "$info_mtime" =~ ^[0-9]+$ ]]; then
+                app_path="${info_mtime}${app_path:+$'\t'$app_path}"
+                info_mtime=""
+            fi
             if [[ ! -e "$app_path" ]]; then continue; fi
 
             local app_name="${app_path##*/}"
@@ -748,8 +865,10 @@ _scan_discover_apps() {
 
             uninstall_should_skip_app_path "$app_path" && continue
 
+            _scan_record_inventory_app "$app_path" "$app_mtime" "$info_mtime"
+
             printf "%s|%s|%s\n" "$app_path" "$app_name" "${app_mtime:-0}" >> "$discovered_file"
-        done < <(uninstall_print_app_paths_with_mtime "$app_dir")
+        done < <(uninstall_print_app_paths_with_mtime "$app_dir" true)
     done
 }
 
@@ -766,13 +885,14 @@ _scan_partition_cache() {
         local cached_bundle_id="$3"
         local cached_display_name="$4"
         local cached_size_kb="$5"
+        local cached_output_file="$6"
 
         [[ -n "$cached_bundle_id" && -n "$cached_display_name" ]] || return 1
         [[ "$cached_size_kb" =~ ^[0-9]+$ && "$cached_size_kb" -gt 0 ]] || return 1
 
         cached_bundle_id=$(uninstall_resolve_eligible_bundle_id "$cached_app_path" "$cached_bundle_id") || return 1
 
-        printf "%s|%s|%s|%s|%s\n" "$cached_app_path" "$cached_display_name" "$cached_bundle_id" "$cached_app_mtime" "$cached_size_kb" >> "$scan_raw_file"
+        printf "%s|%s|%s|%s|%s\n" "$cached_app_path" "$cached_display_name" "$cached_bundle_id" "$cached_app_mtime" "$cached_size_kb" >> "$cached_output_file"
         return 0
     }
 
@@ -799,10 +919,71 @@ _scan_partition_cache() {
             }
         ' "$cache_source" "$discovered_file"
 
+        # Live eligibility checks still run for warm rows, but share a small
+        # worker budget instead of serializing every plist and protection probe.
+        _ensure_uninstall_regex
+        local max_parallel
+        max_parallel=$(get_optimal_parallel_jobs io)
+        [[ "$max_parallel" =~ ^[0-9]+$ && $max_parallel -gt 0 ]] || max_parallel=1
+        [[ $max_parallel -le 4 ]] || max_parallel=4
+        metadata_worker_outputs=()
+        metadata_worker_pids=()
+        if [[ -s "$cached_rows_file" ]]; then
+            metadata_worker_output_dir=$(create_temp_dir) || return 1
+        fi
         local cached_app_path cached_app_mtime cached_bundle_id cached_display_name cached_size_kb
+        local completed_pid="" worker_slot warm_rc=0
         while IFS='|' read -r cached_app_path cached_app_mtime cached_bundle_id cached_display_name cached_size_kb; do
-            use_cached_scan_metadata "$cached_app_path" "$cached_app_mtime" "$cached_bundle_id" "$cached_display_name" "$cached_size_kb" || true
+            local warm_output="${metadata_worker_output_dir}/warm.${#metadata_worker_outputs[@]}"
+            metadata_worker_outputs+=("$warm_output")
+            (
+                umask 077
+                use_cached_scan_metadata "$cached_app_path" "$cached_app_mtime" "$cached_bundle_id" "$cached_display_name" "$cached_size_kb" "$warm_output" || true
+            ) < /dev/null &
+            metadata_worker_pids+=("$!")
+            if [[ ${#metadata_worker_pids[@]} -ge $max_parallel ]]; then
+                warm_rc=0
+                mole_wait_for_any_worker completed_pid "${metadata_worker_pids[@]}" || warm_rc=$?
+                if [[ $warm_rc -ge 128 ]]; then
+                    break
+                fi
+                for worker_slot in "${!metadata_worker_pids[@]}"; do
+                    if [[ "${metadata_worker_pids[$worker_slot]}" == "$completed_pid" ]]; then
+                        unset 'metadata_worker_pids[worker_slot]'
+                        break
+                    fi
+                done
+            fi
         done < "$cached_rows_file"
+        if [[ $warm_rc -ge 128 ]]; then
+            _scan_stop_metadata_workers
+        fi
+        if [[ ${#metadata_worker_pids[@]} -gt 0 ]]; then
+            for pid in "${metadata_worker_pids[@]}"; do
+                [[ $warm_rc -lt 128 ]] || kill "$pid" 2> /dev/null || true
+                local worker_rc=0
+                wait "$pid" 2> /dev/null || worker_rc=$?
+                [[ $worker_rc -lt 128 ]] || warm_rc=$worker_rc
+            done
+        fi
+        metadata_worker_pids=()
+        if [[ ${#metadata_worker_outputs[@]} -gt 0 ]]; then
+            for warm_output in "${metadata_worker_outputs[@]}"; do
+                if [[ $warm_rc -lt 128 && -f "$warm_output" ]]; then
+                    local cached_scan_row
+                    while IFS= read -r cached_scan_row; do
+                        printf '%s\n' "$cached_scan_row"
+                    done < "$warm_output" >> "$scan_raw_file"
+                fi
+                rm -f "$warm_output" # SAFE: exact per-worker scan scratch path above
+            done
+        fi
+        metadata_worker_outputs=()
+        if [[ -n "${metadata_worker_output_dir:-}" ]]; then
+            rmdir "$metadata_worker_output_dir" 2> /dev/null || true
+            metadata_worker_output_dir=""
+        fi
+        [[ $warm_rc -lt 128 ]] || return "$warm_rc"
 
         local uncached_app_path uncached_app_name uncached_app_mtime uncached_bundle_id uncached_display_name
         while IFS='|' read -r uncached_app_path uncached_app_name uncached_app_mtime uncached_bundle_id uncached_display_name; do
@@ -836,7 +1017,7 @@ _scan_resolve_uncached() {
     elif [[ $max_parallel -gt 32 ]]; then
         max_parallel=32 # Cap at 32 to avoid too many processes
     fi
-    local pids=()
+    metadata_worker_pids=()
 
     process_app_metadata() {
         local app_data_tuple="$1"
@@ -880,18 +1061,32 @@ _scan_resolve_uncached() {
             # process_app_metadata does not hand the controlling terminal to its
             # timed mdls/du child from this background worker (issue #1222).
             process_app_metadata "$app_data_tuple" "$scan_raw_file" < /dev/null &
-            pids+=($!)
+            metadata_worker_pids+=($!)
             update_scan_status "Scanning applications..." "$app_count" "$total_apps"
 
-            if ((${#pids[@]} >= max_parallel)); then
-                wait "${pids[0]}" 2> /dev/null
-                pids=("${pids[@]:1}")
+            if ((${#metadata_worker_pids[@]} >= max_parallel)); then
+                local completed_pid="" worker_slot wait_rc=0
+                mole_wait_for_any_worker completed_pid "${metadata_worker_pids[@]}" || wait_rc=$?
+                if [[ $wait_rc -ge 128 ]]; then
+                    return "$wait_rc"
+                fi
+                for worker_slot in "${!metadata_worker_pids[@]}"; do
+                    if [[ "${metadata_worker_pids[$worker_slot]}" == "$completed_pid" ]]; then
+                        unset 'metadata_worker_pids[worker_slot]'
+                        break
+                    fi
+                done
             fi
         done
 
-        for pid in "${pids[@]}"; do
-            wait "$pid" 2> /dev/null
+        for pid in "${metadata_worker_pids[@]+"${metadata_worker_pids[@]}"}"; do
+            local wait_rc=0
+            wait "$pid" 2> /dev/null || wait_rc=$?
+            if [[ $wait_rc -ge 128 ]]; then
+                return "$wait_rc"
+            fi
         done
+        metadata_worker_pids=()
     fi
 }
 
@@ -1154,7 +1349,7 @@ _scan_finalize_index() {
     update_scan_status "Sorting application list..." "0" "0"
     sort -t'|' -k1,1n "$temp_file" > "${temp_file}.sorted" || {
         stop_scan_spinner
-        rm -f "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file"
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file"
         [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
         restore_scan_int_trap
         return 1
@@ -1170,6 +1365,13 @@ _scan_finalize_index() {
     debug_log "Uninstall finalization: spinner stopped (elapsed ${SECONDS}s, parent $$)"
 
     if [[ -f "${temp_file}.sorted" ]]; then
+        # shellcheck disable=SC2217 # BSD mv may read stdin when overriding permissions.
+        mv -f "$scan_inventory_file" "${temp_file}.sorted.inventory" < /dev/null || {
+            rm -f "$scan_inventory_file" "${temp_file}.sorted" # SAFE: exact scan output and inventory scratch files
+            restore_scan_int_trap
+            return 1
+        }
+        register_temp_file "${temp_file}.sorted.inventory"
         register_temp_file "${temp_file}.sorted"
         restore_scan_int_trap
         echo "${temp_file}.sorted"
@@ -1185,7 +1387,7 @@ _scan_finalize_index() {
 # temp files, spinner subprocess, INT trap, and metadata cache lock.
 scan_applications() {
     local temp_file scan_raw_file merged_file refresh_file cache_snapshot_file discovered_file cached_rows_file uncached_rows_file
-    temp_file=$(create_temp_file)
+    temp_file=$(create_temp_file) || return 1
     scan_raw_file="${temp_file}.scan"
     merged_file="${temp_file}.merged"
     refresh_file="${temp_file}.refresh"
@@ -1193,6 +1395,11 @@ scan_applications() {
     discovered_file="${temp_file}.discovered"
     cached_rows_file="${temp_file}.cached_rows"
     uncached_rows_file="${temp_file}.uncached_rows"
+    local scan_inventory_file
+    scan_inventory_file=$(create_temp_file) || {
+        rm -f "$temp_file" # SAFE: exact scan scratch anchor, before any worker starts
+        return 1
+    }
     local scan_status_file="${temp_file}.scan_status"
     : > "$scan_raw_file"
     : > "$refresh_file"
@@ -1212,11 +1419,16 @@ scan_applications() {
         cache_source_is_temp=true
     fi
 
+    local -a metadata_worker_pids=() metadata_worker_outputs=()
+    local metadata_worker_output_dir=""
+
     # Local spinner_pid for cleanup
     local spinner_pid=""
     local spinner_shown_file="${temp_file}.spinner_shown"
     local previous_int_trap=""
+    local previous_term_trap=""
     previous_int_trap=$(trap -p INT || true)
+    previous_term_trap=$(trap -p TERM || true)
 
     restore_scan_int_trap() {
         if [[ -n "$previous_int_trap" ]]; then
@@ -1225,11 +1437,18 @@ scan_applications() {
         else
             trap - INT
         fi
+        if [[ -n "$previous_term_trap" ]]; then
+            # eval: restore previous trap captured by $(trap -p TERM)
+            eval "$previous_term_trap"
+        else
+            trap - TERM
+        fi
     }
 
     # Trap to handle Ctrl+C during scan
     # shellcheck disable=SC2329  # Function invoked indirectly via trap
     trap_scan_cleanup() {
+        _scan_stop_metadata_workers
         if [[ -n "$spinner_pid" ]]; then
             kill -TERM "$spinner_pid" 2> /dev/null || true
             wait "$spinner_pid" 2> /dev/null || true
@@ -1237,10 +1456,11 @@ scan_applications() {
         if [[ -f "$spinner_shown_file" ]]; then
             printf "\r\033[K" >&2
         fi
-        rm -f "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "$scan_status_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
-        exit 130
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "$scan_status_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
+        exit "${1:-130}"
     }
     trap trap_scan_cleanup INT
+    trap 'trap_scan_cleanup 143' TERM
 
     update_scan_status() {
         local message="$1"
@@ -1300,12 +1520,21 @@ scan_applications() {
 
     # Phase 3: partition into warm-cache and cold rows.
     local -a app_data_tuples=()
-    _scan_partition_cache
+    local metadata_rc=0
+    _scan_partition_cache || metadata_rc=$?
+    if [[ $metadata_rc -ne 0 ]]; then
+        _scan_stop_metadata_workers
+        stop_scan_spinner
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" # SAFE: exact scan scratch paths above
+        [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
+        restore_scan_int_trap
+        return "$metadata_rc"
+    fi
 
     # Phase 4: bail out if discovery yielded nothing.
     if [[ ${#app_data_tuples[@]} -eq 0 && ! -s "$scan_raw_file" ]]; then
         stop_scan_spinner
-        rm -f "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "$scan_status_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "$scan_status_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
         [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
         restore_scan_int_trap
         printf "\r\033[K" >&2
@@ -1313,7 +1542,15 @@ scan_applications() {
         return 1
     fi
     # Phase 5: parallel metadata resolution for cold rows.
-    _scan_resolve_uncached
+    _scan_resolve_uncached || metadata_rc=$?
+    if [[ $metadata_rc -ne 0 ]]; then
+        _scan_stop_metadata_workers
+        stop_scan_spinner
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" # SAFE: exact scan scratch paths above
+        [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
+        restore_scan_int_trap
+        return "$metadata_rc"
+    fi
 
     # Phase 6: bail out if Pass 2 produced nothing.
     update_scan_status "Building uninstall index..." "0" "0"
@@ -1321,7 +1558,7 @@ scan_applications() {
     if [[ ! -s "$scan_raw_file" ]]; then
         stop_scan_spinner
         echo "No applications found to uninstall" >&2
-        rm -f "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
+        rm -f "$scan_inventory_file" "$temp_file" "$scan_raw_file" "$merged_file" "$refresh_file" "$cache_snapshot_file" "$discovered_file" "$cached_rows_file" "$uncached_rows_file" "${temp_file}.sorted" "$spinner_shown_file" 2> /dev/null || true
         [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
         restore_scan_int_trap
         return 1
@@ -1566,11 +1803,11 @@ uninstall_list_apps() {
         return 1
     fi
     if ! load_applications "$apps_file"; then
-        rm -f "$apps_file"
+        rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
         uninstall_abort "no applications available for uninstallation"
         return 1
     fi
-    rm -f "$apps_file"
+    rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
 
     # Auto-switch to JSON when stdout is piped, matching `mo status`.
     local format="text"
@@ -1739,13 +1976,13 @@ main() {
             return 1
         fi
         if ! load_applications "$apps_file"; then
-            rm -f "$apps_file"
+            rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
             uninstall_abort "no applications available for uninstallation"
             return 1
         fi
 
         match_apps_by_name "${app_name_args[@]}"
-        rm -f "$apps_file"
+        rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
 
         if [[ ${#selected_apps[@]} -eq 0 ]]; then
             show_cursor
@@ -1833,7 +2070,8 @@ main() {
             debug_log "Uninstall interactive scan returned (elapsed ${SECONDS}s, parent $$)"
             cached_apps_file="$apps_file"
             debug_log "Uninstall inventory fingerprint begin (elapsed ${SECONDS}s, parent $$)"
-            cached_inventory_fingerprint=$(uninstall_app_inventory_fingerprint 2> /dev/null || echo "")
+            cached_inventory_fingerprint=$(uninstall_app_inventory_fingerprint "${apps_file}.inventory" 2> /dev/null || echo "")
+            rm -f "${apps_file}.inventory" # SAFE: exact sidecar produced by scan_applications
             debug_log "Uninstall inventory fingerprint complete (elapsed ${SECONDS}s, parent $$)"
         fi
 
