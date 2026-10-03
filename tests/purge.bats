@@ -3783,3 +3783,103 @@ EOF_SIGNAL_WRITE
     [[ "$output" == *CANCELLED_WITH_FAILED_WRITER* ]] || return 1
     [[ "$output" != *SIZE_PHASE_REACHED* && "$output" != *LATER_PROBE_REACHED* && "$output" != *UNEXPECTED_REMOVE* ]] || return 1
 }
+
+@test "activity sliding window reaches a later fast artifact while an earlier probe waits" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_WINDOW'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/activity-window.XXXXXX")
+for name in a-waits b-fast c-recent d-error e-later f-later-error; do
+    artifact="$fixture/www/$name/node_modules"
+    mkdir -p "$artifact"
+    touch "$fixture/www/$name/package.json"
+    touch -t 202001010101 "$artifact"
+done
+touch "$fixture/www/c-recent/node_modules/current.js"
+PURGE_SEARCH_PATHS=("$fixture/www")
+scan_purge_targets() {
+    printf '%s\n' "$fixture/www/"{a-waits,b-fast,c-recent,d-error,e-later,f-later-error}/node_modules > "$2"
+}
+purge_artifact_has_authored_content() { return 1; }
+get_optimal_parallel_jobs() { echo 4; }
+get_dir_size_kb() { echo 1; }
+safe_remove() { printf 'SELECTED:%s\n' "$1"; }
+mkdir -p "$fixture/bin"
+cat > "$fixture/bin/find" <<'EOF_FIND'
+#!/bin/bash
+case "$1" in
+    */a-waits/node_modules)
+        while [[ ! -e "$ACTIVITY_WINDOW_FIXTURE/later-probed" ]]; do sleep 0.02; done
+        ;;
+    */e-later/node_modules) touch "$ACTIVITY_WINDOW_FIXTURE/later-probed" ;;
+    */d-error/node_modules | */f-later-error/node_modules) exit 2 ;;
+esac
+exec /usr/bin/find "$@"
+EOF_FIND
+chmod +x "$fixture/bin/find"
+export ACTIVITY_WINDOW_FIXTURE="$fixture" PATH="$fixture/bin:$PATH"
+export MO_PURGE_ACTIVITY_TOTAL_TIMEOUT_SEC=5 MO_PURGE_ACTIVITY_TIMEOUT_SEC=2 MOLE_DRY_RUN=1
+clean_project_artifacts </dev/null
+[[ -e "$fixture/later-probed" ]] || exit 1
+for name in a-waits b-fast c-recent d-error e-later f-later-error; do
+    [[ -d "$fixture/www/$name/node_modules" ]] || exit 1
+done
+printf 'FIXTURE=%s\n' "$fixture"
+EOF_WINDOW
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local fixture
+    fixture="$(printf '%s\n' "$output" | sed -n 's/^FIXTURE=//p')"
+    [[ -n "$fixture" ]] || return 1
+    [[ "$output" == *"SELECTED:$fixture/www/a-waits/node_modules"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SELECTED:$fixture/www/b-fast/node_modules"* ]] || return 1
+    [[ "$output" == *"SELECTED:$fixture/www/e-later/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/c-recent/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/d-error/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/f-later-error/node_modules"* ]] || return 1
+}
+
+@test "activity sliding window keeps result status bound to its original index" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_INDEX'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/activity-index.XXXXXX")
+for name in a-delayed b-failed c-control d-recent e-error; do
+    mkdir -p "$fixture/www/$name/node_modules"
+    touch "$fixture/www/$name/package.json"
+done
+PURGE_SEARCH_PATHS=("$fixture/www")
+scan_purge_targets() { printf '%s\n' "$fixture/www/"{a-delayed,b-failed,c-control,d-recent,e-error}/node_modules > "$2"; }
+purge_artifact_has_authored_content() { return 1; }
+get_optimal_parallel_jobs() { echo 2; }
+get_dir_size_kb() { echo 1; }
+safe_remove() { printf 'SELECTED:%s\n' "$1"; }
+is_recently_modified() {
+    case "$1" in
+        */a-delayed/node_modules) sleep 0.4 ;;
+        */d-recent/node_modules) _PURGE_ACTIVITY_STATE=recent; return 0 ;;
+        */e-error/node_modules) _PURGE_ACTIVITY_STATE=uncertain; return 0 ;;
+    esac
+    _PURGE_ACTIVITY_STATE=old
+    return 1
+}
+printf() {
+    if [[ "$1" == '%s %s\n' && "${item:-}" == */b-failed/node_modules ]]; then
+        builtin printf '1 old\n'
+        exit 7
+    fi
+    builtin printf "$@"
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts </dev/null
+printf 'FIXTURE=%s\n' "$fixture"
+EOF_INDEX
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local fixture
+    fixture="$(printf '%s\n' "$output" | sed -n 's/^FIXTURE=//p')"
+    [[ -n "$fixture" ]] || return 1
+    [[ "$output" == *"SELECTED:$fixture/www/a-delayed/node_modules"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SELECTED:$fixture/www/c-control/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/b-failed/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/d-recent/node_modules"* ]] || return 1
+    [[ "$output" != *"SELECTED:$fixture/www/e-error/node_modules"* ]] || return 1
+}
