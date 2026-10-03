@@ -3,7 +3,33 @@
 Snapshot date: 2026-10-03, Asia/Taipei.
 Authorization updated: the maintainer approved execution, contributor-branch improvements, commit/push/merge, and per-item reply/closure after a delivered fix. Use Nightly for user testing; no stable tag or release is requested. Unresolved reports remain open with a concrete evidence request.
 
-## Verified baseline
+## Execution status
+
+The baseline and dispositions below are the original review snapshot. Current execution supersedes their pre-implementation closure recommendations.
+
+- PR 1671 merged as `cf9202dd074fab09c005f26184fc4185f22892d8` after local full tests and successful CI.
+- PR 1672 revised on the contributor branch (`7a4340faf4cb80f5ad03de70f023345552c32909`) and merged as `f3b6ea5b3773b9429aa70909593636237dc71ef8`; all nine head checks succeeded.
+- PR 1673 has sibling-result regressions and a non-rewriting merge of main (`d4d63bb2947664bdd240e13ac0d6a30eeb6100c0`). Both appended regression groups were retained, combined full tests and all nine CI checks passed. Merged as `3123ea92b8c3decad7bc0101391c2b9c97ef5605`.
+- PR 1667 was narrowed on the contributor branch (`55fd21126b80908f5ecf50b784d355e181499da2`). Twenty-six output statements retain their plain text with color and NO_COLOR; project checks, full tests and all nine CI checks passed. Merged as `ae89192875b1aa950e0c9b02b1fe38a5c21c1a5b`.
+- Uninstall probe/finalization diagnostics are delivered on main as `cf75d0c3d015a48dfa5f1aef2416221ce223a044`; full tests passed and the downloaded main source was checked byte-for-byte.
+- Issue 1659 is closed with the reporter-confirmed built-in Terminal workaround. The maintainer rejected the unnecessary clone-and-diagnose request; that public comment was edited in place to remove it. The tty7-specific hang remains unresolved, not claimed fixed.
+- Issue 1666 is closed for Nightly testing of the bounded activity and filtering corrections. The downloaded source contains both fixes. Authored-content filtering remains bounded and potentially expensive; no speedup or complete result on the reporter's real tree is claimed. Reopen if it persists.
+- Issue 1669 remains open for the actual incomplete-scan reason; diagnostic output is not a leftovers-removal fix. The read-only Nightly preview/log request was posted and read back after 1673 landed. Wait for the reporter before changing scan scope or deletion eligibility.
+- Issue 1631 remains open for samples; only two public machine reports exist, insufficient for the accepted first-20/three-large-cache threshold.
+- The nine original Mac issues were outside this CLI execution. Issues 1650 and 1665 were closed elsewhere during this run (public replies by tw93, respectively Preview 299 and not planned). Remaining Mac IDs: 1453, 1554, 1651, 1660, 1661, 1662, 1668 (7).
+
+Final queue readback on 2026-10-03:
+
+- Initial PR IDs: 1667, 1671, 1672, 1673 (4). Final open PR IDs: none (0); all four are merged. Contributor authors are preserved, and squash messages omit attribution trailers.
+- Initial issue IDs: 1453, 1554, 1631, 1650, 1651, 1659, 1660, 1661, 1662, 1665, 1666, 1668, 1669 (13).
+- This CLI execution closed 1659 and 1666 (2). Separately, 1650 and 1665 closed elsewhere (2). Final open issue IDs: 1453, 1554, 1631, 1651, 1660, 1661, 1662, 1668, 1669 (9), comprising CLI 1631/1669 (2) and Mac (7). No new IDs appeared.
+- Final downloadable main archive at `3123ea92b8c3decad7bc0101391c2b9c97ef5605` matched all ten changed production files and started successfully. Main's combined purge and uninstall diagnostic regressions passed. All four PR heads passed their nine CI checks; post-merge main workflows were still running or queued at readback.
+- Public replies and closure states were read back under tw93 for PRs 1667/1671/1672/1673 and issues 1659/1666/1669. The complex 1659 request was replaced in place, not followed by another comment.
+- Work continues only when 1669 supplies the diagnostic result or 1631 obtains enough samples. The tty7 hang and bounded large-tree performance are recorded limitations, not claimed fixed beyond the stated workaround/improvements.
+
+Intentional visible changes are size-unit colors in real cleanup/summary and additional --debug diagnostics. There are no new flags, tuning controls, cleanup targets or weakened protections. Stable V1.56.1 is unchanged; no tag or stable release was published.
+
+## Original review baseline
 
 - Repository: `tw93/Mole`, branch `main`, HEAD and remote main both `c430bac637929ebede043df81d3bef319428309c`.
 - Worktree was clean before this handoff file was created.
@@ -70,7 +96,7 @@ These nine items are listed to reconcile the complete public queue, not as sourc
 | [1554](https://github.com/tw93/Mole/issues/1554) | Updates refresh misses Homebrew updates | Mac recurrence, reopened; reporter says private diagnostics sent. Retrieve those before another patch. |
 | [1453](https://github.com/tw93/Mole/issues/1453) | Manual fan mode drops back | Mac recurrence, reopened after newer version report; current build/runtime evidence needed, no blind retuning. |
 
-## Execution order after approval
+## Original execution order
 
 1. Revise and validate PR 1673, then merge through the contributor PR. Leave 1669 open.
 2. Diagnose 1669 at the actual failed probes, then deliver the narrow confirmed fix.
