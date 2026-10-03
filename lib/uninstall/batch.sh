@@ -798,6 +798,11 @@ _uninstall_materialize_complete_find0() {
         scan_errors=$(create_temp_file) || return 2
         run_with_timeout "$scan_timeout" find "$@" -print0 \
             < /dev/null > "$output_file" 2> "$scan_errors" || scan_rc=$?
+        if [[ "${MO_DEBUG:-0}" == "1" && $scan_rc -ne 0 ]]; then
+            local scan_error_detail=""
+            IFS= read -r scan_error_detail < "$scan_errors" || true
+            debug_log "Sibling application listing failed (exit $scan_rc): $(mole_terminal_safe_text "$1"): $(mole_terminal_safe_text "${scan_error_detail:0:512}")"
+        fi
         if [[ $scan_rc -eq 1 && -s "$scan_errors" ]]; then
             # Partial view: the listing is real but not exhaustive, so it can
             # support "something is there" and never "nothing is there".
@@ -969,7 +974,10 @@ _uninstall_collect_live_sibling_candidate() {
             fi
         done
         if [[ ! -f "$info" ]]; then
-            [[ "$missing_info_is_unknown" == true ]] && return 2
+            if [[ "$missing_info_is_unknown" == true ]]; then
+                debug_log "Sibling receipt app has no verifiable Info.plist: $(mole_terminal_safe_text "$app")"
+                return 2
+            fi
             return 1
         fi
     fi
@@ -985,7 +993,10 @@ _uninstall_collect_live_sibling_candidate() {
             2> /dev/null) || plist_rc=$?
     fi
     if [[ $plist_rc -ne 0 || -z "$app_bundle" ]]; then
-        mole_rc_timeout_or_signal "$plist_rc" && return "$plist_rc"
+        if mole_rc_timeout_or_signal "$plist_rc"; then
+            debug_log "Sibling bundle ID probe incomplete (exit $plist_rc): $(mole_terminal_safe_text "$info")"
+            return "$plist_rc"
+        fi
         # A plist that parses and simply carries no CFBundleIdentifier is a
         # complete answer, not a failed probe: vendor uninstallers and Steam
         # launchers ship bundles like that, and one with no id cannot share an
@@ -995,12 +1006,20 @@ _uninstall_collect_live_sibling_candidate() {
         # prose. Only a file that will not parse stays unknown.
         local lint_rc=0
         local lint_timeout=""
-        if lint_timeout=$(_mole_timeout_with_deadline \
-            "$MOLE_TIMEOUT_QUICK_DETECT_SEC" "$deadline_seconds"); then
+        local lint_budget_rc=0
+        lint_timeout=$(_mole_timeout_with_deadline \
+            "$MOLE_TIMEOUT_QUICK_DETECT_SEC" "$deadline_seconds") || lint_budget_rc=$?
+        if [[ $lint_budget_rc -eq 0 ]]; then
             run_with_timeout "$lint_timeout" plutil -lint "$info" \
                 > /dev/null 2>&1 || lint_rc=$?
-            mole_rc_timeout_or_signal "$lint_rc" && return "$lint_rc"
+            if mole_rc_timeout_or_signal "$lint_rc"; then
+                debug_log "Sibling plist validation incomplete (exit $lint_rc): $(mole_terminal_safe_text "$info")"
+                return "$lint_rc"
+            fi
             [[ $lint_rc -eq 0 ]] && return 1
+            debug_log "Sibling plist cannot be validated (exit $lint_rc): $(mole_terminal_safe_text "$info")"
+        else
+            debug_log "Sibling plist validation budget exhausted (exit $lint_budget_rc): $(mole_terminal_safe_text "$info")"
         fi
         return 2
     fi
@@ -1011,7 +1030,10 @@ _uninstall_collect_live_sibling_candidate() {
     local record_rc=0
     live_record=$(_uninstall_live_sibling_record \
         "$app" "$info" "$deadline_seconds") || record_rc=$?
-    [[ $record_rc -eq 0 ]] || return "$record_rc"
+    if [[ $record_rc -ne 0 ]]; then
+        debug_log "Sibling identity snapshot failed (exit $record_rc): $(mole_terminal_safe_text "$app")"
+        return "$record_rc"
+    fi
     # shellcheck disable=SC2154 # live_paths/live_records are caller-owned snapshot arrays.
     live_paths+=("$app")
     _uninstall_insert_sorted_live_record "$live_record"
@@ -1047,6 +1069,7 @@ uninstall_live_bundle_has_other_install() {
     _uninstall_materialize_complete_pkg_apps "$pkg_paths_file" \
         "$deadline_seconds" || pkg_scan_rc=$?
     if mole_rc_timeout "$pkg_scan_rc"; then
+        debug_log "Sibling package receipt scan timed out (exit $pkg_scan_rc)"
         # Receipt enumeration walks every pkgutil receipt on the machine, and
         # a single vendor receipt can hold tens of thousands of paths, so it
         # can outlive the budget on a healthy Mac (#1340). That is the same
@@ -1054,6 +1077,7 @@ uninstall_live_bundle_has_other_install() {
         # a sibling, so carry the doubt forward instead of ending the run.
         scan_indeterminate=true
     elif [[ $pkg_scan_rc -ne 0 ]]; then
+        debug_log "Sibling package receipt scan failed (exit $pkg_scan_rc)"
         rm -f -- "$scan_file" "$pkg_paths_file" 2> /dev/null || true # SAFE: exact tracked temp files created above
         [[ $pkg_scan_rc -ge 128 ]] && return "$pkg_scan_rc"
         return 2
@@ -1079,11 +1103,13 @@ uninstall_live_bundle_has_other_install() {
             \( \( -type d -o -type l \) -iname '*.app' \) \
             \) || volume_scan_rc=$?
         if [[ $volume_scan_rc -eq $MOLE_UNINSTALL_SCAN_PARTIAL ]] || mole_rc_timeout "$volume_scan_rc"; then
+            debug_log "Sibling volume discovery incomplete (exit $volume_scan_rc)"
             # Some volume was unreadable, or the budget ran out before every
             # volume was listed. Keep the roots we did see and carry the
             # doubt forward: absence can no longer be proven from here.
             scan_indeterminate=true
         elif [[ $volume_scan_rc -ne 0 ]]; then
+            debug_log "Sibling volume discovery failed (exit $volume_scan_rc)"
             rm -f -- "$volume_roots_file" "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp files created above
             [[ $volume_scan_rc -ge 128 ]] && return "$volume_scan_rc"
             return 2
@@ -1102,6 +1128,7 @@ uninstall_live_bundle_has_other_install() {
     for root in "${live_roots[@]+"${live_roots[@]}"}"; do
         [[ -e "$root" ]] || continue
         if [[ ! -d "$root" || ! -r "$root" ]]; then
+            debug_log "Sibling application root is not a readable directory: $(mole_terminal_safe_text "$root")"
             result=2
             break
         fi
@@ -1112,11 +1139,13 @@ uninstall_live_bundle_has_other_install() {
             "$deadline_seconds" "$root" -maxdepth 3 \
             \( -type d -o -type l \) -iname '*.app' || scan_rc=$?
         if [[ $scan_rc -eq $MOLE_UNINSTALL_SCAN_PARTIAL ]]; then
+            debug_log "Sibling application root scan incomplete (exit $scan_rc): $(mole_terminal_safe_text "$root")"
             # Unreadable subpaths under an app root. The apps this listing did
             # find are still real, so keep going and let the doubt decide the
             # verdict at the end rather than discarding the whole scan.
             scan_indeterminate=true
         elif [[ $scan_rc -ne 0 ]]; then
+            debug_log "Sibling application root scan failed (exit $scan_rc): $(mole_terminal_safe_text "$root")"
             mole_rc_timeout_or_signal "$scan_rc" && result=$scan_rc || result=2
             break
         fi

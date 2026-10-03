@@ -194,7 +194,7 @@ EOF
 	chmod +x "$bin_dir/defaults"
 
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PATH="$bin_dir:$PATH" \
-		MOLE_TEST_NO_AUTH=1 APPS_ROOT="$apps_root" APP_PATH="$app_path" \
+		MOLE_TEST_NO_AUTH=1 MO_DEBUG=1 APPS_ROOT="$apps_root" APP_PATH="$app_path" \
 		APP_MTIME="$app_mtime" SRC_PATH="$src" \
 		/bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
@@ -234,6 +234,8 @@ EOF
 		echo "$output"
 		return 1
 	}
+    [[ "$output" == *"Uninstall finalization: metadata refresh begin"*"Uninstall finalization: metadata refresh launched"*"Uninstall finalization: spinner stopped"* ]] || { echo "$output"; return 1; }
+
 }
 
 @test "app discovery treats the app suffix case-insensitively without admitting nested bundles" {

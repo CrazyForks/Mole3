@@ -3415,7 +3415,7 @@ INNER
 }
 
 @test "main keeps scan and selector on one alternate screen until cancel (#1194)" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'INNER'
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc << 'INNER'
 set -euo pipefail
 source "$PROJECT_ROOT/bin/uninstall.sh"
 
@@ -3465,7 +3465,8 @@ actual=$(cat "$trace_file")
 }
 INNER
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Uninstall interactive scan begin"*"Uninstall interactive scan returned"*"Uninstall inventory fingerprint begin"*"Uninstall inventory fingerprint complete"*"Uninstall list load begin"*"Uninstall list load complete"*"Uninstall input drain begin"*"Uninstall selector begin"*"Uninstall selector returned"* ]] || { echo "$output"; return 1; }
 }
 
 @test "scan_applications starts feedback before discovery and cleans no-app state" {
@@ -4856,4 +4857,96 @@ SCRIPT
     [[ "$output" == *"Try moving the item to Trash in Finder. Run with --debug for details"* ]] || return 1
     [[ "$output" != *"check permissions"* ]] || return 1
     [[ "$output" != *"Full Disk Access"* ]]
+}
+
+
+@test "sibling scan diagnostics distinguish receipt and root failures without changing verdicts" {
+    run env HOME="$HOME/sibling-causes" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF_CAUSES'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mkdir -p "$HOME/Applications"
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=()
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+_uninstall_materialize_complete_pkg_apps() { : > "$1"; return 124; }
+rc=0
+uninstall_live_bundle_has_other_install com.example.selected "$HOME/Selected.app" || rc=$?
+[[ $rc -eq "$MOLE_UNINSTALL_SCAN_PARTIAL" ]] || exit 1
+printf 'RECEIPT_VERDICT=%s\n' "$rc"
+_uninstall_materialize_complete_pkg_apps() { : > "$1"; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_uninstall_materialize_complete_find0() { : > "$1"; return "$root_rc"; }
+for root_rc in 3 7; do
+    rc=0
+    uninstall_live_bundle_has_other_install com.example.selected "$HOME/Selected.app" || rc=$?
+    if [[ $root_rc -eq 3 ]]; then [[ $rc -eq 3 ]] || exit 1; else [[ $rc -eq 2 ]] || exit 1; fi
+    printf 'ROOT_VERDICT=%s\n' "$rc"
+done
+EOF_CAUSES
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Sibling package receipt scan timed out (exit 124)"* && "$output" == *RECEIPT_VERDICT=3* ]] || return 1
+    [[ "$output" == *"Sibling application root scan incomplete (exit 3)"* && "$output" == *ROOT_VERDICT=3* ]] || return 1
+    [[ "$output" == *"Sibling application root scan failed (exit 7)"* && "$output" == *ROOT_VERDICT=2* ]] || return 1
+}
+
+@test "sibling find diagnostics retain partial stdout and sanitize the original error" {
+    run env HOME="$HOME/sibling-find-error" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF_FIND_ERROR'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+mkdir -p "$HOME"
+scan_file=$(create_temp_file)
+run_with_timeout() {
+    printf '%s\0' "$HOME/Visible.app"
+    printf 'permission denied\033[31m\n' >&2
+    return 1
+}
+rc=0
+_uninstall_materialize_complete_find0 "$scan_file" "$((SECONDS + 5))" "$HOME" || rc=$?
+[[ $rc -eq "$MOLE_UNINSTALL_SCAN_PARTIAL" ]] || exit 1
+IFS= read -r -d '' app < "$scan_file"
+[[ "$app" == "$HOME/Visible.app" ]] || exit 1
+printf 'PARTIAL_CANDIDATE_RETAINED\n'
+EOF_FIND_ERROR
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Sibling application listing failed (exit 1)"* && "$output" == *"permission denied"* && "$output" == *PARTIAL_CANDIDATE_RETAINED* ]] || return 1
+    [[ "$output" != *$'\033[31m'* ]] || return 1
+}
+
+@test "sibling candidate diagnostics preserve unknown and interrupted plist verdicts" {
+    run env HOME="$HOME/sibling-plist-error" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF_PLIST_ERROR'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+app="$HOME/Other.app"
+mkdir -p "$app/Contents"
+printf 'not a plist\n' > "$app/Contents/Info.plist"
+run_with_timeout() { return "$probe_rc"; }
+for probe_rc in 1 143; do
+    rc=0
+    _uninstall_collect_live_sibling_candidate "$app" "$HOME/Selected.app" com.example.selected "$((SECONDS + 10))" false || rc=$?
+    if [[ $probe_rc -eq 1 ]]; then [[ $rc -eq 2 ]] || exit 1; else [[ $rc -eq 143 ]] || exit 1; fi
+    printf 'PLIST_VERDICT=%s\n' "$rc"
+done
+EOF_PLIST_ERROR
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Sibling plist cannot be validated (exit 1)"* && "$output" == *PLIST_VERDICT=2* ]] || return 1
+    [[ "$output" == *"Sibling bundle ID probe incomplete (exit 143)"* && "$output" == *PLIST_VERDICT=143* ]] || return 1
+}
+
+@test "successful sibling scans stay quiet in debug refusal diagnostics" {
+    run env HOME="$HOME/sibling-complete" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF_COMPLETE'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=()
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+rc=0
+uninstall_live_bundle_has_other_install com.example.selected "$HOME/Selected.app" || rc=$?
+[[ $rc -eq 1 ]] || exit 1
+printf 'COMPLETE_ABSENCE\n'
+EOF_COMPLETE
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *COMPLETE_ABSENCE* && "$output" != *"Sibling "* ]] || return 1
 }

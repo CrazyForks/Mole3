@@ -1163,8 +1163,11 @@ _scan_finalize_index() {
     [[ $cache_source_is_temp == true ]] && rm -f "$cache_source" 2> /dev/null || true
 
     update_scan_status "Finalizing list..." "0" "0"
+    debug_log "Uninstall finalization: metadata refresh begin (elapsed ${SECONDS}s, parent $$)"
     start_uninstall_metadata_refresh "$refresh_file"
+    debug_log "Uninstall finalization: metadata refresh launched (elapsed ${SECONDS}s, parent $$)"
     stop_scan_spinner
+    debug_log "Uninstall finalization: spinner stopped (elapsed ${SECONDS}s, parent $$)"
 
     if [[ -f "${temp_file}.sorted" ]]; then
         register_temp_file "${temp_file}.sorted"
@@ -1277,8 +1280,10 @@ scan_applications() {
 
     stop_scan_spinner() {
         if [[ -n "$spinner_pid" ]]; then
+            debug_log "Uninstall spinner stop begin (pid $spinner_pid, elapsed ${SECONDS}s)"
             kill -TERM "$spinner_pid" 2> /dev/null || true
             wait "$spinner_pid" 2> /dev/null || true
+            debug_log "Uninstall spinner stop complete (pid $spinner_pid, elapsed ${SECONDS}s)"
             spinner_pid=""
         fi
         if [[ -f "$spinner_shown_file" ]]; then
@@ -1812,6 +1817,7 @@ main() {
             fi
 
             local scan_abort_reason=""
+            debug_log "Uninstall interactive scan begin (elapsed ${SECONDS}s, parent $$)"
             if ! apps_file=$(scan_applications); then
                 scan_abort_reason="could not complete the application scan"
             elif [[ ! -f "$apps_file" ]]; then
@@ -1824,10 +1830,14 @@ main() {
                 return 1
             fi
 
+            debug_log "Uninstall interactive scan returned (elapsed ${SECONDS}s, parent $$)"
             cached_apps_file="$apps_file"
+            debug_log "Uninstall inventory fingerprint begin (elapsed ${SECONDS}s, parent $$)"
             cached_inventory_fingerprint=$(uninstall_app_inventory_fingerprint 2> /dev/null || echo "")
+            debug_log "Uninstall inventory fingerprint complete (elapsed ${SECONDS}s, parent $$)"
         fi
 
+        debug_log "Uninstall list load begin (elapsed ${SECONDS}s, parent $$)"
         if ! load_applications "$apps_file"; then
             rm -f "$apps_file"
             [[ "$apps_file" == "$cached_apps_file" ]] && cached_apps_file=""
@@ -1835,14 +1845,18 @@ main() {
             return 1
         fi
 
+        debug_log "Uninstall list load complete (elapsed ${SECONDS}s, parent $$)"
         # Keystrokes typed during the scan/load phase must not leak into the
         # selector. A queued Enter would confirm whichever app is highlighted
         # first and drop the user straight into the destructive path. See #726.
+        debug_log "Uninstall input drain begin (elapsed ${SECONDS}s, parent $$)"
         drain_pending_input 0.2
+        debug_log "Uninstall selector begin (elapsed ${SECONDS}s, parent $$)"
 
         set +e
         select_apps_for_uninstall
         local exit_code=$?
+        debug_log "Uninstall selector returned (exit $exit_code, elapsed ${SECONDS}s, parent $$)"
         set -e
 
         if [[ $exit_code -ne 0 ]]; then
