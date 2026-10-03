@@ -1531,7 +1531,11 @@ _batch_scan_app_details() {
         if [[ "$live_sibling_present" == true ]]; then
             sibling_guard="guard_login"
             discovery_app_name=""
-            debug_log "Bundle id $bundle_id is shared with a live sibling; removing only the selected app bundle for $app_name"
+            if [[ $live_sibling_rc -eq 0 ]]; then
+                debug_log "Bundle id $bundle_id is shared with a live sibling; removing only the selected app bundle for $app_name"
+            else
+                debug_log "Could not rule out other copies of bundle id $bundle_id (scan exit $live_sibling_rc); removing only the selected app bundle for $app_name"
+            fi
             bundle_id="unknown"
         elif uninstall_bundle_id_has_surviving_sibling "$bundle_id" "$app_path"; then
             sibling_guard="guard"

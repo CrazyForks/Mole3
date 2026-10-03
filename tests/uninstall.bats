@@ -38,6 +38,54 @@ create_app_artifacts() {
     mkdir -p "$HOME/.cache/testapp"
 }
 
+assert_sibling_scan_debug_reason() {
+    local scan_status="$1" expected="$2"
+    run env HOME="$HOME/sibling-debug-$scan_status" PROJECT_ROOT="$PROJECT_ROOT" \
+        SCAN_STATUS="$scan_status" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+selected="$HOME/Applications/Selected.app"
+mkdir -p "$selected/Contents"
+printf '%s\n' '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.shared</string></dict></plist>' > "$selected/Contents/Info.plist"
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+_batch_refresh_selected_app_bundle_id() { printf 'com.example.shared\n'; }
+official_uninstaller_vendor() { return 1; }
+uninstall_live_bundle_has_other_install() {
+    _MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT="test-evidence"
+    return "$SCAN_STATUS"
+}
+pgrep() { return 1; }
+get_brew_cask_name() { return 1; }
+get_file_owner() { whoami; }
+get_path_size_kb() { printf '1\n'; }
+find_app_files() { : > "$HOME/unexpected-discovery"; return 99; }
+find_app_system_files() { : > "$HOME/unexpected-system"; return 99; }
+discover_login_item_helper_bundle_ids() { return 0; }
+calculate_total_size() { printf '0\n'; }
+has_sensitive_data() { return 1; }
+selected_apps=("0|$selected|Selected|com.example.shared|0|Never")
+running_apps=() sudo_apps=() brew_cask_apps=() blocked_apps=()
+manual_removal_apps=() app_details=() total_estimated_size=0
+_batch_scan_app_details
+[[ ${#app_details[@]} -eq 1 ]] || exit 1
+IFS='|' read -r _ stored_path stored_bundle _ stored_related _ _ _ _ _ _ _ _ stored_guard _ \
+    stored_original stored_fingerprint _ <<< "${app_details[0]}"
+[[ "$stored_path" == "$selected" && "$stored_bundle" == unknown ]] || exit 1
+[[ "$stored_guard" == guard_login && "$stored_original" == com.example.shared ]] || exit 1
+[[ "$stored_fingerprint" == "$(printf test-evidence | base64 | tr -d '\n')" && -z "$stored_related" ]] || exit 1
+[[ ! -e "$HOME/unexpected-discovery" && ! -e "$HOME/unexpected-system" && ! -e "$HOME/unexpected-login" ]] || exit 1
+printf 'BUNDLE_ONLY_PLAN\n'
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *BUNDLE_ONLY_PLAN* ]] || return 1
+    [[ "$output" == *"$expected"* ]] || { echo "$output"; return 1; }
+    if [[ "$scan_status" != 0 ]]; then
+        [[ "$output" != *"shared with a live sibling"* ]] || return 1
+    fi
+}
+
 @test "find_app_files discovers user-level leftovers" {
     create_app_artifacts
 
@@ -4859,6 +4907,18 @@ SCRIPT
     [[ "$output" != *"Full Disk Access"* ]]
 }
 
+
+@test "batch scan debug reports a confirmed sibling without changing its protected plan" {
+    assert_sibling_scan_debug_reason 0 "shared with a live sibling"
+}
+
+@test "batch scan debug reports partial sibling evidence without claiming a sibling exists" {
+    assert_sibling_scan_debug_reason 3 "Could not rule out other copies of bundle id com.example.shared (scan exit 3)"
+}
+
+@test "batch scan debug reports failed sibling evidence without claiming a sibling exists" {
+    assert_sibling_scan_debug_reason 2 "Could not rule out other copies of bundle id com.example.shared (scan exit 2)"
+}
 
 @test "sibling scan diagnostics distinguish receipt and root failures without changing verdicts" {
     run env HOME="$HOME/sibling-causes" PROJECT_ROOT="$PROJECT_ROOT" MO_DEBUG=1 /bin/bash --noprofile --norc <<'EOF_CAUSES'
