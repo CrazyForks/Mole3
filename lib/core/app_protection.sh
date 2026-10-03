@@ -2203,6 +2203,23 @@ receipt_payload_path_is_allowlisted() {
 # after "Uninstall complete". Apps that need to flush state get the graceful
 # Quit window first; apps that stall past it lose unsaved work, which the
 # user has implicitly accepted by confirming.
+# Poll after a signal so an already-exited app does not consume the whole
+# grace period. Keep the original two-second sleep budget and signal statuses.
+_mole_wait_for_app_exit() {
+    local pattern="$1" ticks=20 probe_rc=0 sleep_rc=0
+    while :; do
+        probe_rc=0
+        pgrep -x "$pattern" > /dev/null 2>&1 || probe_rc=$?
+        [[ $probe_rc -ge 128 ]] && return "$probe_rc"
+        [[ $probe_rc -eq 0 ]] || return 0
+        [[ $ticks -gt 0 ]] || return 1
+        sleep_rc=0
+        sleep 0.1 || sleep_rc=$?
+        [[ $sleep_rc -ge 128 ]] && return "$sleep_rc"
+        ticks=$((ticks - 1))
+    done
+}
+
 force_kill_app() {
     local app_name="$1"
     local app_path="${2:-""}"
@@ -2302,7 +2319,7 @@ force_kill_app() {
     pkill -x "$match_pattern" 2> /dev/null || kill_rc=$?
     [[ $kill_rc -ge 128 ]] && return "$kill_rc"
     local sleep_rc=0
-    sleep 2 || sleep_rc=$?
+    _mole_wait_for_app_exit "$match_pattern" || sleep_rc=$?
     [[ $sleep_rc -ge 128 ]] && return "$sleep_rc"
     process_probe_rc=0
     pgrep -x "$match_pattern" > /dev/null 2>&1 || process_probe_rc=$?
@@ -2315,7 +2332,7 @@ force_kill_app() {
     pkill -9 -x "$match_pattern" 2> /dev/null || kill_rc=$?
     [[ $kill_rc -ge 128 ]] && return "$kill_rc"
     sleep_rc=0
-    sleep 2 || sleep_rc=$?
+    _mole_wait_for_app_exit "$match_pattern" || sleep_rc=$?
     [[ $sleep_rc -ge 128 ]] && return "$sleep_rc"
     process_probe_rc=0
     pgrep -x "$match_pattern" > /dev/null 2>&1 || process_probe_rc=$?
@@ -2335,7 +2352,7 @@ force_kill_app() {
         sudo pkill -9 -x "$match_pattern" 2> /dev/null || kill_rc=$?
         [[ $kill_rc -ge 128 ]] && return "$kill_rc"
         sleep_rc=0
-        sleep 2 || sleep_rc=$?
+        _mole_wait_for_app_exit "$match_pattern" || sleep_rc=$?
         [[ $sleep_rc -ge 128 ]] && return "$sleep_rc"
     fi
 

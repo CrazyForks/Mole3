@@ -707,146 +707,40 @@ end_section() {
 
 # shellcheck disable=SC2329
 normalize_paths_for_cleanup() {
-    local -a input_paths=("$@")
-
-    local _normalized_cleanup_path=""
-    _normalize_single_cleanup_path() {
-        local raw_path="$1"
-        local normalized="${raw_path%/}"
-        [[ -z "$normalized" ]] && normalized="$raw_path"
-
-        local gradle_caches_root="$HOME/.gradle/caches"
+    local -a normalized_paths=() passthrough_paths=()
+    local path normalized gradle_root="$HOME/.gradle/caches"
+    for path in "$@"; do
+        if [[ "$path" == *$'\n'* ]]; then
+            passthrough_paths+=("$path")
+            continue
+        fi
+        normalized="${path%/}"
+        [[ -n "$normalized" ]] || normalized="$path"
         case "$normalized" in
-            "$gradle_caches_root"/*/groovy-dsl/*/* | "$gradle_caches_root"/*/kotlin-dsl/*/*)
-                local rel version dsl_dir rest hash
-                rel="${normalized#"$gradle_caches_root"/}"
+            "$gradle_root"/*/groovy-dsl/*/* | "$gradle_root"/*/kotlin-dsl/*/*)
+                local rel version rest dsl hash
+                rel="${normalized#"$gradle_root"/}"
                 version="${rel%%/*}"
                 rest="${rel#*/}"
-                dsl_dir="${rest%%/*}"
+                dsl="${rest%%/*}"
                 rest="${rest#*/}"
                 hash="${rest%%/*}"
-                if [[ -n "$version" && -n "$hash" &&
-                    ("$dsl_dir" == "groovy-dsl" || "$dsl_dir" == "kotlin-dsl") ]]; then
-                    _normalized_cleanup_path="$gradle_caches_root/$version/$dsl_dir/$hash"
-                    return
+                if [[ -n "$version" && -n "$hash" ]]; then
+                    normalized="$gradle_root/$version/$dsl/$hash"
                 fi
                 ;;
         esac
-
-        _normalized_cleanup_path="$normalized"
-    }
-
-    # Fast path for large batches: O(n log n) via sort|awk instead of O(n²) bash loops.
-    # Lex sort guarantees every parent path precedes its children, so a single-pass
-    # awk can filter child paths by tracking only the last kept path.
-    # Paths with embedded newlines cannot go through the newline-delimited pipeline;
-    # they are output directly with null-byte delimiters and skipped by the sort pass.
-    if [[ ${#input_paths[@]} -gt 50 ]]; then
-        # The gradle-DSL collapse below is intentionally inlined (not a call to
-        # _normalize_single_cleanup_path): this path runs for thousands of items
-        # and per-item function-call overhead trips the large-batch time budget
-        # in tests/regression.bats. Keep it in sync with that helper.
-        local -a _fast_pipeline=()
-        local _fast_path _fast_raw
-        for _fast_path in "${input_paths[@]}"; do
-            if [[ "$_fast_path" == *$'\n'* ]]; then
-                printf '%s\0' "$_fast_path"
-            else
-                _fast_raw="$_fast_path"
-                _fast_path="${_fast_path%/}"
-                [[ -z "$_fast_path" ]] && _fast_path="$_fast_raw"
-                local _gradle_caches_root="$HOME/.gradle/caches"
-                case "$_fast_path" in
-                    "$_gradle_caches_root"/*/groovy-dsl/*/* | "$_gradle_caches_root"/*/kotlin-dsl/*/*)
-                        local _rel _version _dsl_dir _rest _hash
-                        _rel="${_fast_path#"$_gradle_caches_root"/}"
-                        _version="${_rel%%/*}"
-                        _rest="${_rel#*/}"
-                        _dsl_dir="${_rest%%/*}"
-                        _rest="${_rest#*/}"
-                        _hash="${_rest%%/*}"
-                        if [[ -n "$_version" && -n "$_hash" &&
-                            ("$_dsl_dir" == "groovy-dsl" || "$_dsl_dir" == "kotlin-dsl") ]]; then
-                            _fast_path="$_gradle_caches_root/$_version/$_dsl_dir/$_hash"
-                        fi
-                        ;;
-                esac
-                _fast_pipeline+=("$_fast_path")
-            fi
-        done
-        if [[ ${#_fast_pipeline[@]} -gt 0 ]]; then
-            printf '%s\n' "${_fast_pipeline[@]}" |
-                awk '{sub(/\/$/, ""); if ($0 != "") print}' |
-                LC_ALL=C sort -u |
-                awk 'BEGIN { last = "" } {
-                    if (last != "" && substr($0, 1, length(last) + 1) == last "/") next
-                    last = $0; print
-                }' |
-                while IFS= read -r _fast_path; do printf '%s\0' "$_fast_path"; done
-        fi
-        return
-    fi
-
-    local -a unique_paths=()
-
-    for path in "${input_paths[@]}"; do
-        local normalized
-        _normalize_single_cleanup_path "$path"
-        normalized="$_normalized_cleanup_path"
-        local found=false
-        if [[ ${#unique_paths[@]} -gt 0 ]]; then
-            for existing in "${unique_paths[@]}"; do
-                if [[ "$existing" == "$normalized" ]]; then
-                    found=true
-                    break
-                fi
-            done
-        fi
-        [[ "$found" == "true" ]] || unique_paths+=("$normalized")
+        normalized_paths+=("$normalized")
     done
-
-    # Paths with embedded newlines cannot safely go through the newline-delimited
-    # sort pipeline. Collect them separately and append to result as-is.
-    local -a pipeline_paths=()
-    local -a passthrough_paths=()
-    for path in "${unique_paths[@]}"; do
-        if [[ "$path" == *$'\n'* ]]; then
-            passthrough_paths+=("$path")
-        else
-            pipeline_paths+=("$path")
-        fi
-    done
-
-    local sorted_paths
-    if [[ ${#pipeline_paths[@]} -gt 0 ]]; then
-        sorted_paths=$(printf '%s\n' "${pipeline_paths[@]}" | awk '{print length "|" $0}' | LC_ALL=C sort -n | cut -d'|' -f2-)
-    else
-        sorted_paths=""
-    fi
-
-    local -a result_paths=()
+    local filtered=""
+    filtered=$(mole_filter_nested_paths "${normalized_paths[@]+"${normalized_paths[@]}"}") || return $?
     while IFS= read -r path; do
-        [[ -z "$path" ]] && continue
-        local is_child=false
-        if [[ ${#result_paths[@]} -gt 0 ]]; then
-            for kept in "${result_paths[@]}"; do
-                if [[ "$path" == "$kept" || "$path" == "$kept"/* ]]; then
-                    is_child=true
-                    break
-                fi
-            done
-        fi
-        [[ "$is_child" == "true" ]] || result_paths+=("$path")
-    done <<< "$sorted_paths"
-
-    # Append passthrough paths (newline-containing; not deduplicated against others).
+        [[ -z "$path" ]] || printf '%s\0' "$path"
+    done <<< "$filtered"
     if [[ ${#passthrough_paths[@]} -gt 0 ]]; then
-        result_paths+=("${passthrough_paths[@]}")
+        printf '%s\0' "${passthrough_paths[@]}"
     fi
-
-    if [[ ${#result_paths[@]} -gt 0 ]]; then
-        printf '%s\0' "${result_paths[@]}"
-    fi
+    return 0
 }
 
 # shellcheck disable=SC2329

@@ -51,6 +51,52 @@ _mole_brew_probe() {
         /bin/bash --noprofile --norc -c 'brew "$@"' mole-brew-probe "$@"
 }
 
+_mole_brew_caskroom_roots() {
+    local room
+    for room in /opt/homebrew/Caskroom /usr/local/Caskroom; do
+        [[ ! -d "$room" ]] || printf '%s\n' "$room"
+    done
+    return 0
+}
+
+# Only the inspection phase owns these snapshots. Execution probes below use
+# fresh Homebrew state and exact path/link ownership checks remain authoritative.
+_mole_brew_prepare_batch_inventory() {
+    _MOLE_BREW_BATCH_LIST_READY=1
+    local duration=""
+    duration=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_PKG_LIST_SEC" "${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-}") || _MOLE_BREW_BATCH_LIST_RC=$?
+    if [[ $_MOLE_BREW_BATCH_LIST_RC -eq 0 ]]; then
+        _MOLE_BREW_BATCH_LIST=$(_mole_brew_probe "$duration" list --cask 2> /dev/null) || _MOLE_BREW_BATCH_LIST_RC=$?
+    fi
+    [[ $_MOLE_BREW_BATCH_LIST_RC -lt 128 ]] || return "$_MOLE_BREW_BATCH_LIST_RC"
+    local -a rooms=()
+    local room
+    while IFS= read -r room; do
+        [[ -z "$room" ]] || rooms+=("$room")
+    done < <(_mole_brew_caskroom_roots)
+    _MOLE_BREW_BATCH_ROOM_READY=1
+    : > "$_MOLE_BREW_BATCH_ROOM_FILE" || return 1
+    if [[ ${#rooms[@]} -gt 0 ]]; then
+        duration=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_PKG_LIST_SEC" "${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-}") || _MOLE_BREW_BATCH_ROOM_RC=$?
+        if [[ $_MOLE_BREW_BATCH_ROOM_RC -eq 0 ]]; then
+            run_with_timeout "$duration" find "${rooms[@]}" \
+                -maxdepth 3 -iname '*.app' -print0 < /dev/null > "$_MOLE_BREW_BATCH_ROOM_FILE" \
+                2> /dev/null || _MOLE_BREW_BATCH_ROOM_RC=$?
+        fi
+    fi
+    [[ $_MOLE_BREW_BATCH_ROOM_RC -lt 128 ]] || return "$_MOLE_BREW_BATCH_ROOM_RC"
+    return 0
+}
+
+_mole_brew_detection_list() {
+    if [[ "${_MOLE_BREW_BATCH_LIST_READY:-0}" == 1 ]]; then
+        [[ $_MOLE_BREW_BATCH_LIST_RC -eq 0 ]] || return "$_MOLE_BREW_BATCH_LIST_RC"
+        printf '%s\n' "$_MOLE_BREW_BATCH_LIST"
+        return 0
+    fi
+    _mole_brew_probe "$MOLE_TIMEOUT_PKG_LIST_SEC" list --cask
+}
+
 # Check whether a cask is still recorded as installed in Homebrew.
 # Exit codes:
 #   0 - cask is installed
@@ -120,40 +166,43 @@ _detect_cask_via_caskroom_search() {
 
     local -a tokens=()
     local room match token
-    local exact_app_link=""
-    local scan_file=""
-    scan_file=$(create_temp_file) || return 1
-    local scan_deadline=$((SECONDS + MOLE_TIMEOUT_PKG_LIST_SEC))
-
-    for room in "/opt/homebrew/Caskroom" "/usr/local/Caskroom"; do
-        [[ -d "$room" ]] || continue
-        local scan_timeout=""
-        local scan_rc=0
-        scan_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" \
-            "$scan_deadline") || scan_rc=$?
-        if [[ $scan_rc -eq 0 ]]; then
-            : > "$scan_file" || scan_rc=1
-        fi
-        if [[ $scan_rc -eq 0 ]]; then
-            run_with_timeout "$scan_timeout" find "$room" -maxdepth 3 \
-                -name "$app_bundle_name" < /dev/null > "$scan_file" \
-                2> /dev/null || scan_rc=$?
-        fi
-        if [[ $scan_rc -ne 0 ]]; then
-            : > "$scan_file" || true
-            rm -f -- "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
-            return "$scan_rc"
-        fi
-        while IFS= read -r match; do
-            [[ -n "$match" ]] || continue
-            token=$(_extract_cask_token_from_path "$match" 2> /dev/null) || continue
-            [[ -n "$token" ]] && tokens+=("$token")
-            if [[ -n "$app_path" && -L "$match" && -d "$app_path" && "$match" -ef "$app_path" ]]; then
-                exact_app_link="$match"
+    local exact_app_link="" scan_file="" owns_scan=false
+    if [[ "${_MOLE_BREW_BATCH_ROOM_READY:-0}" == 1 ]]; then
+        [[ $_MOLE_BREW_BATCH_ROOM_RC -eq 0 ]] || return "$_MOLE_BREW_BATCH_ROOM_RC"
+        scan_file="$_MOLE_BREW_BATCH_ROOM_FILE"
+        [[ -f "$scan_file" ]] || return 2
+    else
+        scan_file=$(create_temp_file) || return 1
+        owns_scan=true
+        local scan_deadline=$((SECONDS + MOLE_TIMEOUT_PKG_LIST_SEC))
+        while IFS= read -r room; do
+            [[ -n "$room" ]] || continue
+            local scan_timeout="" scan_rc=0
+            scan_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" \
+                "$scan_deadline") || scan_rc=$?
+            if [[ $scan_rc -eq 0 ]]; then
+                # App names are compared literally after a complete inventory.
+                run_with_timeout "$scan_timeout" find "$room" -maxdepth 3 \
+                    -iname '*.app' -print0 < /dev/null >> "$scan_file" \
+                    2> /dev/null || scan_rc=$?
             fi
-        done < "$scan_file"
-    done
-    rm -f -- "$scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
+            if [[ $scan_rc -ne 0 ]]; then
+                rm -f -- "$scan_file" # SAFE: exact temporary Caskroom scan output allocated above
+                return "$scan_rc"
+            fi
+        done < <(_mole_brew_caskroom_roots)
+    fi
+    while IFS= read -r -d '' match; do
+        [[ "${match##*/}" == "$app_bundle_name" ]] || continue
+        token=$(_extract_cask_token_from_path "$match" 2> /dev/null) || continue
+        [[ -n "$token" ]] && tokens+=("$token")
+        if [[ -n "$app_path" && -L "$match" && -d "$app_path" && "$match" -ef "$app_path" ]]; then
+            exact_app_link="$match"
+        fi
+    done < "$scan_file"
+    if [[ "$owns_scan" == true ]]; then
+        rm -f -- "$scan_file" # SAFE: exact temporary Caskroom scan output allocated above
+    fi
 
     # Need at least one token
     ((${#tokens[@]} > 0)) || return 1
@@ -176,8 +225,7 @@ _detect_cask_via_caskroom_search() {
     if ((${#uniq[@]} == 1)) && [[ -n "${uniq[0]}" ]]; then
         local cask_list=""
         local list_rc=0
-        cask_list=$(_mole_brew_probe "$MOLE_TIMEOUT_PKG_LIST_SEC" \
-            list --cask 2> /dev/null) || list_rc=$?
+        cask_list=$(_mole_brew_detection_list 2> /dev/null) || list_rc=$?
         mole_rc_timeout_or_signal "$list_rc" && return "$list_rc"
         [[ $list_rc -eq 0 ]] || return 2
         grep -qxF "${uniq[0]}" <<< "$cask_list" || return 1
@@ -236,8 +284,7 @@ _detect_cask_via_brew_list() {
 
     local cask_list=""
     local list_rc=0
-    cask_list=$(_mole_brew_probe "$MOLE_TIMEOUT_PKG_LIST_SEC" \
-        list --cask 2> /dev/null) || list_rc=$?
+    cask_list=$(_mole_brew_detection_list 2> /dev/null) || list_rc=$?
     mole_rc_timeout_or_signal "$list_rc" && return "$list_rc"
     [[ $list_rc -eq 0 ]] || return 2
 

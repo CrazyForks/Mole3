@@ -348,3 +348,22 @@ EOF
 
     [ -d "$HOME/.cache/concurrent" ]
 }
+
+
+@test "log append avoids repeat setup and recreates a removed log" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+fixture=$(mktemp -d "$HOME/log-append.XXXXXX")
+touch "$fixture/events"
+ensure_user_file() { echo setup >> "$fixture/setups"; mkdir -p "${1%/*}"; touch "$1"; }
+append_log_line "$fixture/events" first
+command rm -f "$fixture/events"
+append_log_line "$fixture/events" second
+[[ $(wc -l < "$fixture/setups") -eq 1 ]] || exit 1
+[[ "$(cat "$fixture/events")" == second ]] || exit 1
+printf 'recreated-without-repeat-setup\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"recreated-without-repeat-setup"* ]]
+}

@@ -569,6 +569,51 @@ get_free_space() {
     echo "Unknown"
 }
 
+# Keep literal parent paths once without interpreting glob metacharacters.
+# Callers with newline-bearing paths handle those outside this line format.
+mole_filter_nested_paths() {
+    [[ $# -gt 0 ]] || return 0
+    local -a paths=("${@}")
+    local path normalized existing skip
+    local -a kept=()
+    if [[ ${#paths[@]} -le 50 ]]; then
+        for path in "${paths[@]}"; do
+            normalized="${path%/}"
+            [[ -n "$normalized" ]] || normalized="$path"
+            skip=false
+            local -a remaining=()
+            for existing in "${kept[@]+"${kept[@]}"}"; do
+                if [[ "$normalized" == "$existing" || "$normalized" == "$existing"/* || "$existing" == / ]]; then
+                    skip=true
+                    break
+                fi
+                [[ "$existing" == "$normalized"/* || "$normalized" == / ]] || remaining+=("$existing")
+            done
+            if [[ "$skip" == false ]]; then
+                kept=("${remaining[@]+"${remaining[@]}"}" "$normalized")
+            fi
+        done
+        printf '%s\n' "${kept[@]}"
+        return
+    fi
+    # A prefix sibling can sort between a parent and its child. Remember all
+    # kept ancestors, rather than only the last row, and publish a complete pass.
+    local filtered=""
+    filtered=$(printf '%s\n' "${paths[@]}" | LC_ALL=C awk '{if ($0 != "/") sub(/\/$/, ""); print}' |
+        LC_ALL=C sort -u | LC_ALL=C awk '
+        {
+            if (seen["/"]) next
+            parent=$0; skip=0
+            while (parent != "") {
+                if (seen[parent]) {skip=1; break}
+                if (!sub(/\/[^\/]*$/, "", parent)) break
+            }
+            if (!skip) {seen[$0]=1; print}
+        }') || return $?
+    [[ -z "$filtered" ]] || printf '%s\n' "$filtered"
+    return 0
+}
+
 # Wait in the owning shell so Bash 3.2 can reap any completed scan worker.
 # The first argument names a caller variable receiving the completed PID;
 # the return status belongs to that worker, or to an interrupted polling sleep.

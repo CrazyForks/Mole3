@@ -222,6 +222,7 @@ for i in range(start, len(text)):
 Path("/tmp/normalize_paths_for_cleanup.sh").write_text(text[start:end] + "\n")
 PY
 
+source "$PROJECT_ROOT/lib/core/base.sh"
 source /tmp/normalize_paths_for_cleanup.sh
 
 paths=(
@@ -296,6 +297,7 @@ for i in range(start, len(text)):
 Path("/tmp/normalize_paths_for_cleanup_gradle.sh").write_text(text[start:end] + "\n")
 PY
 
+source "$PROJECT_ROOT/lib/core/base.sh"
 source /tmp/normalize_paths_for_cleanup_gradle.sh
 
 hash_dir="$HOME/.gradle/caches/8.13/groovy-dsl/abc123"
@@ -318,4 +320,25 @@ printf '%s\n' "${normalized[@]}"
 EOF
 
     [ "$status" -eq 0 ]
+}
+
+
+@test "large cleanup normalization keeps parent across a prefix sibling" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/base.sh"
+# Load the production function without dispatching the clean entry point.
+eval "$(awk '/^normalize_paths_for_cleanup\(\)/ {on=1} on {print} on && /^}/ {exit}' "$PROJECT_ROOT/bin/clean.sh")"
+paths=("$HOME/alpha" "$HOME/alpha-sibling" "$HOME/alpha/child")
+for ((i=0;i<48;i++)); do paths+=("$HOME/filler-$i"); done
+count=0
+while IFS= read -r -d '' path; do
+    [[ "$path" != "$HOME/alpha/child" ]] || exit 1
+    count=$((count+1))
+done < <(normalize_paths_for_cleanup "${paths[@]}")
+[[ "$count" == 50 ]] || exit 1
+printf 'parent-and-sibling-kept\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"parent-and-sibling-kept"* ]]
 }

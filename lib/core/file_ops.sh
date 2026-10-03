@@ -2891,7 +2891,8 @@ _mole_move_path_to_user_trash() {
     fi
 
     local user_home
-    user_home=$(_mole_valid_invoking_home) || return 1
+    user_home="${_MOLE_TRASH_BATCH_HOME:-}"
+    [[ -n "$user_home" ]] || user_home=$(_mole_valid_invoking_home) || return 1
 
     if [[ -z "$path" ]] || [[ ! -e "$path" && ! -L "$path" ]]; then
         debug_log "Refusing direct Trash move: path does not exist: ${path:-<empty>}"
@@ -2904,11 +2905,11 @@ _mole_move_path_to_user_trash() {
     fi
 
     local trash_dir="${user_home%/}/.Trash"
-    local owner_uid="" owner_gid=""
-    if declare -f get_invoking_uid > /dev/null 2>&1; then
+    local owner_uid="${_MOLE_TRASH_BATCH_UID:-}" owner_gid="${_MOLE_TRASH_BATCH_GID:-}"
+    if [[ -z "$owner_uid" ]] && declare -f get_invoking_uid > /dev/null 2>&1; then
         owner_uid=$(get_invoking_uid)
     fi
-    if declare -f get_invoking_gid > /dev/null 2>&1; then
+    if [[ -z "$owner_gid" ]] && declare -f get_invoking_gid > /dev/null 2>&1; then
         owner_gid=$(get_invoking_gid)
     fi
     if [[ ! "$owner_uid" =~ ^[0-9]+$ || ! "$owner_gid" =~ ^[0-9]+$ ]]; then
@@ -2922,12 +2923,12 @@ _mole_move_path_to_user_trash() {
         debug_log "Refusing direct Trash move: invoking user Trash is a symlink: $trash_dir"
         return 1
     fi
-    if [[ ${EUID:-0} -eq 0 ]]; then
+    if [[ ! -d "$trash_dir" && ${EUID:-0} -eq 0 ]]; then
         sudo -n -u "#$owner_uid" mkdir -p "$trash_dir" 2> /dev/null || {
             debug_log "Failed to create invoking user Trash: $trash_dir"
             return 1
         }
-    elif ! mkdir -p "$trash_dir" 2> /dev/null; then
+    elif [[ ! -d "$trash_dir" ]] && ! mkdir -p "$trash_dir" 2> /dev/null; then
         debug_log "Failed to create invoking user Trash: $trash_dir"
         return 1
     fi
@@ -2936,32 +2937,36 @@ _mole_move_path_to_user_trash() {
         return 1
     fi
 
-    local trash_owner_uid=""
-    trash_owner_uid=$($STAT_BSD -f%u "$trash_dir" 2> /dev/null || true)
+    local trash_metadata="" trash_owner_uid="" trash_mode=""
+    trash_metadata=$("$STAT_BSD" -f '%u:%Lp' "$trash_dir" 2> /dev/null) || return 1
+    trash_owner_uid="${trash_metadata%%:*}"
+    trash_mode="${trash_metadata#*:}"
     if [[ "$trash_owner_uid" != "$owner_uid" ]]; then
         debug_log "Refusing direct Trash move: invoking user does not own Trash: $trash_dir"
         return 1
     fi
-    if [[ ${EUID:-0} -eq 0 ]]; then
+    if [[ "$trash_mode" != 700 && ${EUID:-0} -eq 0 ]]; then
         if ! sudo -n -u "#$owner_uid" chmod 700 "$trash_dir" 2> /dev/null; then
             debug_log "Failed to set invoking user Trash permissions: $trash_dir"
             return 1
         fi
-    elif ! chmod 700 "$trash_dir" 2> /dev/null; then
+    elif [[ "$trash_mode" != 700 ]] && ! chmod 700 "$trash_dir" 2> /dev/null; then
         debug_log "Failed to set invoking user Trash permissions: $trash_dir"
         return 1
     fi
 
     # Avoid Finder-style ':' path weirdness and keep generated names filesystem-safe.
     local base
-    base=$(basename "$path")
+    base="$path"
+    while [[ "$base" == */ && "$base" != / ]]; do base="${base%/}"; done
+    base="${base##*/}"
     base="${base//:/__}"
     base="${base//\//__}"
     [[ -n "$base" && "$base" != "." && "$base" != ".." ]] || base="mole-trash-item"
 
     local dest="$trash_dir/$base"
     local ts suffix
-    ts=$(date +%s 2> /dev/null || echo 0)
+    ts=""
     suffix=0
 
     while [[ -e "$dest" || -L "$dest" ]]; do
@@ -2970,6 +2975,7 @@ _mole_move_path_to_user_trash() {
             debug_log "Failed to choose unique Trash destination for: $path"
             return 1
         fi
+        [[ -n "$ts" ]] || ts=$(date +%s 2> /dev/null || echo 0)
         dest="$trash_dir/$base.$ts.$$.$suffix"
     done
 
@@ -3254,6 +3260,13 @@ _mole_move_to_trash_batch() {
         return 1
     fi
 
+    # Stable invoking-user values are shared only for this batch. Destination
+    # ownership, mode, live owners and source identity are checked per move.
+    local _MOLE_TRASH_BATCH_HOME="" _MOLE_TRASH_BATCH_UID="" _MOLE_TRASH_BATCH_GID=""
+    _MOLE_TRASH_BATCH_HOME=$(_mole_valid_invoking_home) || return 1
+    _MOLE_TRASH_BATCH_UID=$(get_invoking_uid) || return 1
+    _MOLE_TRASH_BATCH_GID=$(get_invoking_gid) || return 1
+
     # Avoid handing a stale lexical batch to a third-party Trash CLI or Finder.
     # Direct per-item renames keep the helper in one shell process and let us
     # recheck the bound parent/inode immediately before every move.
@@ -3299,13 +3312,14 @@ _mole_delete_log() {
 
     local log_file="${MOLE_DELETE_LOG:-$HOME/Library/Logs/mole/deletions.log}"
     local log_dir
-    log_dir=$(dirname "$log_file")
+    log_dir="${log_file%/*}"
+    [[ "$log_dir" != "$log_file" ]] || log_dir="."
 
     # Surface log-write failures once per session. The deletions log is the
     # only audit trail for Trash-routed removals; silently no-oping when the
     # log dir is unwritable (root-owned from prior sudo, ENOSPC, read-only
     # volume) defeats the design.
-    if ! mkdir -p "$log_dir" 2> /dev/null; then
+    if [[ ! -d "$log_dir" ]] && ! mkdir -p "$log_dir" 2> /dev/null; then
         _mole_warn_log_broken "create directory: $log_dir"
         return 0
     fi
@@ -3993,34 +4007,17 @@ mole_item_size_continues() {
 # Calculate total size for multiple paths
 calculate_total_size() {
     local files="$1"
-    local total_kb=0
+    local total_kb=0 file
     local -a unique_paths=()
-
     while IFS= read -r file; do
-        if [[ -n "$file" && -e "$file" ]]; then
-            local normalized_file="${file%/}"
-            [[ -n "$normalized_file" ]] || normalized_file="$file"
-
-            local skip_file=false
-            local -a filtered_paths=()
-            local existing_file
-            for existing_file in "${unique_paths[@]+"${unique_paths[@]}"}"; do
-                if [[ "$normalized_file" == "$existing_file" || "$normalized_file" == "$existing_file"/* ]]; then
-                    skip_file=true
-                    break
-                fi
-                if [[ "$existing_file" == "$normalized_file"/* ]]; then
-                    continue
-                fi
-                filtered_paths+=("$existing_file")
-            done
-
-            if [[ "$skip_file" == "false" ]]; then
-                unique_paths=("${filtered_paths[@]+"${filtered_paths[@]}"}")
-                unique_paths+=("$normalized_file")
-            fi
-        fi
+        [[ -z "$file" || ! -e "$file" ]] || unique_paths+=("$file")
     done <<< "$files"
+    local filtered=""
+    filtered=$(mole_filter_nested_paths "${unique_paths[@]+"${unique_paths[@]}"}") || return $?
+    unique_paths=()
+    while IFS= read -r file; do
+        [[ -z "$file" ]] || unique_paths+=("$file")
+    done <<< "$filtered"
 
     for file in "${unique_paths[@]+"${unique_paths[@]}"}"; do
         local size_kb=0

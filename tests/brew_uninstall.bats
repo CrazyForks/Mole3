@@ -695,7 +695,7 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/brew.sh"
 
 find() {
-    echo "/opt/homebrew/Caskroom/test-cask-app/1.0.0/TestCaskApp.app"
+    printf '%s\0' "/opt/homebrew/Caskroom/test-cask-app/1.0.0/TestCaskApp.app"
 }
 run_with_timeout() {
     shift
@@ -706,7 +706,8 @@ _mole_brew_probe() {
     return 0
 }
 
-_detect_cask_via_caskroom_search "$TEST_APP_PATH"
+_mole_brew_caskroom_roots() { printf '%s\n' "$HOME/Caskroom"; }
+_detect_cask_via_caskroom_search TestCaskApp.app
 EOF
 
     [ "$status" -eq 0 ]
@@ -729,7 +730,8 @@ case "$SCENARIO" in
     unrelated) rm "$match"; ln -s "$FIXTURE/other/Rebased.app" "$match" ;;
     copied) rm "$match"; mkdir "$match" ;;
 esac
-find() { printf '%s\n' "$FIXTURE/cask/Rebased.app"; }
+_mole_brew_caskroom_roots() { printf '%s\n' "$FIXTURE/cask"; }
+find() { printf '%s\0' "$FIXTURE/cask/Rebased.app"; }
 # Production token parsing has independent coverage; fixture paths must not
 # create or change the machine's actual Caskroom.
 _extract_cask_token_from_path() { printf '%s\n' rebased; }
@@ -790,4 +792,78 @@ SCRIPT
     run_caskroom_info_failure_case cancelled
     [ "$status" -eq 0 ]
     [ "$output" = 'rc=143 token=' ]
+}
+
+
+@test "batch brew inspection shares inventories but final installed probe is fresh" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+fixture=$(mktemp -d "$HOME/inventory.XXXXXX")
+mkdir -p "$fixture/Owned.app" "$fixture/Other.app"
+selected_apps=(one two)
+is_homebrew_available() { return 0; }
+_mole_brew_caskroom_roots() { printf '%s\n' "$fixture"; }
+run_with_timeout() {
+    shift
+    if [[ "$1" == find ]]; then
+        printf 'scan\n' >> "$fixture/scan-calls"
+        printf '%s\0' /opt/homebrew/Caskroom/owned/1/Owned.app /opt/homebrew/Caskroom/other/1/Other.app
+    else
+        "$@"
+    fi
+}
+_mole_brew_probe() {
+    shift
+    case "$*" in
+        'list --cask') printf 'list\n' >> "$fixture/list-calls"; printf '%s\n' owned other ;;
+        'info --cask owned') printf '%s\n' "$fixture/Owned.app" ;;
+        'info --cask other') printf '%s\n' "$fixture/Other.app" ;;
+        *) return 97 ;;
+    esac
+}
+_batch_scan_app_details_impl() {
+    first=$(_detect_cask_via_caskroom_search Owned.app "$fixture/Owned.app") || exit 1
+    second=$(_detect_cask_via_caskroom_search Other.app "$fixture/Other.app") || exit 1
+    [[ "$first" == owned && "$second" == other ]] || exit 1
+}
+_batch_scan_app_details || exit 1
+[[ $(wc -l < "$fixture/list-calls") -eq 1 ]] || exit 1
+[[ $(wc -l < "$fixture/scan-calls") -eq 1 ]] || exit 1
+[[ -z "${_MOLE_BREW_BATCH_LIST_READY:-}" ]] || exit 1
+[[ -z "${_MOLE_BREW_BATCH_ROOM_FILE:-}" ]] || exit 1
+is_brew_cask_installed owned || exit 1
+[[ $(wc -l < "$fixture/list-calls") -eq 2 ]] || exit 1
+printf 'shared-inspection fresh-execution\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"shared-inspection fresh-execution"* ]]
+}
+
+@test "failed batch inventory never feeds partial candidates to brew ownership" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+fixture=$(mktemp -d "$HOME/partial-inventory.XXXXXX")
+mkdir -p "$fixture/Owned.app"
+selected_apps=(one two)
+is_homebrew_available() { return 0; }
+_mole_brew_caskroom_roots() { printf '%s\n' "$fixture"; }
+run_with_timeout() { printf '%s\0' /opt/homebrew/Caskroom/owned/1/Owned.app; return 124; }
+_mole_brew_probe() {
+    shift
+    [[ "$*" == 'list --cask' ]] || { echo unexpected-info; return 97; }
+    printf 'owned\n'
+}
+_batch_scan_app_details_impl() {
+    local rc=0
+    _detect_cask_via_caskroom_search Owned.app "$fixture/Owned.app" || rc=$?
+    [[ $rc -eq 124 ]] || return 1
+    printf 'partial-kept\n'
+}
+_batch_scan_app_details || exit 1
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"partial-kept"* ]] || return 1
+    [[ "$output" != *"unexpected-info"* ]]
 }

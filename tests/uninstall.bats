@@ -5364,3 +5364,197 @@ EOF_FIND_CAUSE
     [[ "$output" == *"Restricted: Permission denied"* ]] || { echo "$output"; return 1; }
     [[ "$output" != *"Perl fallback"* ]] || return 1
 }
+
+
+@test "calculate_total_size accepts empty and missing-only plans on Bash 3.2" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+get_path_size_kb() { echo UNEXPECTED_SIZE_PROBE; return 99; }
+[[ "$(calculate_total_size '')" == 0 ]] || exit 1
+[[ "$(calculate_total_size "$HOME/missing")" == 0 ]] || exit 1
+printf 'empty-plan-zero\n'
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"empty-plan-zero"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_SIZE_PROBE"* ]]
+}
+
+@test "force_kill_app continues immediately after SIGTERM exits" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+export MOLE_TEST_NO_AUTH=1
+source "$PROJECT_ROOT/lib/core/common.sh"
+running=1
+pgrep() { [[ "$running" == 1 ]]; }
+pkill() { running=0; }
+sleep() { echo "unexpected-wait:$*"; return 99; }
+force_kill_app MolePerfFixture || exit $?
+[[ "$running" == 0 ]] || exit 1
+printf 'exited-without-wait\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"exited-without-wait"* ]] || return 1
+    [[ "$output" != *"unexpected-wait"* ]]
+}
+
+
+@test "parallel preview preserves path order and measures each invocation fresh" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+fixture=$(mktemp -d "$HOME/preview-workers.XXXXXX")
+files=''
+for i in 1 2 3 4 5 6; do
+    touch "$fixture/$i"
+    files+="$fixture/$i"$'\n'
+done
+get_path_size_kb() {
+    printf '%s\n' "$1" >> "$fixture/calls"
+    [[ "${1##*/}" != 1 ]] || sleep 0.05
+    printf '%s\n' "$size_value"
+}
+size_value=1
+first=$(_uninstall_print_preview_paths "$files" 'row:') || exit 1
+size_value=2
+second=$(_uninstall_print_preview_paths "$files" 'row:') || exit 1
+[[ $(wc -l < "$fixture/calls") -eq 12 ]] || exit 1
+index=1
+tilde='~'
+display="${fixture/#$HOME/$tilde}"
+while IFS= read -r row; do
+    [[ "$row" == "row:$display/$index "* ]] || exit 1
+    index=$((index+1))
+done <<< "$first"
+[[ "$index" == 7 && "$first" != "$second" ]] || exit 1
+printf 'ordered-fresh-preview\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"ordered-fresh-preview"* ]]
+}
+
+@test "parallel preview drains failed workers and restores caller traps" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+fixture=$(mktemp -d "$HOME/preview-cancel.XXXXXX")
+files=''
+for i in 1 2 3 4 5 6; do touch "$fixture/$i"; files+="$fixture/$i"$'\n'; done
+create_temp_dir() { mktemp -d "$fixture/output.XXXXXX"; }
+get_path_size_kb() {
+    touch "$1.started"
+    [[ "${1##*/}" != 1 ]] || return 130
+    sleep 0.05
+    printf 'finished:%s\n' "$1" >> "$fixture/finished"
+    echo 1
+}
+trap ':' INT
+before=$(trap -p INT)
+rc=0
+_uninstall_print_preview_paths "$files" row: > "$fixture/rows" || rc=$?
+[[ $rc == 130 && "$(trap -p INT)" == "$before" ]] || exit 1
+[[ ! -s "$fixture/rows" ]] || exit 1
+[[ $(wc -l < "$fixture/finished") -eq 3 ]] || exit 1
+[[ -e "$fixture/1.started" && -e "$fixture/4.started" && ! -e "$fixture/5.started" ]] || exit 1
+[[ -z "$(find "$fixture" -type d -name 'output.*')" ]] || exit 1
+printf 'drained-and-restored\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"drained-and-restored"* ]]
+}
+
+@test "parallel preview drains a slow worker through repeated interruption" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+fixture=$(mktemp -d "$HOME/preview-signals.XXXXXX")
+files=''
+for i in 1 2 3 4 5; do touch "$fixture/$i"; files+="$fixture/$i"$'\n'; done
+create_temp_dir() { mktemp -d "$fixture/output.XXXXXX"; }
+get_path_size_kb() {
+    touch "$1.started"
+    case "${1##*/}" in
+        1) return 130 ;;
+        2) sleep 0.6 ;;
+        *) sleep 0.2 ;;
+    esac
+    printf 'finished:%s\n' "$1" >> "$fixture/finished"
+    echo 1
+}
+owner=$$
+(
+    ready=0
+    for ((tick=0; tick<200; tick++)); do
+        if [[ -f "$fixture/4.started" ]]; then ready=1; break; fi
+        sleep 0.01
+    done
+    [[ $ready == 1 ]] || exit 1
+    sleep 0.05
+    kill -TERM "$owner"
+    sleep 0.05
+    kill -TERM "$owner"
+) &
+sender=$!
+trap ':' TERM
+before=$(trap -p TERM)
+rc=0
+_uninstall_print_preview_paths "$files" row: > "$fixture/rows" || rc=$?
+wait "$sender" || exit 1
+[[ $rc == 143 && "$(trap -p TERM)" == "$before" ]] || exit 1
+[[ $(wc -l < "$fixture/finished") -eq 3 ]] || exit 1
+[[ ! -s "$fixture/rows" && ! -e "$fixture/5.started" ]] || exit 1
+[[ -z "$(find "$fixture" -type d -name 'output.*')" ]] || exit 1
+printf 'repeated-signals-drained\n'
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"repeated-signals-drained"* ]]
+}
+
+@test "uninstall exit reclaims registered directories after interrupted allocation" {
+    local phase fixture
+    for phase in inventory preview; do
+        fixture=$(mktemp -d "$HOME/exit-cleanup.XXXXXX")
+        mkdir -p "$fixture/home" "$fixture/tmp"
+        run env HOME="$fixture/home" TMPDIR="$fixture/tmp/" PROJECT_ROOT="$PROJECT_ROOT" \
+            REVIEW_FIXTURE="$fixture" REVIEW_PHASE="$phase" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+eval "$(declare -f register_temp_dir | sed '1s/register_temp_dir/_fixture_register_temp_dir/')"
+register_temp_dir() {
+    _fixture_register_temp_dir "$@"
+    printf '%s\n' "$1" > "$REVIEW_FIXTURE/allocated"
+    printf '%s\n' "$MOLE_TEMP_REGISTRY_FILE" > "$REVIEW_FIXTURE/registry"
+    sleep 0.2
+}
+is_homebrew_available() { return 0; }
+_mole_brew_prepare_batch_inventory() { echo UNEXPECTED_INVENTORY; return 97; }
+_batch_scan_app_details_impl() { :; }
+if [[ "$REVIEW_PHASE" == preview ]]; then
+    _batch_scan_app_details() { app_details=(fixture); }
+    files=''
+    for i in 1 2 3 4; do touch "$HOME/$i"; files+="$HOME/$i"$'\n'; done
+    _batch_preview_and_confirm() { _uninstall_print_preview_paths "$files" row:; }
+fi
+selected_apps=(one two)
+(
+    ready=0
+    for ((tick=0; tick<100; tick++)); do
+        if [[ -s "$REVIEW_FIXTURE/allocated" ]]; then ready=1; break; fi
+        sleep 0.005
+    done
+    [[ $ready == 1 ]] || exit 1
+    kill -TERM "$$"
+) &
+sender=$!
+rc=0
+batch_uninstall_applications || rc=$?
+wait "$sender" || exit 1
+[[ $rc == 130 ]] || exit 1
+printf 'allocation-interrupted\n'
+EOF
+        [ "$status" -eq 0 ] || { echo "$phase: $output"; return 1; }
+        [[ "$output" == *"allocation-interrupted"* && "$output" != *"UNEXPECTED_INVENTORY"* ]] || return 1
+        [[ -s "$fixture/allocated" && -s "$fixture/registry" ]] || return 1
+        [[ ! -d "$(cat "$fixture/allocated")" && ! -e "$(cat "$fixture/registry")" ]] || return 1
+    done
+}

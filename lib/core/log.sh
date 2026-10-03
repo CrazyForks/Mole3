@@ -37,11 +37,20 @@ fi
 # Log Rotation
 # ============================================================================
 
+# Existing writable logs need no mkdir/touch before each synchronous append.
+# Missing files and privileged ownership repair retain the original setup path.
+_mole_prepare_log_append() {
+    if [[ -f "$1" && -w "$1" ]] && ! is_root_user; then
+        return 0
+    fi
+    ensure_user_file "$1"
+}
+
 append_log_line() {
     local file_path="$1"
     local line="${2:-}"
 
-    ensure_user_file "$file_path"
+    _mole_prepare_log_append "$file_path"
     printf '%s\n' "$line" >> "$file_path" 2> /dev/null || true
 }
 
@@ -49,7 +58,7 @@ append_log_lines() {
     local file_path="$1"
     shift
 
-    ensure_user_file "$file_path"
+    _mole_prepare_log_append "$file_path"
     printf '%s\n' "$@" >> "$file_path" 2> /dev/null || true
 }
 

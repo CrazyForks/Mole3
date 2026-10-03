@@ -1725,3 +1725,81 @@ EOF
     [[ "$output" == *"RC=1"* ]] || return 1
     [[ -d "$SANDBOX/FinderFixture.app" ]] || return 1
 }
+
+
+@test "direct Trash batch shares user values while checking every destination" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+export HOME="$SANDBOX/home"
+mkdir -p "$HOME/.Trash" "$SANDBOX/targets"
+chmod 700 "$HOME/.Trash"
+source "$PROJECT_ROOT/lib/core/common.sh"
+unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE MOLE_TEST_TRASH_DIR
+for i in 1 2 3; do touch "$SANDBOX/targets/item-$i"; done
+get_invoking_uid() { echo uid >> "$SANDBOX/uid-calls"; id -u; }
+get_invoking_gid() { echo gid >> "$SANDBOX/gid-calls"; id -g; }
+chmod() { echo mode >> "$SANDBOX/chmod-calls"; command chmod "$@"; }
+date() { echo date >> "$SANDBOX/date-calls"; command date "$@"; }
+_mole_move_to_trash_batch "$SANDBOX/targets/item-1" "$SANDBOX/targets/item-2" "$SANDBOX/targets/item-3" || exit 1
+[[ ${#_MOLE_TRASH_BATCH_MOVED_PATHS[@]} -eq 3 ]] || exit 1
+[[ $(wc -l < "$SANDBOX/uid-calls") -eq 1 && $(wc -l < "$SANDBOX/gid-calls") -eq 1 ]] || exit 1
+[[ ! -e "$SANDBOX/chmod-calls" && ! -e "$SANDBOX/date-calls" ]] || exit 1
+[[ -f "$HOME/.Trash/item-1" && -f "$HOME/.Trash/item-3" ]] || exit 1
+printf 'shared-user-values guarded-moves\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"shared-user-values guarded-moves"* ]]
+}
+
+@test "direct Trash batch repairs permissions changed between items" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+export HOME="$SANDBOX/home"
+mkdir -p "$HOME/.Trash" "$SANDBOX/targets"
+chmod 700 "$HOME/.Trash"
+source "$PROJECT_ROOT/lib/core/common.sh"
+unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE MOLE_TEST_TRASH_DIR
+for i in 1 2; do touch "$SANDBOX/targets/item-$i"; done
+mv() {
+    command mv "$@" || return $?
+    if [[ "$2" == "$SANDBOX/targets/item-1" ]]; then
+        command chmod 755 "$HOME/.Trash"
+    fi
+}
+_mole_move_to_trash_batch "$SANDBOX/targets/item-1" "$SANDBOX/targets/item-2" || exit 1
+[[ ${#_MOLE_TRASH_BATCH_MOVED_PATHS[@]} -eq 2 ]] || exit 1
+[[ $(stat -f%Lp "$HOME/.Trash") == 700 ]] || exit 1
+printf 'destination-rechecked\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"destination-rechecked"* ]]
+}
+
+
+@test "direct Trash batch rejects destination symlink introduced between moves" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+export HOME="$SANDBOX/home"
+mkdir -p "$HOME/.Trash" "$SANDBOX/targets" "$SANDBOX/redirected"
+source "$PROJECT_ROOT/lib/core/common.sh"
+unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE MOLE_TEST_TRASH_DIR
+for i in 1 2; do touch "$SANDBOX/targets/item-$i"; done
+eval "$(declare -f _mole_move_path_to_user_trash | sed '1s/_mole_move_path_to_user_trash/_fixture_move_to_trash/')"
+_mole_move_path_to_user_trash() {
+    _fixture_move_to_trash "$@" || return $?
+    if [[ "$1" == "$SANDBOX/targets/item-1" ]]; then
+        command mv "$HOME/.Trash" "$HOME/kept-trash"
+        ln -s "$SANDBOX/redirected" "$HOME/.Trash"
+    fi
+    return 0
+}
+rc=0
+_mole_move_to_trash_batch "$SANDBOX/targets/item-1" "$SANDBOX/targets/item-2" || rc=$?
+[[ $rc == 1 && ${#_MOLE_TRASH_BATCH_MOVED_PATHS[@]} -eq 1 ]] || exit 1
+[[ -f "$HOME/kept-trash/item-1" && -f "$SANDBOX/targets/item-2" ]] || exit 1
+[[ ! -e "$SANDBOX/redirected/item-2" ]] || exit 1
+printf 'destination-swap-refused\n'
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"destination-swap-refused"* ]]
+}

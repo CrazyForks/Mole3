@@ -225,6 +225,73 @@ format_uninstall_preview_path() {
     fi
 }
 
+# Each invocation measures fresh paths and publishes rows in the reviewed order.
+# Workers only prepare display text; deletion authority is never shared here.
+_uninstall_print_preview_paths() {
+    local files="$1" prefix="$2" path text rc=0 finished="" pid index=0
+    local -a paths=() pids=()
+    while IFS= read -r path; do
+        [[ -z "$path" || ! -e "$path" ]] || paths+=("$path")
+    done <<< "$files"
+    [[ ${#paths[@]} -gt 0 ]] || return 0
+    if [[ ${#paths[@]} -le 3 ]]; then
+        for path in "${paths[@]}"; do
+            text=$(format_uninstall_preview_path "$path") || return $?
+            printf '%b%s\n' "$prefix" "$text"
+        done
+        return 0
+    fi
+    local result_dir="" old_int old_term worker_rc=0
+    result_dir=$(create_temp_dir) || return 1
+    old_int=$(trap -p INT)
+    old_term=$(trap -p TERM)
+    trap 'rc=130' INT
+    trap 'rc=143' TERM
+    for path in "${paths[@]}"; do
+        [[ $rc -eq 0 ]] || break
+        (format_uninstall_preview_path "$path" > "$result_dir/$index") < /dev/null &
+        pids+=("$!")
+        index=$((index + 1))
+        if [[ ${#pids[@]} -ge 4 ]]; then
+            worker_rc=0
+            finished=""
+            mole_wait_for_any_worker finished "${pids[@]}" || worker_rc=$?
+            [[ $rc -ne 0 || $worker_rc -eq 0 ]] || rc=$worker_rc
+            for pid in "${!pids[@]}"; do
+                [[ "${pids[$pid]}" != "$finished" ]] || unset 'pids[pid]'
+            done
+        fi
+    done
+    # Drain read-only, timeout-bounded measurements before removing their private
+    # output directory, including on interruption. No producer outlives its files.
+    for pid in "${pids[@]+"${pids[@]}"}"; do
+        while true; do
+            worker_rc=0
+            wait "$pid" 2> /dev/null || worker_rc=$?
+            [[ $rc -ne 0 || $worker_rc -eq 0 ]] || rc=$worker_rc
+            if [[ $worker_rc -lt 128 ]] || ! kill -0 "$pid" 2> /dev/null; then
+                break
+            fi
+        done
+    done
+    if [[ $rc -eq 0 ]]; then
+        for ((index = 0; index < ${#paths[@]}; index++)); do
+            if [[ ! -f "$result_dir/$index" ]]; then
+                rc=1
+                break
+            fi
+            text=$(< "$result_dir/$index")
+            printf '%b%s\n' "$prefix" "$text"
+        done
+    fi
+    rm -rf -- "$result_dir" # SAFE: private temporary worker-output directory created in this invocation
+    trap - INT TERM
+    # eval: restore the caller's signal traps captured above.
+    [[ -z "$old_int" ]] || eval "$old_int"
+    [[ -z "$old_term" ]] || eval "$old_term"
+    return "$rc"
+}
+
 discover_login_item_helper_bundle_ids() {
     local app_path="$1"
     local login_items_root="$app_path/Contents/Library/LoginItems"
@@ -1463,9 +1530,28 @@ _batch_selected_app_plan_matches() {
 }
 
 _batch_scan_app_details() {
+    local _MOLE_BREW_BATCH_LIST_READY=0 _MOLE_BREW_BATCH_LIST="" _MOLE_BREW_BATCH_LIST_RC=0
+    local _MOLE_BREW_BATCH_ROOM_READY=0 _MOLE_BREW_BATCH_ROOM_FILE="" _MOLE_BREW_BATCH_ROOM_RC=0
+    local inventory_dir="" scan_rc=0
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE=$((SECONDS + (2 * MOLE_TIMEOUT_DISK_VERIFY_SEC)))
+    if [[ ${#selected_apps[@]} -gt 1 ]] && is_homebrew_available; then
+        inventory_dir=$(create_temp_dir) || return 1
+        _MOLE_BREW_BATCH_ROOM_FILE="$inventory_dir/caskroom"
+        _mole_brew_prepare_batch_inventory || scan_rc=$?
+    fi
+    if [[ $scan_rc -eq 0 ]]; then
+        _batch_scan_app_details_impl || scan_rc=$?
+    fi
+    if [[ -n "$inventory_dir" ]]; then
+        rm -rf -- "$inventory_dir" # SAFE: private read-only Homebrew inventory directory created above
+    fi
+    return "$scan_rc"
+}
+
+_batch_scan_app_details_impl() {
     # All selected-app discovery shares one wall-clock budget. Individual
     # producer probes clamp themselves to this deadline.
-    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE=$((SECONDS + (2 * MOLE_TIMEOUT_DISK_VERIFY_SEC)))
+    local _MOLE_UNINSTALL_DISCOVERY_DEADLINE="${_MOLE_UNINSTALL_DISCOVERY_DEADLINE:-$((SECONDS + (2 * MOLE_TIMEOUT_DISK_VERIFY_SEC)))}"
     # Cache current user outside loop
     local current_user=$(whoami)
 
@@ -1929,28 +2015,9 @@ _batch_preview_and_confirm() {
         preview_path=$(format_uninstall_preview_path "$app_path") || return $?
         echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $preview_path"
 
-        # Show all related files so users can fully review before deletion.
-        while IFS= read -r file; do
-            if [[ -n "$file" && -e "$file" ]]; then
-                preview_path=$(format_uninstall_preview_path "$file") || return $?
-                echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $preview_path"
-            fi
-        done <<< "$related_files"
-
-        # Show all system files so users can fully review before deletion.
-        while IFS= read -r file; do
-            if [[ -n "$file" && -e "$file" ]]; then
-                preview_path=$(format_uninstall_preview_path "$file") || return $?
-                echo -e "  ${BLUE}${ICON_WARNING}${NC} System: $preview_path"
-            fi
-        done <<< "$system_files"
-
-        while IFS= read -r file; do
-            if [[ -n "$file" && -e "$file" ]]; then
-                preview_path=$(format_uninstall_preview_path "$file") || return $?
-                echo -e "  ${YELLOW}${ICON_WARNING}${NC} Review only: $preview_path"
-            fi
-        done <<< "$review_system_display"
+        _uninstall_print_preview_paths "$related_files" "  ${GREEN}${ICON_SUCCESS}${NC} " || return $?
+        _uninstall_print_preview_paths "$system_files" "  ${BLUE}${ICON_WARNING}${NC} System: " || return $?
+        _uninstall_print_preview_paths "$review_system_display" "  ${YELLOW}${ICON_WARNING}${NC} Review only: " || return $?
     done
 
     # Confirmation before requesting sudo.

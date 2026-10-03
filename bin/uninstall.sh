@@ -1635,6 +1635,7 @@ cleanup() {
     fi
     # Log session end
     log_operation_session_end "uninstall" "${files_cleaned:-0}" "${total_size_cleaned:-0}"
+    cleanup_temp_files
     show_cursor
     exit "$exit_code"
 }
