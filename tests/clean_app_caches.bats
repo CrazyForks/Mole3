@@ -1902,6 +1902,7 @@ INNER
 }
 
 @test "safe_remove deletes an idle reverse-DNS user cache" {
+    mole_test_fake_command lsof 'exit 1'
     mkdir -p "$HOME/Library/Caches/com.example.idleapp"
     local db="$HOME/Library/Caches/com.example.idleapp/Cache.db"
     touch "$db"
@@ -1910,8 +1911,7 @@ INNER
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 _MOLE_COMPLETE_LSOF_MODE=direct
-pgrep() { return 1; }
-lsof() { return 1; }
+ps() { printf '%s\n' '  PID  PPID COMM ARGS'; }
 oplog_enabled() { return 1; }
 log_operation() { :; }
 debug_log() { :; }
@@ -1921,7 +1921,10 @@ safe_remove "$db" true
 [[ ! -e "$db" ]]
 INNER
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
     [[ ! -e "$db" ]]
 }
 

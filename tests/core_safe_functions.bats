@@ -3412,6 +3412,7 @@ EOF
 }
 
 @test "safe_remove refreshes process evidence at the final deletion boundary" {
+	mole_test_fake_command lsof 'exit 1'
 	local cache_dir="$HOME/Library/Caches/com.example.LateHelper"
 	local target_file="$cache_dir/Cache.db"
 	mkdir -p "$cache_dir"
@@ -3428,7 +3429,6 @@ _mole_user_cache_owner_process_state() {
 	printf 'call\n' >> "$owner_calls"
 	[[ -f "$owner_live" ]]
 }
-lsof() { return 1; }
 get_path_size_kb() {
 	touch "$owner_live"
 	printf '1\n'
