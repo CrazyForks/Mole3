@@ -1,6 +1,6 @@
 # Mole Security Audit
 
-This document describes the security-relevant behavior of the current `main` branch, updated for V1.56.1 on 2026-09-28. It is intended as a public description of Mole's safety boundaries, destructive-operation controls, release integrity signals, and known limitations.
+This document describes the security-relevant behavior of the current `main` branch, updated for V1.57.0 on 2026-10-03. It is intended as a public description of Mole's safety boundaries, destructive-operation controls, release integrity signals, and known limitations.
 
 ## Executive Summary
 

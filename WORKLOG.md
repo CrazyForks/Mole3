@@ -1,7 +1,17 @@
 # Mole CLI queue review and execution plan
 
 Snapshot date: 2026-10-03, Asia/Taipei.
-Authorization updated: the maintainer approved execution, contributor-branch improvements, commit/push/merge, and per-item reply/closure after a delivered fix. Use Nightly for user testing; no stable tag or release is requested. Unresolved reports remain open with a concrete evidence request.
+Authorization updated: the maintainer approved release of V1.57.0 Steady after reviewing the bilingual draft. This includes the release commit, capital-V tag, GitHub Stable publication, and the existing workflow-driven Homebrew Core update. The maintainer still sends the Issue 1669 follow-up personally; this release does not authorize sending the saved email draft or closing that unresolved report.
+
+## V1.57.0 release preparation
+
+The approved draft describes eight user-visible outcomes from V1.56.1 through the reviewed source at `0292ef090fa8b0bdaec3fe5d4a747b9d4c268cb3`. The complete local runner, declared Go 1.26.0 builds, macOS 12 minimum-version checks, exact Nightly source archive, six review angles, and Check/Validation/CodeQL all passed for that source. The release preparation changes only the source version, this security-document date/version, and this record; it introduces no new command, setting, cleanup target, or animation change beyond the already approved loading mark.
+
+The maintainer approved the V1.57.0 Steady title and draft, with no added title emoji. Tagging still follows successful checks on the release commit. After the workflow creates assets, verify all payload checksums, all seven attestations, archive contents, native Analyze/Status probes, and the isolated V1.56.1-to-V1.57.0 script upgrade before publishing the approved notes. Record GitHub Stable and Homebrew availability separately; opening a Core PR is not a Homebrew release.
+
+Known reporter/runtime boundaries remain explicit: Issue 1669 has fixture proof and delivered Nightly source but no result from the reporter's actual Time Machine namespace; tty7 remains unresolved with the confirmed built-in Terminal workaround; the real large-tree filtering effect is unverified; Issue 1631 awaits capacity samples. None is claimed fully resolved by this release. Earlier no-stable-authorization statements below describe their historical checkpoints and are superseded by the release authorization above.
+
+The release preflight caught one host-dependent idle-cache test. Its shell-function `lsof` mock was bypassed by the production timeout executor; a controlled external unknown result reproduced the failure. The test now uses the shared PATH stub and an isolated process table. A sweep of 61 `lsof` function mocks found a second affected final-owner recheck case, fixed with the same PATH stub; the remaining 59 either route through their local timeout mock or stop before the handle probe. Both old tests failed with a positive external-call trace, and both corrected tests passed without reaching that external command. This is a test-isolation correction with zero production behavior change. The first full preflight failed and the interrupted intermediate retry is not counted as a pass; only the subsequent complete frozen run can authorize the release commit.
 
 ## Issue 1669 Time Machine follow-up
 
