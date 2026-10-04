@@ -2697,6 +2697,42 @@ EOF
     [[ "$output" != *"/1.0.34|"* ]]
 }
 
+@test "developer debug identifies the active step before it can stall" {
+    run env HOME="$HOME/developer-step-debug" PROJECT_ROOT="$PROJECT_ROOT" \
+        MO_DEBUG=1 MOLE_CURRENT_COMMAND=clean MOLE_CLEAN_CANCEL_STATUS=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+stalled_step() {
+    grep -qF 'Starting developer cleanup step: stalled_step' "$DEBUG_LOG_FILE" || return 9
+    return 130
+}
+rc=0
+_run_developer_cleanup_step --strict stalled_step || rc=$?
+printf 'RC=%s CANCEL=%s\n' "$rc" "$MOLE_CLEAN_CANCEL_STATUS"
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Starting developer cleanup step: stalled_step"* ]] || return 1
+    [[ "$output" == *"RC=130 CANCEL=130"* ]] || return 1
+}
+
+@test "developer step start diagnostics stay quiet outside debug mode" {
+    run env HOME="$HOME/developer-step-quiet" PROJECT_ROOT="$PROJECT_ROOT" \
+        MO_DEBUG=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+quiet_step() { return 0; }
+_run_developer_cleanup_step quiet_step
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ -z "$output" ]] || return 1
+}
+
 @test "developer cleanup stops before later tools after agent inventory cancellation" {
     run env HOME="$HOME/developer-aggregate-timeout" PROJECT_ROOT="$PROJECT_ROOT" \
         MOLE_CURRENT_COMMAND=clean /bin/bash --noprofile --norc << 'EOF'

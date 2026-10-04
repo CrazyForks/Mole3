@@ -5302,6 +5302,7 @@ _run_developer_cleanup_step() {
     fi
 
     local step_name="${1:-developer cleanup step}"
+    debug_log "Starting developer cleanup step: $step_name"
     local _perf_step_start
     debug_timer_start _perf_step_start
     local step_rc=0
