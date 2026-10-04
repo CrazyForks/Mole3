@@ -553,12 +553,16 @@ EOF
 }
 
 @test "batch_uninstall_applications removes selected app data" {
-    create_app_artifacts
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    HOME="$fixture_home" create_app_artifacts
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -593,9 +597,13 @@ printf '\n' | batch_uninstall_applications
 [[ ! -d "$HOME/Library/Caches/TestApp" ]] || exit 1
 [[ ! -f "$HOME/Library/Preferences/com.example.TestApp.plist" ]] || exit 1
 [[ ! -f "$HOME/Library/LaunchAgents/com.example.TestApp.plist" ]] || exit 1
+[[ $(wc -l < "$HOME/inventory.trace") -ge 2 ]] || exit 1
 EOF
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || {
+        printf 'exit status: %s\n%s\n' "$status" "$output"
+        return 1
+    }
 }
 
 @test "batch uninstall routes a root-owned app through unprivileged Trash when its parent is writable (#1331)" {

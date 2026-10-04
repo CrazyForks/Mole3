@@ -205,14 +205,18 @@ EOF
 }
 
 @test "batch_uninstall_applications uses brew uninstall for casks (mocked)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
     # Setup fake app
-    local app_bundle="$HOME/Applications/BrewApp.app"
+    local app_bundle="$fixture_home/Applications/BrewApp.app"
     mkdir -p "$app_bundle"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 
 # Mock dependencies
 request_sudo_access() { return 0; }
@@ -249,13 +253,17 @@ total_items=0
 total_size_cleaned=0
 
 # Simulate 'Enter' for confirmation
-printf '\n' | batch_uninstall_applications > /dev/null 2>&1
+printf '\n' | batch_uninstall_applications
 
 grep -q "ENSURE_SUDO:Admin required for Homebrew casks: BrewApp" "$HOME/brew_calls.log"
 grep -q "uninstall --cask --zap brew-app-cask" "$HOME/brew_calls.log"
+[[ $(wc -l < "$HOME/inventory.trace") -ge 2 ]] || exit 1
 EOF
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || {
+        printf 'exit status: %s\n%s\n' "$status" "$output"
+        return 1
+    }
 }
 
 @test "batch_uninstall_applications drops --zap when a sibling install shares the cask bundle id" {
@@ -333,13 +341,17 @@ EOF
 }
 
 @test "batch_uninstall_applications pre-auths sudo for brew-only casks" {
-    local app_bundle="$HOME/Applications/BrewPreAuth.app"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    local app_bundle="$fixture_home/Applications/BrewPreAuth.app"
     mkdir -p "$app_bundle"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 
 start_inline_spinner() { :; }
 stop_inline_spinner() { :; }
@@ -372,14 +384,18 @@ files_cleaned=0
 total_items=0
 total_size_cleaned=0
 
-printf '\n' | batch_uninstall_applications > /dev/null 2>&1
+printf '\n' | batch_uninstall_applications
 
 grep -q "ENSURE_SUDO:Admin required for Homebrew casks: BrewPreAuth" "$HOME/order.log"
 grep -q "BREW_CALL:uninstall --cask --zap brew-preauth-cask" "$HOME/order.log"
-[[ "$(sed -n '1p' "$HOME/order.log")" == "ENSURE_SUDO:Admin required for Homebrew casks: BrewPreAuth" ]]
+[[ "$(sed -n '1p' "$HOME/order.log")" == "ENSURE_SUDO:Admin required for Homebrew casks: BrewPreAuth" ]] || exit 1
+[[ $(wc -l < "$HOME/inventory.trace") -ge 2 ]] || exit 1
 EOF
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || {
+        printf 'exit status: %s\n%s\n' "$status" "$output"
+        return 1
+    }
 }
 
 @test "batch_uninstall_applications runs silent brew autoremove without UX noise" {

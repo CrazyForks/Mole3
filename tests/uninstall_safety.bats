@@ -540,14 +540,18 @@ EOF
 }
 
 @test "ByHost cleanup routes through user-mode mole_delete (no sudo prompt)" {
-	mkdir -p "$HOME/Library/Preferences/ByHost"
-	touch "$HOME/Library/Preferences/ByHost/com.example.TestApp.ABC123.plist"
-	mkdir -p "$HOME/Applications/TestApp.app"
+	local fixture_home
+	fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+	mkdir -p "$fixture_home/Library/Preferences/ByHost"
+	touch "$fixture_home/Library/Preferences/ByHost/com.example.TestApp.ABC123.plist"
+	mkdir -p "$fixture_home/Applications/TestApp.app"
 
-	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+	run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -588,9 +592,13 @@ if grep -q "ByHost.*com.example.TestApp.*plist|true" "$trace"; then
 fi
 
 grep -q "ByHost.*com.example.TestApp.*plist|false" "$trace"
+[[ $(wc -l < "$HOME/inventory.trace") -ge 2 ]] || exit 1
 EOF
 
-	[ "$status" -eq 0 ]
+	[ "$status" -eq 0 ] || {
+		printf 'exit status: %s\n%s\n' "$status" "$output"
+		return 1
+	}
 }
 
 @test "malformed bundle ids do not trigger defaults or ByHost side effects" {
