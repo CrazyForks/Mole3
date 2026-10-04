@@ -12,6 +12,14 @@ if [[ "$EUID" -eq 0 ]]; then
     exit 1
 fi
 
+# Refuse an unknown working directory before path resolution or user state.
+# Keep valid cwd unchanged: analyze and other commands accept relative paths.
+# Bash may print its own startup diagnostic before this script can run.
+if ! /bin/pwd -P > /dev/null 2>&1; then
+    printf '%s\n' 'Cannot access the current directory. Run cd ~, then retry Mole.' >&2
+    exit 1
+fi
+
 # Resolve where lib/ lives. bash 3.2 BASH_SOURCE[0] names the invoked path,
 # not the physical target.
 # Prefer the invoked directory when it already holds lib/ (Homebrew prefix
