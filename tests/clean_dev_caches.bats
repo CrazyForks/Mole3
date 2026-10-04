@@ -583,6 +583,104 @@ EOF
     [[ "$output" != *"SAFE_CLEAN:Gradle workers"* ]]
 }
 
+@test "clean_dev_jvm discards an incomplete candidate listing (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-incomplete.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/caches/build-cache-1" "$fixture_home/.gradle/notifications"
+    touch "$fixture_home/.gradle/caches/build-cache-1/entry" "$fixture_home/.gradle/notifications/entry"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+run_with_timeout() {
+    printf 'BOUNDED_LISTING\n' >&3
+    printf '%s\0' "$HOME/.gradle/caches/build-cache-1/entry"
+    return 124
+}
+gradle_daemon_running() { printf 'UNEXPECTED_PROBE\n'; return 1; }
+safe_clean() { printf 'UNEXPECTED_CLEAN\n'; }
+clean_dev_jvm 3> "$HOME/listing.trace"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" != *"UNEXPECTED_PROBE"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_CLEAN"* ]] || return 1
+    [ "$(cat "$fixture_home/listing.trace")" = BOUNDED_LISTING ] || return 1
+    [ -f "$fixture_home/.gradle/caches/build-cache-1/entry" ]
+}
+
+@test "clean_dev_jvm bounds a slow producer and discards partial targets (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-slow.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/caches/build-cache-1" "$fixture_home/bin"
+    touch "$fixture_home/.gradle/caches/build-cache-1/entry"
+    cat > "$fixture_home/bin/find" <<'SCRIPT'
+#!/bin/bash
+printf 'FIND_STARTED\n' >> "$HOME/listing.trace"
+printf '%s\0' "$HOME/.gradle/caches/build-cache-1"
+sleep 5
+SCRIPT
+    chmod +x "$fixture_home/bin/find"
+    run env HOME="$fixture_home" PATH="$fixture_home/bin:$PATH" PROJECT_ROOT="$PROJECT_ROOT" \
+        MOLE_TIMEOUT_HINT_SCAN_SEC=2 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+SECONDS=0
+gradle_daemon_running() { printf 'UNEXPECTED_PROBE\n'; return 1; }
+safe_clean() { printf 'UNEXPECTED_CLEAN\n'; }
+clean_dev_jvm
+printf 'ELAPSED:%s\n' "$SECONDS"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$(cat "$fixture_home/listing.trace")" = FIND_STARTED ] || return 1
+    [[ "$output" != *"UNEXPECTED_PROBE"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_CLEAN"* ]] || return 1
+    local elapsed="${output##*ELAPSED:}"
+    [ "$elapsed" -lt 5 ]
+}
+
+@test "clean_dev_jvm propagates a listing signal before later cleanup (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-signal.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/notifications"
+    touch "$fixture_home/.gradle/notifications/entry"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+run_with_timeout() { printf 'SIGNALLED\n' >&3; return 130; }
+gradle_daemon_running() { return 1; }
+safe_clean() { printf 'UNEXPECTED_CLEAN\n'; }
+clean_dev_jvm 3> "$HOME/listing.trace"
+printf 'UNEXPECTED_LATER_STEP\n'
+EOF
+    [ "$status" -eq 130 ] || { echo "$output"; return 1; }
+    [ "$(cat "$fixture_home/listing.trace")" = SIGNALLED ] || return 1
+    [[ "$output" != *"UNEXPECTED_CLEAN"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_LATER_STEP"* ]]
+}
+
+@test "clean_dev_jvm listing keeps hidden and dependency entries out of cleanup (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-listing.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/caches/build-cache-1" "$fixture_home/.gradle/caches/modules-2" "$fixture_home/.gradle/daemon/8.14"
+    touch "$fixture_home/.gradle/caches/build-cache-1/entry" "$fixture_home/.gradle/caches/build-cache-1/.hidden" "$fixture_home/.gradle/caches/modules-2/keep"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+WHITELIST_PATTERNS=()
+gradle_daemon_running() { return 1; }
+safe_clean() { printf 'TARGET:%s\n' "$@"; }
+clean_dev_jvm
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"TARGET:$fixture_home/.gradle/caches/build-cache-1/entry"* ]] || return 1
+    [[ "$output" == *"TARGET:$fixture_home/.gradle/daemon/8.14"* ]] || return 1
+    [[ "$output" != *".hidden"* ]] || return 1
+    [[ "$output" != *"modules-2"* ]]
+}
+
 @test "clean_dev_jvm fails closed for every Gradle target when the process probe errors" {
     rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon" "$HOME/.gradle/workers"
     mkdir -p "$HOME/.gradle/caches/build-cache-1" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon/8.14" "$HOME/.gradle/workers/worker-1"
