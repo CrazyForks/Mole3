@@ -2890,21 +2890,23 @@ clean_dev_jvm() {
     # Shell globs expand before a function can show progress or enforce a
     # deadline. Materialize this narrow listing in one bounded worker instead;
     # a partial result never reaches a guard, preview, or deletion boundary.
+    # The build cache lists last: it can hold thousands of entries, so it is the
+    # only group that may spend the filtering budget below.
     # shellcheck disable=SC2016 # Positional arguments expand inside the worker.
     run_with_timeout "$MOLE_TIMEOUT_HINT_SCAN_SEC" /bin/bash --noprofile --norc -c '
         set -euo pipefail
         root="$1"; scratch="$2"
+        for name in notifications daemon workers; do
+            if [[ -d "$root/$name" && ! -L "$root/$name" ]]; then
+                find "$root/$name" -mindepth 1 -maxdepth 1 ! -name ".*" -print0
+            fi
+        done
         if [[ -d "$root/caches" && ! -L "$root/caches" ]]; then
             find "$root/caches" -mindepth 1 -maxdepth 1 -type d -name "build-cache-*" -print0 > "$scratch/roots"
             while IFS= read -r -d "" cache; do
                 find "$cache" -mindepth 1 -maxdepth 1 ! -name ".*" -print0
             done < "$scratch/roots"
         fi
-        for name in notifications daemon workers; do
-            if [[ -d "$root/$name" && ! -L "$root/$name" ]]; then
-                find "$root/$name" -mindepth 1 -maxdepth 1 ! -name ".*" -print0
-            fi
-        done
     ' _ "$gradle_root" "$scan_dir" > "$scan_dir/targets" 2> /dev/null < /dev/null || scan_rc=$?
     debug_timer_end "Gradle candidate listing" scan_start
     if [[ $scan_rc -ne 0 ]]; then
@@ -2918,9 +2920,22 @@ clean_dev_jvm() {
     local target
     while IFS= read -r -d '' target; do
         if [[ $SECONDS -ge $scan_deadline ]]; then
+            if [[ "$target" == "$gradle_root/caches/"* ]]; then
+                # Only build cache entries remain. An unfinished group is kept
+                # whole; the other groups were filtered on their own evidence.
+                build_targets=()
+                debug_log "Gradle build cache filtering exceeded its budget; build cache targets kept"
+                break
+            fi
             rm -rf "$scan_dir" # SAFE: exact mktemp-created Gradle scan scratch directory
             debug_log "Gradle candidate filtering exceeded its budget; targets kept"
             return 0
+        fi
+        # should_protect_path costs about 10 ms per path while the whitelist is
+        # a pattern match, and the default whitelist covers the whole build
+        # cache. Settle whitelisted entries first; the eligible set is unchanged.
+        if declare -f is_path_whitelisted > /dev/null 2>&1 && is_path_whitelisted "$target" 2> /dev/null; then
+            continue
         fi
         mole_cleanup_targets_exist "$target" || continue
         case "$target" in

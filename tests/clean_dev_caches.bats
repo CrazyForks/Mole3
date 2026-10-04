@@ -681,6 +681,58 @@ EOF
     [[ "$output" != *"modules-2"* ]]
 }
 
+@test "clean_dev_jvm spends a slow build cache filter on that group only (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-budget.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/caches/build-cache-1" "$fixture_home/.gradle/notifications"
+    touch "$fixture_home/.gradle/caches/build-cache-1/entry-1" "$fixture_home/.gradle/caches/build-cache-1/entry-2" \
+        "$fixture_home/.gradle/notifications/entry"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+WHITELIST_PATTERNS=()
+SECONDS=0
+# Every build cache entry costs the whole scan budget, as thousands of them do.
+mole_cleanup_targets_exist() {
+    case "$1" in
+        */caches/build-cache-*) SECONDS=$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC)) ;;
+    esac
+    return 0
+}
+gradle_daemon_running() { return 1; }
+safe_clean() { printf 'TARGET:%s\n' "$@"; }
+clean_dev_jvm
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"TARGET:$fixture_home/.gradle/notifications/entry"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"build-cache-1"* ]]
+}
+
+@test "clean_dev_jvm skips the protection probe for whitelisted Gradle entries (#1674)" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/jvm-whitelisted.XXXXXX")
+    mkdir -p "$fixture_home/.gradle/caches/build-cache-1" "$fixture_home/.gradle/notifications"
+    touch "$fixture_home/.gradle/caches/build-cache-1/entry-1" "$fixture_home/.gradle/caches/build-cache-1/entry-2" \
+        "$fixture_home/.gradle/notifications/entry"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+WHITELIST_PATTERNS=("$HOME/.gradle/caches/*")
+# should_protect_path costs about 10 ms per path, so thousands of whitelisted
+# build cache entries must be settled by the cheap pattern match instead.
+should_protect_path() { printf '%s\n' "$1" >> "$HOME/probes"; return 1; }
+gradle_daemon_running() { return 1; }
+safe_clean() { printf 'TARGET:%s\n' "$@"; }
+clean_dev_jvm
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"TARGET:$fixture_home/.gradle/notifications/entry"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"build-cache-1"* ]] || return 1
+    [ "$(cat "$fixture_home/probes")" = "$fixture_home/.gradle/notifications/entry" ]
+}
+
 @test "clean_dev_jvm fails closed for every Gradle target when the process probe errors" {
     rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon" "$HOME/.gradle/workers"
     mkdir -p "$HOME/.gradle/caches/build-cache-1" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon/8.14" "$HOME/.gradle/workers/worker-1"
