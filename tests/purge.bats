@@ -368,6 +368,52 @@ EOF
 	[[ "$result" == "1" ]]
 }
 
+@test "purge content probes share the result-filter deadline (#1679)" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture="$HOME/deadline-probes"
+mkdir -p "$fixture/project/node_modules"
+touch "$fixture/project/.git"
+run_with_timeout() {
+    printf '%s\n' "$1" >> "$fixture/budgets"
+    return 0
+}
+SECONDS=0
+printf '%s\n' "$fixture/project/node_modules" | filter_protected_artifacts 4
+[[ $(wc -l < "$fixture/budgets") -eq 2 ]] || exit 1
+while IFS= read -r budget; do
+    [[ "$budget" -gt 0 && "$budget" -le 4 ]] || exit 1
+done < "$fixture/budgets"
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"deadline-probes/project/node_modules"* ]] || return 1
+}
+
+@test "purge discards a root when its final content probe exhausts the budget (#1679)" {
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MO_USE_FIND=1 MO_PURGE_SCAN_TIMEOUT_SEC=2 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture="$HOME/deadline-root"
+mkdir -p "$fixture/project/node_modules"
+touch "$fixture/project/package.json"
+purge_artifact_has_authored_content() {
+    printf 'CONTENT_PROBE\n' >> "$fixture/trace"
+    sleep 3
+    return 1
+}
+result=0
+scan_purge_targets "$fixture" "$fixture/result" || result=$?
+[[ $(cat "$fixture/trace") == CONTENT_PROBE ]] || exit 1
+mole_rc_timeout "$result" || exit 1
+[[ ! -s "$fixture/result" ]] || exit 1
+[[ ! -e "$fixture/result.processed" ]] || exit 1
+printf 'INCOMPLETE_ROOT_KEPT\n'
+EOF
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"INCOMPLETE_ROOT_KEPT"* ]] || return 1
+}
+
 # Vendor protection unit tests
 @test "is_rails_project_root: detects valid Rails project" {
 	mkdir -p "$HOME/www/test-rails/config"
