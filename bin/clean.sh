@@ -725,7 +725,8 @@ normalize_paths_for_cleanup() {
                 dsl="${rest%%/*}"
                 rest="${rest#*/}"
                 hash="${rest%%/*}"
-                if [[ -n "$version" && -n "$hash" ]]; then
+                if [[ -n "$version" && -n "$hash" &&
+                    ("$dsl" == "groovy-dsl" || "$dsl" == "kotlin-dsl") ]]; then
                     normalized="$gradle_root/$version/$dsl/$hash"
                 fi
                 ;;
