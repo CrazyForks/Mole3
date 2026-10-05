@@ -478,6 +478,48 @@ PY
     [ "$status" -eq 0 ]
 }
 
+@test "mole_ascii_lowercase matches LC_ALL=C tr byte for byte" {
+    run /bin/bash --noprofile --norc << 'EOF'
+source "$PROJECT_ROOT/lib/core/common.sh"
+while IFS= read -r sample; do
+    expected=$(printf '%s' "$sample" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    actual=""
+    mole_ascii_lowercase actual "$sample"
+    [[ "$actual" == "$expected" ]] || { printf 'MISMATCH [%s] [%s] [%s]\n' "$sample" "$actual" "$expected"; exit 1; }
+done << 'SAMPLES'
+com.Apple.SystemSettings
+Zed Nightly
+ÄÖÜ Café ÉCOLE
+微信 WeChat
+[A-Z]*?{Glob}
+  Leading And Trailing  
+
+SAMPLES
+echo OK
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$output" = OK ]
+}
+
+@test "is_critical_system_component ignores case and leaves nocasematch as it was" {
+    run /bin/bash --noprofile --norc << 'EOF'
+source "$PROJECT_ROOT/lib/core/common.sh"
+for token in com.apple.SystemSettings "System Preferences" LoginItems com.apple.TCC ControlCenter; do
+    is_critical_system_component "$token" || { echo "MISSED $token"; exit 1; }
+done
+for token in com.example.app Slack "Visual Studio Code"; do
+    ! is_critical_system_component "$token" || { echo "FLAGGED $token"; exit 1; }
+done
+shopt -q nocasematch && { echo "LEFT_ON"; exit 1; }
+shopt -s nocasematch
+is_critical_system_component "LoginItems" || exit 1
+shopt -q nocasematch || { echo "TURNED_OFF"; exit 1; }
+echo OK
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$output" = OK ]
+}
+
 @test "bytes_to_human converts byte counts into readable units" {
     output="$(
         HOME="$HOME" /bin/bash --noprofile --norc << 'EOF'

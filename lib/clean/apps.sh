@@ -459,7 +459,7 @@ is_bundle_orphaned() {
 
     # 2. Fast path: check sensitive data patterns (in-memory, instant)
     local bundle_lower
-    bundle_lower=$(echo "$bundle_id" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    mole_ascii_lowercase bundle_lower "$bundle_id"
     for pattern in "${ORPHAN_NEVER_DELETE_PATTERNS[@]}"; do
         # shellcheck disable=SC2053
         if [[ "$bundle_lower" == $pattern ]]; then
@@ -814,7 +814,7 @@ clean_orphaned_app_data() {
                     if [[ $iteration_count -gt $MOLE_MAX_ORPHAN_ITERATIONS ]]; then
                         break
                     fi
-                    local bundle_id=$(basename "$match")
+                    local bundle_id="${match##*/}"
                     bundle_id="${bundle_id%.savedState}"
                     bundle_id="${bundle_id%.binarycookies}"
                     bundle_id="${bundle_id%.plist}"

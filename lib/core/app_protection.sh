@@ -47,22 +47,28 @@ xcode_build_tooling_process_state() {
     return 1
 }
 
-# Centralized check for critical system components (case-insensitive)
+# Centralized check for critical system components (case-insensitive).
+# nocasematch instead of a lowercasing tr: clean asks this once per
+# candidate, so a subprocess here cost seconds per run.
 is_critical_system_component() {
     local token="$1"
     [[ -z "$token" ]] && return 1
 
-    local lower
-    lower=$(echo "$token" | LC_ALL=C tr '[:upper:]' '[:lower:]')
-
-    case "$lower" in
+    local restore_nocasematch=false
+    if ! shopt -q nocasematch; then
+        shopt -s nocasematch
+        restore_nocasematch=true
+    fi
+    local critical=1
+    case "$token" in
         *backgroundtaskmanagement* | *loginitems* | *systempreferences* | *systemsettings* | *settings* | *preferences* | *controlcenter* | *biometrickit* | *sfl* | *tcc*)
-            return 0
-            ;;
-        *)
-            return 1
+            critical=0
             ;;
     esac
+    if [[ "$restore_nocasematch" == "true" ]]; then
+        shopt -u nocasematch
+    fi
+    return "$critical"
 }
 
 # Check if bundle ID matches pattern (glob support)

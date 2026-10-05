@@ -296,8 +296,8 @@ probe_project_artifact_hints() {
             fi
             [[ -d "$project_dir" ]] || continue
 
-            local project_name
-            project_name=$(basename "$project_dir")
+            local project_name="${project_dir%/}"
+            project_name="${project_name##*/}"
             [[ "$project_name" == .* ]] && continue
 
             if [[ $root_projects_scanned -ge $max_projects_per_root ]]; then
@@ -350,8 +350,8 @@ probe_project_artifact_hints() {
                 fi
                 [[ -d "$nested_dir" ]] || continue
 
-                local nested_name
-                nested_name=$(basename "$nested_dir")
+                local nested_name="${nested_dir%/}"
+                nested_name="${nested_name##*/}"
                 [[ "$nested_name" == .* ]] && continue
 
                 case "$nested_name" in

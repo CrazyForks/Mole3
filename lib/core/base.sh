@@ -617,6 +617,40 @@ mole_filter_nested_paths() {
 # Wait in the owning shell so Bash 3.2 can reap any completed scan worker.
 # The first argument names a caller variable receiving the completed PID;
 # the return status belongs to that worker, or to an interrupted polling sleep.
+# Lowercase ASCII letters into the variable named by $1, the same bytes
+# `LC_ALL=C tr '[:upper:]' '[:lower:]'` produces, without a subprocess:
+# hot loops call this once per candidate, and each tr cost a fork.
+mole_ascii_lowercase() {
+    local _lowercase_value="${2:-}"
+    _lowercase_value=${_lowercase_value//A/a}
+    _lowercase_value=${_lowercase_value//B/b}
+    _lowercase_value=${_lowercase_value//C/c}
+    _lowercase_value=${_lowercase_value//D/d}
+    _lowercase_value=${_lowercase_value//E/e}
+    _lowercase_value=${_lowercase_value//F/f}
+    _lowercase_value=${_lowercase_value//G/g}
+    _lowercase_value=${_lowercase_value//H/h}
+    _lowercase_value=${_lowercase_value//I/i}
+    _lowercase_value=${_lowercase_value//J/j}
+    _lowercase_value=${_lowercase_value//K/k}
+    _lowercase_value=${_lowercase_value//L/l}
+    _lowercase_value=${_lowercase_value//M/m}
+    _lowercase_value=${_lowercase_value//N/n}
+    _lowercase_value=${_lowercase_value//O/o}
+    _lowercase_value=${_lowercase_value//P/p}
+    _lowercase_value=${_lowercase_value//Q/q}
+    _lowercase_value=${_lowercase_value//R/r}
+    _lowercase_value=${_lowercase_value//S/s}
+    _lowercase_value=${_lowercase_value//T/t}
+    _lowercase_value=${_lowercase_value//U/u}
+    _lowercase_value=${_lowercase_value//V/v}
+    _lowercase_value=${_lowercase_value//W/w}
+    _lowercase_value=${_lowercase_value//X/x}
+    _lowercase_value=${_lowercase_value//Y/y}
+    _lowercase_value=${_lowercase_value//Z/z}
+    printf -v "$1" '%s' "$_lowercase_value"
+}
+
 mole_wait_for_any_worker() {
     local _wait_output_name="$1"
     shift

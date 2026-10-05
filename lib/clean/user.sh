@@ -2261,7 +2261,7 @@ clean_application_support_logs() {
             is_protected=true
         else
             local app_name_lower
-            app_name_lower=$(echo "$app_name" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+            mole_ascii_lowercase app_name_lower "$app_name"
             if should_protect_data "$app_name_lower"; then
                 is_protected=true
             fi
