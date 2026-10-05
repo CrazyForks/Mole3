@@ -1810,6 +1810,20 @@ uninstall_list_apps() {
     fi
     rm -f "$apps_file" "${apps_file}.inventory" # SAFE: exact scan output and inventory sidecar
 
+    # One read-only Caskroom and `brew list --cask` snapshot serves every row
+    # instead of one probe per app. It is scoped to this listing pass only.
+    local _MOLE_BREW_BATCH_LIST_READY=0 _MOLE_BREW_BATCH_LIST="" _MOLE_BREW_BATCH_LIST_RC=0
+    local _MOLE_BREW_BATCH_ROOM_READY=0 _MOLE_BREW_BATCH_ROOM_FILE="" _MOLE_BREW_BATCH_ROOM_RC=0
+    local brew_inventory_dir="" brew_prep_rc=0
+    if is_homebrew_available && brew_inventory_dir=$(create_temp_dir); then
+        _MOLE_BREW_BATCH_ROOM_FILE="$brew_inventory_dir/caskroom"
+        _mole_brew_prepare_batch_inventory || brew_prep_rc=$?
+        if [[ $brew_prep_rc -ge 128 ]]; then
+            rm -rf -- "$brew_inventory_dir" # SAFE: private read-only Homebrew inventory directory created above
+            return "$brew_prep_rc"
+        fi
+    fi
+
     # Auto-switch to JSON when stdout is piped, matching `mo status`.
     local format="text"
     if [[ ! -t 1 ]]; then
@@ -1849,12 +1863,14 @@ uninstall_list_apps() {
             printf '\n'
         fi
         printf ']\n'
+        [[ -z "$brew_inventory_dir" ]] || rm -rf -- "$brew_inventory_dir" # SAFE: private read-only Homebrew inventory directory created above
         return 0
     fi
 
     local total=${#apps_data[@]}
     if [[ $total -eq 0 ]]; then
         echo "No applications found."
+        [[ -z "$brew_inventory_dir" ]] || rm -rf -- "$brew_inventory_dir" # SAFE: private read-only Homebrew inventory directory created above
         return 0
     fi
 
@@ -1902,6 +1918,7 @@ uninstall_list_apps() {
     done
 
     printf '\n%d application(s)  |  Remove with: mo uninstall <UNINSTALL NAME>\n\n' "$total"
+    [[ -z "$brew_inventory_dir" ]] || rm -rf -- "$brew_inventory_dir" # SAFE: private read-only Homebrew inventory directory created above
     return 0
 }
 

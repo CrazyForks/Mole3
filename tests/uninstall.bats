@@ -4970,6 +4970,8 @@ load_applications() {
 # Force brew-managed result.
 is_homebrew_available() { return 0; }
 get_brew_cask_name() { printf '%s' "visual-studio-code"; return 0; }
+# Keep the listing snapshot off the real Caskroom and PATH brew.
+_mole_brew_prepare_batch_inventory() { :; }
 uninstall_normalize_size_display() { local s="${1:-}"; [[ -z "$s" || "$s" == "0" || "$s" == "Unknown" ]] && echo "N/A" || echo "$s"; }
 
 main --list
@@ -4979,6 +4981,83 @@ INNER
     [ "$status" -eq 0 ]
     [[ "$output" == *'"uninstall_name": "visual-studio-code"'* ]] || return 1
     [[ "$output" == *'"source": "Homebrew"'* ]]
+}
+
+_list_brew_snapshot_runner() {
+    HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
+        BREW_LIST_RC="$1" /bin/bash --noprofile --norc << 'INNER'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+
+log_operation_session_start() { :; }
+scan_applications() {
+    local f="$HOME/apps-cache"
+    : > "$f"
+    local name
+    for name in Alpha Bee Gamma; do
+        mkdir -p "$HOME/Applications/$name.app"
+        printf '1700000000|%s|%s|com.example.%s|1MB|Today|1024\n' \
+            "$HOME/Applications/$name.app" "$name" "$name" >> "$f"
+    done
+    printf '%s\n' "$f"
+}
+load_applications() {
+    apps_data=()
+    while IFS='|' read -r epoch app_path app_name bundle_id size last_used size_kb; do
+        apps_data+=("$epoch|$app_path|$app_name|$bundle_id|$size|$last_used|${size_kb:-0}")
+    done < "$1"
+}
+uninstall_normalize_size_display() { echo "$1"; }
+mkdir -p "$HOME/Caskroom/bee/1.0/Bee.app"
+_mole_brew_caskroom_roots() {
+    echo room >> "$HOME/room-scans"
+    printf '%s\n' "$HOME/Caskroom"
+}
+brew() {
+    echo "$*" >> "$HOME/brew-calls"
+    case "$1" in
+        list)
+            [[ "$BREW_LIST_RC" == 0 ]] || return "$BREW_LIST_RC"
+            printf 'bee\n'
+            ;;
+        info) printf '%s\n' "$HOME/Applications/Bee.app (App)" ;;
+        *) return 1 ;;
+    esac
+}
+
+rc=0
+main --list || rc=$?
+echo "rc=$rc"
+echo "list_calls=$(grep -c '^list' "$HOME/brew-calls" || true)"
+echo "room_scans=$(grep -c . "$HOME/room-scans" 2> /dev/null || echo 0)"
+INNER
+}
+
+@test "uninstall --list takes one Homebrew snapshot for every row" {
+    run _list_brew_snapshot_runner 0
+    [ "$status" -eq 0 ]
+    [[ "$output" == *'"uninstall_name": "bee"'* ]] || return 1
+    [[ "$output" == *'"name": "Alpha", "bundle_id": "com.example.Alpha", "source": "App"'* ]] || return 1
+    [[ "$output" == *'"name": "Gamma", "bundle_id": "com.example.Gamma", "source": "App"'* ]] || return 1
+    [[ "$output" == *$'\n'"rc=0"$'\n'* ]] || return 1
+    # One `brew list --cask` and one Caskroom scan, not one per app row.
+    [[ "$output" == *$'\n'"list_calls=1"$'\n'* ]] || return 1
+    [[ "${lines[${#lines[@]} - 1]}" == "room_scans=1" ]]
+}
+
+@test "uninstall --list keeps rows as App when the Homebrew snapshot times out" {
+    run _list_brew_snapshot_runner 124
+    [ "$status" -eq 0 ]
+    [[ "$output" == *$'\n'"rc=0"$'\n'* ]] || return 1
+    [[ "$output" != *'"source": "Homebrew"'* ]] || return 1
+    [[ "$output" == *'"name": "Bee", "bundle_id": "com.example.Bee", "source": "App"'* ]]
+}
+
+@test "uninstall --list propagates a signal from the Homebrew snapshot" {
+    run _list_brew_snapshot_runner 130
+    [ "$status" -eq 0 ]
+    [[ "${lines[0]}" == "rc=130" ]] || return 1
+    [[ "$output" != *'"name"'* ]]
 }
 
 # Regression tests for #940: warn about background jobs that survive uninstall.
