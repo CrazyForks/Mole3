@@ -42,12 +42,13 @@ get_dir_size_kb() { echo 1; }
 safe_remove() { printf 'SELECTED:%s\n' "$1"; }
 is_recently_modified() { _PURGE_ACTIVITY_STATE=old; return 1; }
 printf() {
-    if [[ "$1" == '%s %s\n' && "${item:-}" == *a-bad* ]]; then
+    if [[ "$1" == '%s %s %s\n' && "${item:-}" == *a-bad* ]]; then
         case "$RESULT_MODE" in
             truncated) builtin printf '1' ;;
             missing-field) builtin printf '1 \n' ;;
-            failed-worker) builtin printf '1 old\n'; exit 7 ;;
-            failed-write) builtin printf '1 old\n'; return 7 ;;
+            missing-mtime) builtin printf '1 old\n' ;;
+            failed-worker) builtin printf '1 old 1700000000\n'; exit 7 ;;
+            failed-write) builtin printf '1 old 1700000000\n'; return 7 ;;
         esac
     else
         builtin printf "$@"
@@ -3794,6 +3795,10 @@ EOF_REPEAT_TERM
     assert_activity_result_fails_closed missing-field
 }
 
+@test "activity batch retains a worker result missing its mtime" {
+    assert_activity_result_fails_closed missing-mtime
+}
+
 @test "activity batch retains a result from an unsuccessful worker" {
     assert_activity_result_fails_closed failed-worker
 }
@@ -3882,7 +3887,7 @@ is_recently_modified() {
     return 143
 }
 printf() {
-    [[ "$1" != '%s %s\n' ]] || return 7
+    [[ "$1" != '%s %s %s\n' ]] || return 7
     builtin printf "$@"
 }
 export MOLE_DRY_RUN=1
@@ -3975,8 +3980,8 @@ is_recently_modified() {
     return 1
 }
 printf() {
-    if [[ "$1" == '%s %s\n' && "${item:-}" == */b-failed/node_modules ]]; then
-        builtin printf '1 old\n'
+    if [[ "$1" == '%s %s %s\n' && "${item:-}" == */b-failed/node_modules ]]; then
+        builtin printf '1 old 1700000000\n'
         exit 7
     fi
     builtin printf "$@"
@@ -3994,4 +3999,231 @@ EOF_INDEX
     [[ "$output" != *"SELECTED:$fixture/www/b-failed/node_modules"* ]] || return 1
     [[ "$output" != *"SELECTED:$fixture/www/d-recent/node_modules"* ]] || return 1
     [[ "$output" != *"SELECTED:$fixture/www/e-error/node_modules"* ]] || return 1
+}
+
+@test "purge menu rows reuse the activity mtime and batch scratch removal" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_ROWS'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/menu-rows.XXXXXX")
+for name in a-one b-two c-three d-four; do
+    mkdir -p "$fixture/www/$name/node_modules"
+    touch "$fixture/www/$name/package.json"
+done
+PURGE_SEARCH_PATHS=("$fixture/www")
+scan_purge_targets() { printf '%s\n' "$fixture/www/"{a-one,b-two,c-three,d-four}/node_modules > "$2"; }
+purge_artifact_has_authored_content() { return 1; }
+get_optimal_parallel_jobs() { echo 2; }
+get_dir_size_kb() { echo 1; }
+safe_remove() { printf 'SELECTED:%s\n' "$1"; }
+get_file_mtime() { printf 'x\n' >> "$fixture/mtime-calls"; echo 1577836800; }
+register_temp_file() { printf '%s\n' "$1" >> "$fixture/registered"; }
+is_registered_scratch() {
+    local arg
+    for arg in "$@"; do
+        [[ -f "$fixture/registered" ]] && grep -Fqx -- "$arg" "$fixture/registered" && return 0
+    done
+    return 1
+}
+cat() {
+    if is_registered_scratch "$@"; then printf 'x\n' >> "$fixture/cat-calls"; fi
+    command cat "$@"
+}
+rm() {
+    if is_registered_scratch "$@"; then printf 'x\n' >> "$fixture/rm-calls"; fi
+    command rm "$@"
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts </dev/null
+while IFS= read -r scratch; do
+    [[ ! -e "$scratch" ]] || { echo "LEFT:$scratch"; exit 1; }
+done < "$fixture/registered"
+count_lines() { if [[ -f "$1" ]]; then wc -l < "$1" | tr -d ' '; else echo 0; fi; }
+printf 'MTIME_CALLS=%s\n' "$(count_lines "$fixture/mtime-calls")"
+printf 'CAT_CALLS=%s\n' "$(count_lines "$fixture/cat-calls")"
+printf 'RM_CALLS=%s\n' "$(count_lines "$fixture/rm-calls")"
+EOF_ROWS
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local name
+    for name in a-one b-two c-three d-four; do
+        [[ "$output" == *"SELECTED:"*"/www/$name/node_modules"* ]] || { echo "$output"; return 1; }
+    done
+    # Per artifact: the activity worker and the final pre-delete recheck.
+    # The menu row reuses the worker's read instead of taking a third.
+    [[ "$output" == *"MTIME_CALLS=8"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"CAT_CALLS=0"* ]] || { echo "$output"; return 1; }
+    # Dedupe output, activity batch, size batch: one removal each.
+    [[ "$output" == *"RM_CALLS=3"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge binding rechecks a scan root once instead of per candidate" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_BIND'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/bind-count.XXXXXX")
+for name in a-one b-two c-three d-four; do
+    mkdir -p "$fixture/www/$name/node_modules"
+    touch "$fixture/www/$name/package.json"
+done
+PURGE_SEARCH_PATHS=("$fixture/www")
+scan_purge_targets() { printf '%s\n' "$fixture/www/"{a-one,b-two,c-three,d-four}/node_modules > "$2"; }
+purge_artifact_has_authored_content() { return 1; }
+get_optimal_parallel_jobs() { echo 2; }
+get_dir_size_kb() { echo 1; }
+safe_remove() { printf 'SELECTED:%s\n' "$1"; }
+is_path_whitelisted() { printf 'WL\n' >> "$fixture/phase-log"; return 1; }
+is_recently_modified() { printf 'ACT\n' >> "$fixture/phase-log"; _PURGE_ACTIVITY_STATE=old; return 1; }
+_mole_path_matches_identity() {
+    printf 'ID\n' >> "$fixture/phase-log"
+    _mole_snapshot_path_identity "$1" || return 1
+    [[ "$_MOLE_PATH_SNAPSHOT_PARENT" == "$2" ]] || return 1
+    [[ "$_MOLE_PATH_SNAPSHOT_PARENT_ID" == "$3" ]] || return 1
+    [[ "$_MOLE_PATH_SNAPSHOT_TARGET_ID" == "$4" ]]
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts </dev/null
+bind_checks=$(awk '$0 == "WL" { bind = 1 } $0 == "ACT" { exit } bind && $0 == "ID" { n++ } END { print n + 0 }' "$fixture/phase-log")
+printf 'BIND_IDENTITY_CHECKS=%s\n' "$bind_checks"
+EOF_BIND
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local name
+    for name in a-one b-two c-three d-four; do
+        [[ "$output" == *"SELECTED:"*"/www/$name/node_modules"* ]] || { echo "$output"; return 1; }
+    done
+    # One lexical and one physical root check for the single scan root.
+    [[ "$output" == *"BIND_IDENTITY_CHECKS=2"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge binding drops candidates whose scan root changed while binding" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_SWAP'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/bind-swap.XXXXXX")
+for name in a-one b-two; do
+    mkdir -p "$fixture/www/$name/node_modules"
+    touch "$fixture/www/$name/package.json"
+    touch -t 202001010101 "$fixture/www/$name/node_modules"
+done
+PURGE_SEARCH_PATHS=("$fixture/www")
+scan_purge_targets() { printf '%s\n' "$fixture/www/"{a-one,b-two}/node_modules > "$2"; }
+purge_artifact_has_authored_content() { return 1; }
+get_optimal_parallel_jobs() { echo 2; }
+get_dir_size_kb() { echo 1; }
+safe_remove() { printf 'SELECTED:%s\n' "$1"; }
+# Replace the scan root with a copy while the first candidate is bound.
+is_path_whitelisted() {
+    if [[ ! -e "$fixture/swapped" ]]; then
+        : > "$fixture/swapped"
+        mv "$fixture/www" "$fixture/www.orig"
+        cp -Rp "$fixture/www.orig" "$fixture/www"
+    fi
+    return 1
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts </dev/null
+printf 'OUTCOME=%s\n' "$PURGE_RUN_OUTCOME"
+EOF_SWAP
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"OUTCOME=no_candidates"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"No eligible project artifacts to purge"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"SELECTED:"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge content probes overlap within a root and publish in input order" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_POOL'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-pool.XXXXXX")
+get_optimal_parallel_jobs() { echo 4; }
+# The first probe finishes only after the second one has started, so a
+# serial filter records SERIAL and the pool publishes the slow item first.
+is_protected_purge_artifact() {
+    PURGE_PROTECTION_UNVERIFIED=false
+    case "$1" in
+        */a-slow/node_modules)
+            local n
+            for ((n = 0; n < 150; n++)); do
+                [[ ! -e "$fixture/b-started" ]] || return 1
+                sleep 0.02
+            done
+            printf 'SERIAL\n' >> "$fixture/serial"
+            return 1
+            ;;
+        */b-fast/node_modules) : > "$fixture/b-started"; return 1 ;;
+        */c-protected/node_modules) return 0 ;;
+    esac
+    return 1
+}
+printf '%s\n' "$fixture/"{a-slow,b-fast,c-protected,d-last}/node_modules |
+    filter_protected_artifacts "" "$fixture/verified" > "$fixture/kept"
+[[ ! -e "$fixture/serial" ]] || { echo SERIAL_PROBES; exit 1; }
+[[ ! -e "$fixture/verified.probes" ]] || { echo PROBES_LEFT; exit 1; }
+printf 'KEPT=%s\n' "$(tr '\n' ' ' < "$fixture/kept")"
+printf 'VERIFIED=%s\n' "$(tr '\n' ' ' < "$fixture/verified")"
+printf 'FIXTURE=%s\n' "$fixture"
+EOF_POOL
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local fixture
+    fixture="$(printf '%s\n' "$output" | sed -n 's/^FIXTURE=//p')"
+    [[ -n "$fixture" ]] || return 1
+    local expected="$fixture/a-slow/node_modules $fixture/b-fast/node_modules $fixture/d-last/node_modules "
+    [[ "$output" == *"KEPT=$expected"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"VERIFIED=$expected"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge keeps a candidate whose content probe left no record, unverified" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_LOST'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-lost.XXXXXX")
+get_optimal_parallel_jobs() { echo 4; }
+is_protected_purge_artifact() { PURGE_PROTECTION_UNVERIFIED=false; return 1; }
+# The probe for b-lost reaches a clean verdict but its record is never written.
+printf() {
+    if [[ "$1" == '%s %s %s\n' && "${item:-}" == */b-lost/node_modules ]]; then
+        return 1
+    fi
+    builtin printf "$@"
+}
+builtin printf '%s\n' "$fixture/"{a-ok,b-lost}/node_modules |
+    filter_protected_artifacts "" "$fixture/verified" > "$fixture/kept"
+builtin printf 'KEPT=%s\n' "$(tr '\n' ' ' < "$fixture/kept")"
+builtin printf 'VERIFIED=%s\n' "$(tr '\n' ' ' < "$fixture/verified")"
+builtin printf 'FIXTURE=%s\n' "$fixture"
+EOF_LOST
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local fixture
+    fixture="$(printf '%s\n' "$output" | sed -n 's/^FIXTURE=//p')"
+    [[ -n "$fixture" ]] || return 1
+    [[ "$output" == *"KEPT=$fixture/a-ok/node_modules $fixture/b-lost/node_modules "* ]] || { echo "$output"; return 1; }
+    # Only a recorded clean verdict may skip the review walk.
+    [[ "$output" == *"VERIFIED=$fixture/a-ok/node_modules "* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"VERIFIED="*"b-lost"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge content probe filter stops when the scan sentinel is removed" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_CANCEL'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-cancel.XXXXXX")
+get_optimal_parallel_jobs() { echo 4; }
+is_protected_purge_artifact() {
+    printf '%s\n' "$1" >> "$fixture/probed"
+    PURGE_PROTECTION_UNVERIFIED=false
+    return 1
+}
+: > "$fixture/scanning"
+result=0
+{
+    printf '%s\n' "$fixture/a-first/node_modules"
+    rm -f "$fixture/scanning"
+    printf '%s\n' "$fixture/b-after-cancel/node_modules"
+} | filter_protected_artifacts "" "$fixture/verified" "$fixture/scanning" > "$fixture/kept" || result=$?
+printf 'STATUS=%s\n' "$result"
+[[ ! -s "$fixture/kept" ]] || { echo PUBLISHED; exit 1; }
+[[ ! -e "$fixture/verified.probes" ]] || { echo PROBES_LEFT; exit 1; }
+if grep -q b-after-cancel "$fixture/probed" 2> /dev/null; then echo LATER_PROBED; exit 1; fi
+EOF_CANCEL
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"STATUS=130"* ]] || { echo "$output"; return 1; }
 }
