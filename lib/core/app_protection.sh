@@ -231,7 +231,8 @@ should_protect_data() {
         com.tencent.* | com.sogou.* | com.baidu.* | com.googlecode.* | im.rime.*)
             # These might have wildcards, check detailed list
             for pattern in "${DATA_PROTECTED_BUNDLES[@]}"; do
-                if bundle_matches_pattern "$bundle_id" "$pattern"; then
+                # shellcheck disable=SC2053 # unquoted RHS is the glob, as in bundle_matches_pattern
+                if [[ -n "$pattern" && "$bundle_id" == $pattern ]]; then
                     return 0
                 fi
             done
@@ -241,7 +242,8 @@ should_protect_data() {
 
     # Fallback: check against the full DATA_PROTECTED_BUNDLES list
     for pattern in "${DATA_PROTECTED_BUNDLES[@]}"; do
-        if bundle_matches_pattern "$bundle_id" "$pattern"; then
+        # shellcheck disable=SC2053 # unquoted RHS is the glob, as in bundle_matches_pattern
+        if [[ -n "$pattern" && "$bundle_id" == $pattern ]]; then
             return 0
         fi
     done
@@ -581,20 +583,23 @@ should_protect_path() {
         if [[ "${MOLE_UNINSTALL_MODE:-0}" == "1" ]]; then
             # Uninstall mode: first check if it's an uninstallable Apple app
             for pattern in "${APPLE_UNINSTALLABLE_APPS[@]}"; do
-                if bundle_matches_pattern "$path" "$pattern"; then
+                # shellcheck disable=SC2053 # unquoted RHS is the glob, as in bundle_matches_pattern
+                if [[ -n "$pattern" && "$path" == $pattern ]]; then
                     return 1 # Can be uninstalled
                 fi
             done
             # Then check system-critical components
             for pattern in "${SYSTEM_CRITICAL_BUNDLES[@]}"; do
-                if bundle_matches_pattern "$path" "$pattern"; then
+                # shellcheck disable=SC2053 # unquoted RHS is the glob, as in bundle_matches_pattern
+                if [[ -n "$pattern" && "$path" == $pattern ]]; then
                     return 0
                 fi
             done
         else
             # Normal mode (cleanup): protect both system-critical and data-protected bundles
             for pattern in "${SYSTEM_CRITICAL_BUNDLES[@]}" "${DATA_PROTECTED_BUNDLES[@]}"; do
-                if bundle_matches_pattern "$path" "$pattern"; then
+                # shellcheck disable=SC2053 # unquoted RHS is the glob, as in bundle_matches_pattern
+                if [[ -n "$pattern" && "$path" == $pattern ]]; then
                     return 0
                 fi
             done

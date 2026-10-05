@@ -946,3 +946,44 @@ EOF
 		return 1
 	}
 }
+
+@test "protection pattern loops match globs inline, without a per-pattern call" {
+	# should_protect_path and should_protect_data run once per candidate across
+	# hundreds of patterns, so each loop tests the glob inline instead of
+	# calling bundle_matches_pattern. The verdicts pin that the unquoted RHS
+	# is still a glob: quoting it would turn a wildcard row such as
+	# *wireguard* into an exact-string match and drop the protection.
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+calls="$HOME/bundle-match-calls"
+: >"$calls"
+bundle_matches_pattern() {
+    printf '.' >>"$calls"
+    [[ -z "$2" ]] && return 1
+    # shellcheck disable=SC2053 # unquoted RHS is the glob
+    [[ "$1" == $2 ]]
+}
+verdict() { if "$@"; then echo "$*=protected"; else echo "$*=open"; fi; }
+verdict should_protect_data "com.sogou.inputmethod.pinyin"
+verdict should_protect_data "com.sogou.cloud"
+verdict should_protect_data "im.rime.squirrel"
+verdict should_protect_data "org.example.wireguard-ui"
+verdict should_protect_data "org.example.plain"
+verdict should_protect_path "$HOME/Library/Caches/org.example.wireguard-ui/data"
+verdict should_protect_path "$HOME/Library/Caches/org.example.plain/data"
+MOLE_UNINSTALL_MODE=1 verdict should_protect_path "com.apple.loginitems.agent"
+MOLE_UNINSTALL_MODE=1 verdict should_protect_path "$HOME/Library/Caches/org.example.plain/data"
+echo "calls=$(wc -c <"$calls" | tr -d ' ')"
+EOF
+	[ "$status" -eq 0 ] || return 1
+	[[ "$output" == *"should_protect_data com.sogou.inputmethod.pinyin=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_data com.sogou.cloud=open"* ]] || return 1
+	[[ "$output" == *"should_protect_data im.rime.squirrel=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_data org.example.wireguard-ui=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_data org.example.plain=open"* ]] || return 1
+	[[ "$output" == *"org.example.wireguard-ui/data=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_path com.apple.loginitems.agent=protected"* ]] || return 1
+	[[ "$output" == *"org.example.plain/data=open"*"org.example.plain/data=open"* ]] || return 1
+	[[ "${lines[${#lines[@]} - 1]}" == "calls=0" ]]
+}
