@@ -115,7 +115,7 @@ pkg_receipt_nonstandard_app_paths() { :; }
 mkdir -p "$HOME/Volumes/com.apple.TimeMachine.localsnapshots" "$HOME/Selected.app"
 volumes="$HOME/Volumes"
 snapshots="$volumes/com.apple.TimeMachine.localsnapshots"
-trap 'chmod 700 "$snapshots" "$volumes/Ordinary" 2>/dev/null || true' EXIT
+trap 'chmod 700 "$volumes" "$snapshots" "$volumes/Ordinary" "$volumes/Share" 2>/dev/null || true' EXIT
 # Simulate system ownership without creating root-owned fixtures or mounting disks.
 stat() {
     if [[ "$1" == -f && "$2" == '%u:%d' ]]; then
@@ -143,6 +143,40 @@ if [[ -n "$survivor" ]]; then
 fi
 if [[ "$SCAN_CASE" != mounted ]]; then chmod 000 "$snapshots"; fi
 if [[ "$SCAN_CASE" == ordinary ]]; then mkdir -p "$volumes/Ordinary"; chmod 000 "$volumes/Ordinary"; fi
+case "$SCAN_CASE" in
+    stale-share | reachable-share | mount-timeout | mount-failed | mount-interrupted | probe-timeout | probe-interrupted)
+        mkdir -p "$volumes/Share"
+        chmod 000 "$volumes/Share"
+        # The fixture cannot drop a live server, so only the system answers are
+        # modeled: the mount table line and the errno of the mount point lstat.
+        run_with_timeout() {
+            shift
+            if [[ "$1" == /sbin/mount ]]; then
+                printf '//GUEST:@host/share on %s (smbfs, nodev, nosuid, nobrowse)\n' "$volumes/Share"
+                case "$SCAN_CASE" in
+                    mount-timeout) return 124 ;;
+                    mount-failed) return 1 ;;
+                    mount-interrupted) return 130 ;;
+                esac
+                return 0
+            fi
+            if [[ "$1" == /usr/bin/perl && "${!#}" == "$volumes/Share" ]]; then
+                case "$SCAN_CASE" in
+                    reachable-share) "$@"; return ;;
+                    probe-timeout) return 124 ;;
+                    probe-interrupted) return 130 ;;
+                esac
+                return 0
+            fi
+            "$@"
+        }
+        ;;
+    unlistable-root)
+        mkdir -p "$volumes/External/Applications/Survivor.app/Contents"
+        printf '%s\n' '<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.snapshot</string></dict></plist>' > "$volumes/External/Applications/Survivor.app/Contents/Info.plist"
+        chmod 000 "$volumes"
+        ;;
+esac
 _MOLE_UNINSTALL_LIVE_APP_ROOTS=()
 _MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$volumes"
 selected_apps=("0|$HOME/Selected.app|Selected|com.example.snapshot|0|Never")
@@ -1328,6 +1362,60 @@ EOF
 
 @test "ordinary unreadable volumes still make sibling discovery incomplete" {
     assert_time_machine_volume_scan ordinary 3
+}
+
+@test "an unreachable network share does not make sibling discovery incomplete" {
+    assert_time_machine_volume_scan stale-share 1
+}
+
+@test "a reachable but unreadable network share still makes sibling discovery incomplete" {
+    assert_time_machine_volume_scan reachable-share 3
+}
+
+@test "an unknown mount table keeps every share in sibling discovery" {
+    assert_time_machine_volume_scan mount-timeout 3
+    assert_time_machine_volume_scan mount-failed 3
+}
+
+@test "an unfinished share probe keeps the share in sibling discovery" {
+    assert_time_machine_volume_scan probe-timeout 3
+}
+
+@test "share discovery interruptions cancel sibling discovery" {
+    assert_time_machine_volume_scan mount-interrupted 130
+    assert_time_machine_volume_scan probe-interrupted 130
+}
+
+@test "an unlistable volumes root keeps sibling discovery unknown" {
+    assert_time_machine_volume_scan unlistable-root 3
+}
+
+@test "unreachable share detection needs a network mount whose mount point is gone" {
+    run /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+deadline=$((SECONDS + 30))
+gone="$HOME/no-such-volumes/[C] Windows 11.hidden"
+mkdir -p "$HOME/live-share"
+: > "$HOME/plain-file"
+not_dir="$HOME/plain-file/share"
+table="//GUEST:@Windows%2011._smb._tcp.local/%5BC%5D on $gone (smbfs, nodev, noexec, nosuid, nobrowse, mounted by me)
+nas:/export on $HOME/live-share (nfs, nodev)
+//host/x on $not_dir (smbfs, nodev)"
+_uninstall_volume_is_unreachable_share "$gone" "$table" "$deadline" || { echo "MISSED_STALE"; exit 1; }
+# Brackets in the name match literally, not as a pattern.
+! _uninstall_volume_is_unreachable_share "$HOME/no-such-volumes/C Windows 11.hidden" "$table" "$deadline" || { echo "PATTERN_MATCH"; exit 1; }
+! _uninstall_volume_is_unreachable_share "$gone-2" "$table" "$deadline" || { echo "PREFIX_MATCH"; exit 1; }
+! _uninstall_volume_is_unreachable_share "$HOME/live-share" "$table" "$deadline" || { echo "REACHABLE_SKIPPED"; exit 1; }
+# Only ENOENT counts as gone; any other lstat error keeps the share in scope.
+! _uninstall_volume_is_unreachable_share "$not_dir" "$table" "$deadline" || { echo "OTHER_ERRNO_SKIPPED"; exit 1; }
+! _uninstall_volume_is_unreachable_share "$gone" "" "$deadline" || { echo "EMPTY_TABLE_SKIPPED"; exit 1; }
+! _uninstall_volume_is_unreachable_share "$gone" "/dev/disk4s1 on $gone (apfs, local)" "$deadline" || { echo "LOCAL_DISK_SKIPPED"; exit 1; }
+echo OK
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$output" = OK ]
 }
 
 @test "Time Machine exclusion preserves depth-two volume discovery" {

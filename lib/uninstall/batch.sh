@@ -1117,6 +1117,33 @@ _uninstall_collect_live_sibling_candidate() {
     return 0
 }
 
+# Return 0 only for a network share whose server is gone: the mount table
+# lists the entry as smbfs, nfs, afpfs or webdav, and a bounded lstat of its
+# mount point fails with ENOENT. A share that is slow, reconnecting, or fails
+# with any other error stays in scope, and signals propagate.
+_uninstall_volume_is_unreachable_share() {
+    local entry="$1"
+    local network_mounts="$2"
+    local deadline_seconds="$3"
+    local fs_type listed=false
+    [[ -n "$network_mounts" ]] || return 1
+    for fs_type in smbfs nfs afpfs webdav; do
+        if [[ "$network_mounts" == *" on $entry ($fs_type,"* || "$network_mounts" == *" on $entry ($fs_type)"* ]]; then
+            listed=true
+            break
+        fi
+    done
+    [[ "$listed" == true ]] || return 1
+    local probe_timeout="" probe_rc=0
+    probe_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" "$deadline_seconds") || return 1
+    # shellcheck disable=SC2016 # Perl expands $ARGV and $! itself.
+    run_with_timeout "$probe_timeout" /usr/bin/perl -e \
+        'lstat($ARGV[0]) and exit 1; exit($!{ENOENT} ? 0 : 1)' "$entry" \
+        < /dev/null > /dev/null 2>&1 || probe_rc=$?
+    [[ $probe_rc -ge 128 ]] && return "$probe_rc"
+    [[ $probe_rc -eq 0 ]]
+}
+
 # Return 0 for one or more other live installs, 1 only for a complete
 # proof of absence, 2 for incomplete/unknown state, and preserve signals.
 # A deadline timeout degrades to MOLE_UNINSTALL_SCAN_PARTIAL: out of budget
@@ -1173,7 +1200,7 @@ uninstall_live_bundle_has_other_install() {
         }
         local volume_scan_rc=0
         local snapshot_root="$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT/com.apple.TimeMachine.localsnapshots"
-        local -a volume_exclusion=()
+        local skip_snapshot_root=false
         if [[ -d "$snapshot_root" && ! -L "$snapshot_root" && ! -L "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" ]]; then
             # Only exclude Apple's internal snapshot namespace, not a mounted
             # disk with the same name. Unknown metadata keeps the normal scan.
@@ -1192,19 +1219,67 @@ uninstall_live_bundle_has_other_install() {
                 local volume_identity="${snapshot_metadata#*$'\n'}"
                 if [[ "$snapshot_identity" == 0:* && "$volume_identity" == "$snapshot_identity" &&
                     "${snapshot_identity#0:}" =~ ^[0-9]+$ ]]; then
-                    volume_exclusion=(-name com.apple.TimeMachine.localsnapshots -prune -o)
+                    skip_snapshot_root=true
                 fi
             fi
         fi
-        # mindepth suppresses prune at depth one. Filter the completed output
-        # below instead, retaining the original depth-two candidate scope.
-        _uninstall_materialize_complete_find0 "$volume_roots_file" \
-            "$deadline_seconds" "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" \
-            -maxdepth 2 "${volume_exclusion[@]+"${volume_exclusion[@]}"}" \
-            \( \
-            \( -type d -name Applications \) -o \
-            \( \( -type d -o -type l \) -iname '*.app' \) \
-            \) || volume_scan_rc=$?
+        # A network share whose server is gone stays in the mount table, but
+        # its mount point reports "No such file or directory", and find fails
+        # on it before -prune is evaluated. Nothing on an unreachable share can
+        # be a live install, so it is left out; any other unreadable volume
+        # still makes the scan incomplete. An unknown mount table excludes
+        # nothing.
+        local network_mounts="" mount_rc=0 mount_timeout
+        mount_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" "$deadline_seconds") || mount_rc=$?
+        if [[ $mount_rc -eq 0 ]]; then
+            network_mounts=$(run_with_timeout "$mount_timeout" /sbin/mount -t smbfs,nfs,afpfs,webdav \
+                < /dev/null 2> /dev/null) || mount_rc=$?
+        fi
+        if [[ $mount_rc -ge 128 ]]; then
+            rm -f -- "$volume_roots_file" "$scan_file" "$pkg_paths_file" 2> /dev/null || true # SAFE: exact tracked temp files created above
+            return "$mount_rc"
+        fi
+        [[ $mount_rc -eq 0 ]] || network_mounts=""
+        # Scan each volume one level down: the same depth-two candidates as a
+        # single two-level walk of the volumes root, without its excluded
+        # entries ever being visited.
+        local -a volume_starts=()
+        local volume_entry restore_glob_options="" share_rc=0
+        if [[ ! -r "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" || ! -x "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT" ]]; then
+            # An empty glob here would read as "no volumes" and prove absence.
+            debug_log "Sibling volumes root cannot be listed: $(mole_terminal_safe_text "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT")"
+            scan_indeterminate=true
+        else
+            restore_glob_options=$(shopt -p dotglob nullglob || true)
+            shopt -s dotglob nullglob
+            for volume_entry in "$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT"/*; do
+                if [[ "$skip_snapshot_root" == true && "$volume_entry" == "$snapshot_root" ]]; then
+                    continue
+                fi
+                share_rc=0
+                _uninstall_volume_is_unreachable_share "$volume_entry" "$network_mounts" \
+                    "$deadline_seconds" || share_rc=$?
+                if [[ $share_rc -eq 0 ]]; then
+                    debug_log "Skipping unreachable network share: $(mole_terminal_safe_text "$volume_entry")"
+                    continue
+                elif [[ $share_rc -ge 128 ]]; then
+                    eval "$restore_glob_options"
+                    rm -f -- "$volume_roots_file" "$scan_file" "$pkg_paths_file" 2> /dev/null || true # SAFE: exact tracked temp files created above
+                    return "$share_rc"
+                fi
+                volume_starts+=("$volume_entry")
+            done
+            eval "$restore_glob_options"
+        fi
+        if [[ ${#volume_starts[@]} -gt 0 ]]; then
+            _uninstall_materialize_complete_find0 "$volume_roots_file" \
+                "$deadline_seconds" "${volume_starts[@]}" \
+                -mindepth 1 -maxdepth 1 \
+                \( \
+                \( -type d -name Applications \) -o \
+                \( \( -type d -o -type l \) -iname '*.app' \) \
+                \) || volume_scan_rc=$?
+        fi
         if [[ $volume_scan_rc -eq $MOLE_UNINSTALL_SCAN_PARTIAL ]] || mole_rc_timeout "$volume_scan_rc"; then
             debug_log "Sibling volume discovery incomplete (exit $volume_scan_rc)"
             # Some volume was unreadable, or the budget ran out before every
