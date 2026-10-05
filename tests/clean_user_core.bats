@@ -3014,6 +3014,190 @@ EOF
     [[ "$output" == *"TEXT<~/.gradle/caches>"* ]] || { echo "$output"; return 1; }
 }
 
+@test "large files measures each row once, at most four at a time, and prints them in order" {
+    local review_home="$HOME/large-review-pool"
+    local -a pool_rows=(
+        "Library/Developer/Xcode/DerivedData" "Library/Developer/CoreSimulator/Devices"
+        "Library/Application Support/MobileSync/Backup" "Library/Mail" "Library/Updates"
+        ".lima" ".m2/repository" ".ivy2/cache" ".nuget/packages" "Library/pnpm/store"
+        ".conda/pkgs" ".gradle/caches"
+    )
+    local row
+    for row in "${pool_rows[@]}"; do
+        mkdir -p "$review_home/$row"
+    done
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+docker() { return 1; }
+defaults() { return 1; }
+format_path_link() { printf '%s' "$1"; }
+mkdir -p "$HOME/live"
+run_with_timeout() {
+    shift
+    if [[ "$1" == du ]]; then
+        local marker="$HOME/live/$RANDOM.$RANDOM"
+        : > "$marker"
+        printf '%s\n' "${!#}" >> "$HOME/du.calls"
+        ls "$HOME/live" | wc -l | tr -d ' ' >> "$HOME/concurrency"
+        sleep 0.3
+        command rm -f "$marker"
+        printf '2097152\t%s\n' "${!#}"
+        return 0
+    fi
+    "$@"
+}
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    # One measurement per folder: a lost pool state re-measured later rows.
+    local repeated
+    repeated=$(sort "$review_home/du.calls" | uniq -d)
+    [[ -z "$repeated" ]] || { echo "measured twice: $repeated"; return 1; }
+    [[ "$(wc -l < "$review_home/du.calls" | tr -d ' ')" -eq ${#pool_rows[@]} ]] || { cat "$review_home/du.calls"; return 1; }
+    local peak
+    peak=$(sort -n "$review_home/concurrency" | tail -1)
+    [[ "$peak" -ge 2 && "$peak" -le 4 ]] || { echo "peak=$peak"; return 1; }
+    # Rows keep their report order whatever order the sizes arrive in.
+    local order
+    order=$(printf '%s\n' "$output" | grep -oE 'Mail data|Xcode DerivedData|Simulator data|iOS backups|Maven local repository|Gradle caches' | tr '\n' ',')
+    [[ "$order" == "Mail data,Xcode DerivedData,Simulator data,iOS backups,Maven local repository,Gradle caches," ]] || { echo "order=$order"; return 1; }
+}
+
+@test "large files still reports cheap rows after slow ones use up the shared budget" {
+    local review_home="$HOME/large-review-budget"
+    mkdir -p \
+        "$review_home/Library/Developer/Xcode/DerivedData" \
+        "$review_home/Library/Developer/CoreSimulator/Devices" \
+        "$review_home/Library/Application Support/MobileSync/Backup" \
+        "$review_home/Library/Mail" \
+        "$review_home/.gradle/caches"
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=1 /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+docker() { return 1; }
+defaults() { return 1; }
+format_path_link() { printf '%s' "$1"; }
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    if [[ "$1" == du ]]; then
+        case "${!#}" in
+            */.gradle/caches) printf '2097152\t%s\n' "${!#}"; return 0 ;;
+        esac
+        # The four slow rows outlast the whole shared budget.
+        sleep "$seconds"
+        return 124
+    fi
+    "$@"
+}
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Gradle caches"* ]] || { echo "$output"; return 1; }
+}
+
+@test "large files leaves a row the pool cannot fully budget to the inline probe" {
+    local review_home="$HOME/large-review-floor"
+    mkdir -p \
+        "$review_home/Library/Developer/Xcode/DerivedData" \
+        "$review_home/Library/Developer/CoreSimulator/Devices" \
+        "$review_home/Library/Application Support/MobileSync/Backup" \
+        "$review_home/Library/Mail" \
+        "$review_home/Library/Mail Downloads"
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=4 /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+docker() { return 1; }
+defaults() { return 1; }
+format_path_link() { printf '%s' "$1"; }
+run_with_timeout() {
+    local seconds="$1"
+    shift
+    if [[ "$1" == du ]]; then
+        case "${!#}" in
+            */Mail\ Downloads)
+                # Needs about two seconds: a cut pool budget would time out.
+                if [[ "${seconds%%.*}" -lt 2 ]]; then sleep "$seconds"; return 124; fi
+                sleep 1.5
+                ;;
+            *) sleep 3 ;;
+        esac
+        printf '2097152\t%s\n' "${!#}"
+        return 0
+    fi
+    "$@"
+}
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Mail downloads"* ]] || { echo "$output"; return 1; }
+}
+
+@test "large files searches for agent worktrees once" {
+    local review_home="$HOME/large-review-worktrees"
+    # A queued row makes the size pool and the background search both run.
+    mkdir -p "$review_home/www/app/.claude/worktrees/one" "$review_home/.gradle/caches"
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+docker() { return 1; }
+defaults() { return 1; }
+eval "real_$(declare -f agent_worktree_containers)"
+agent_worktree_containers() { printf 'search\n' >> "$HOME/searches"; real_agent_worktree_containers "$@"; }
+get_path_size_kb() { printf '2097152\n'; }
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$(wc -l < "$review_home/searches" | tr -d ' ')" -eq 1 ]] || { cat "$review_home/searches"; return 1; }
+    [[ "$output" == *"AI agent worktrees"* ]] || { echo "$output"; return 1; }
+}
+
+@test "large files queues every fixed review row for early measurement" {
+    local review_home="$HOME/large-review-queue"
+    local -a queued_rows=(
+        "Library/Mail" "Library/Mail Downloads" "Library/Updates"
+        "Library/Developer/Xcode/DerivedData" "Library/Developer/Xcode/Archives"
+        "Library/Developer/CoreSimulator/Devices" "Library/Containers/com.docker.docker/Data"
+        "Library/Application Support/MobileSync/Backup" ".lmstudio/models"
+        "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data" "OrbStack" ".lima"
+        ".m2/repository" ".ivy2/cache" ".nuget/packages" "Library/pnpm/store"
+        ".conda/pkgs" "anaconda3/pkgs" ".gradle/caches" ".android/avd"
+        "Library/Android/sdk/system-images" ".cache/huggingface"
+        ".local/share/mise/installs/node" "fvm/versions"
+    )
+    local row
+    for row in "${queued_rows[@]}"; do
+        mkdir -p "$review_home/$row"
+    done
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+_large_prefetch_queue_rows
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    for row in "${queued_rows[@]}"; do
+        grep -Fxq -- "$review_home/$row" <<< "$output" || { echo "missing $row"; return 1; }
+    done
+}
+
 @test "large files dates the irreplaceable rows and leaves caches undated" {
     local review_home="$HOME/large-review-dates"
     mkdir -p \

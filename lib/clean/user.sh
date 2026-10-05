@@ -2619,17 +2619,63 @@ jetbrains_stale_version_dirs() {
         '
 }
 
-# AI coding agents create full checkouts that accumulate silently: Claude Code
-# under <project>/.claude/worktrees/, the Codex app under ~/.codex/worktrees/.
-# Report only, same 1GB bar as other large candidates; removal stays a manual
-# `git worktree remove` decision because a worktree may hold agent work.
-report_agent_worktree_candidates() {
-    local threshold_kb=$((1024 * 1024)) # 1GB
+# List every agent worktree container once, NUL-separated: the Codex app's
+# fixed container first, then each `.claude/worktrees` under the project roots.
+agent_worktree_containers() {
     local -a roots=(
         "$HOME/code" "$HOME/Code" "$HOME/dev" "$HOME/Projects"
         "$HOME/GitHub" "$HOME/Workspace" "$HOME/Repos"
         "$HOME/Development" "$HOME/www" "$HOME/src"
     )
+    local container
+    # The Codex app keeps every worktree under one fixed container outside
+    # any project root, so the find below never reaches it.
+    container="$HOME/.codex/worktrees"
+    if [[ -d "$container" && ! -L "$container" ]]; then
+        printf '%s\0' "$container"
+    fi
+
+    # ~/code and ~/Code are one directory on case-insensitive APFS, and a root
+    # may be a symlink to another. Scan each physical root once, or every
+    # container is reported twice (same class as #590 and #1416). A root can
+    # also sit inside another one, so containers are deduplicated as well.
+    local -a scanned_roots=() listed_containers=()
+    local root physical_root scanned already_scanned
+    for root in "${roots[@]}"; do
+        [[ -d "$root" ]] || continue
+        physical_root=$(mole_purge_resolve_path_case "$root")
+        already_scanned=false
+        for scanned in "${scanned_roots[@]+"${scanned_roots[@]}"}"; do
+            if [[ "$scanned" == "$physical_root" ]]; then
+                already_scanned=true
+                break
+            fi
+        done
+        [[ "$already_scanned" == "false" ]] || continue
+        scanned_roots+=("$physical_root")
+        while IFS= read -r -d '' container; do
+            already_scanned=false
+            for scanned in "${listed_containers[@]+"${listed_containers[@]}"}"; do
+                if [[ "$scanned" == "$container" ]]; then
+                    already_scanned=true
+                    break
+                fi
+            done
+            [[ "$already_scanned" == "false" ]] || continue
+            listed_containers+=("$container")
+            printf '%s\0' "$container"
+        done < <(run_with_timeout "$MOLE_TIMEOUT_PKG_CLEANUP_SEC" command find "$physical_root" -maxdepth 6 -type d -path "*/.claude/worktrees" -prune -print0 2> /dev/null)
+    done
+}
+
+# AI coding agents create full checkouts that accumulate silently: Claude Code
+# under <project>/.claude/worktrees/, the Codex app under ~/.codex/worktrees/.
+# Report only, same 1GB bar as other large candidates; removal stays a manual
+# `git worktree remove` decision because a worktree may hold agent work.
+# $1 may name a container listing that Large files started ahead of time.
+report_agent_worktree_candidates() {
+    local listing_file="${1:-}"
+    local threshold_kb=$((1024 * 1024)) # 1GB
 
     _report_agent_worktree_container() {
         local container="$1"
@@ -2654,46 +2700,10 @@ report_agent_worktree_candidates() {
     }
 
     local container rc=0
-    # The Codex app keeps every worktree under one fixed container outside
-    # any project root, so the find below never reaches it.
-    container="$HOME/.codex/worktrees"
-    if [[ -d "$container" && ! -L "$container" ]]; then
+    while IFS= read -r -d '' container; do
         _report_agent_worktree_container "$container" || rc=$?
-    fi
-
-    # ~/code and ~/Code are one directory on case-insensitive APFS, and a root
-    # may be a symlink to another. Scan each physical root once, or every
-    # container is reported twice (same class as #590 and #1416). A root can
-    # also sit inside another one, so containers are deduplicated as well.
-    local -a scanned_roots=() reported_containers=()
-    local root physical_root scanned already_scanned
-    for root in "${roots[@]}"; do
         [[ $rc -eq 0 ]] || break
-        [[ -d "$root" ]] || continue
-        physical_root=$(mole_purge_resolve_path_case "$root")
-        already_scanned=false
-        for scanned in "${scanned_roots[@]+"${scanned_roots[@]}"}"; do
-            if [[ "$scanned" == "$physical_root" ]]; then
-                already_scanned=true
-                break
-            fi
-        done
-        [[ "$already_scanned" == "false" ]] || continue
-        scanned_roots+=("$physical_root")
-        while IFS= read -r -d '' container; do
-            already_scanned=false
-            for scanned in "${reported_containers[@]+"${reported_containers[@]}"}"; do
-                if [[ "$scanned" == "$container" ]]; then
-                    already_scanned=true
-                    break
-                fi
-            done
-            [[ "$already_scanned" == "false" ]] || continue
-            reported_containers+=("$container")
-            _report_agent_worktree_container "$container" || rc=$?
-            [[ $rc -eq 0 ]] || break
-        done < <(run_with_timeout "$MOLE_TIMEOUT_PKG_CLEANUP_SEC" command find "$physical_root" -maxdepth 6 -type d -path "*/.claude/worktrees" -prune -print0 2> /dev/null)
-    done
+    done < <(if [[ -n "$listing_file" && -f "$listing_file" ]]; then cat "$listing_file"; else agent_worktree_containers; fi)
 
     unset -f _report_agent_worktree_container
     return "$rc"
@@ -2727,8 +2737,226 @@ docker_df_review_segment() {
     fi
 }
 
+# Large file candidates measure a few dozen folders with du, and two or three
+# of them (device backups, simulators, DerivedData) take seconds each. Measure
+# the fixed rows ahead of the report, a few at a time, so their times overlap
+# instead of adding up; rows still print one by one in their usual order.
+# The report takes a row's result from here when it was queued and measures
+# inline otherwise, so a row missing from this list is only slower.
+_large_prefetch_queue_rows() {
+    local android_avd_root="$HOME/.android/avd"
+    [[ "${ANDROID_AVD_HOME:-}" == /* ]] && android_avd_root="$ANDROID_AVD_HOME"
+    local android_sdk_root="$HOME/Library/Android/sdk"
+    if [[ "${ANDROID_HOME:-}" == /* ]]; then
+        android_sdk_root="$ANDROID_HOME"
+    elif [[ "${ANDROID_SDK_ROOT:-}" == /* ]]; then
+        android_sdk_root="$ANDROID_SDK_ROOT"
+    fi
+    local hf_root="$HOME/.cache/huggingface"
+    [[ "${HF_HOME:-}" == /* ]] && hf_root="$HF_HOME"
+    local mise_installs="$HOME/.local/share/mise/installs"
+    [[ "${MISE_DATA_DIR:-}" == /* ]] && mise_installs="$MISE_DATA_DIR/installs"
+    local fvm_versions="$HOME/fvm/versions"
+    [[ "${FVM_CACHE_PATH:-}" == /* ]] && fvm_versions="$FVM_CACHE_PATH/versions"
+    local path
+    for path in \
+        "$HOME/Library/Developer/Xcode/DerivedData" \
+        "$HOME/Library/Developer/CoreSimulator/Devices" \
+        "$HOME/Library/Application Support/MobileSync/Backup" \
+        "$HOME/Library/Mail" \
+        "$HOME/Library/Mail Downloads" \
+        "$HOME/Library/Updates" \
+        "$HOME/Library/Developer/Xcode/Archives" \
+        "$HOME/Library/Containers/com.docker.docker/Data" \
+        "$HOME/.lmstudio/models" \
+        "$HOME"/Library/Group\ Containers/*dev.orbstack/data \
+        "$HOME/OrbStack" \
+        "$HOME/.lima" \
+        "$HOME/.m2/repository" \
+        "$HOME/.ivy2/cache" \
+        "$HOME/.nuget/packages" \
+        "$HOME/Library/pnpm/store" \
+        "$HOME/.conda/pkgs" \
+        "$HOME/anaconda3/pkgs" \
+        "$HOME/.gradle/caches" \
+        "$android_avd_root" \
+        "$android_sdk_root/system-images" \
+        "$hf_root" \
+        "$mise_installs"/* \
+        "$fvm_versions"; do
+        [[ -d "$path" && ! -L "$path" ]] || continue
+        printf '%s\n' "$path"
+    done
+}
+
+# Measure the queued rows before the report runs, at most four at a time,
+# all in this shell so the pool's bookkeeping never sits in a subshell. Each
+# worker writes "status\noutput" to its row's result file. Once the shared
+# deadline has passed no further row is started: the report measures those
+# inline with their usual per-row budget, so the worst case stays as before.
+_large_prefetch_run() {
+    local total=${#_lp_paths[@]} next=0 slot
+    local -a pids=() indexes=()
+    _large_prefetch_kill() {
+        local pid
+        for pid in "${pids[@]+"${pids[@]}"}"; do
+            # The timeout helper and du run under the worker; stop them too.
+            pkill -TERM -P "$pid" 2> /dev/null || true
+            kill "$pid" 2> /dev/null || true
+        done
+        for pid in "${pids[@]+"${pids[@]}"}"; do
+            wait "$pid" 2> /dev/null || true
+        done
+        pids=()
+        indexes=()
+    }
+    local previous_int_trap previous_term_trap
+    previous_int_trap=$(trap -p INT || true)
+    previous_term_trap=$(trap -p TERM || true)
+    trap '_lp_interrupted=130; _large_prefetch_kill' INT
+    trap '_lp_interrupted=143; _large_prefetch_kill' TERM
+
+    while [[ $_lp_interrupted -lt 128 ]]; do
+        while [[ $_lp_interrupted -lt 128 && ${#pids[@]} -lt $_lp_max && $next -lt $total ]]; do
+            local timeout_seconds=""
+            if ! timeout_seconds=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$_lp_deadline"); then
+                next=$total
+                break
+            fi
+            # A row the pool cannot give its usual budget is better measured
+            # inline later, where it gets that budget again.
+            if [[ ${timeout_seconds%%.*} -lt ${MOLE_LARGE_CANDIDATE_SIZE_TIMEOUT:-3} ]]; then
+                next=$total
+                break
+            fi
+            local path="${_lp_paths[next]}" result="$_lp_dir/$next"
+            (
+                rc=0
+                run_with_timeout "$timeout_seconds" du -skP "$path" > "$result.out" 2> /dev/null || rc=$?
+                { printf '%s\n' "$rc" && head -n 1 "$result.out"; } > "$result.tmp" && mv "$result.tmp" "$result"
+            ) < /dev/null > /dev/null 2>&1 &
+            pids+=("$!")
+            indexes+=("$next")
+            next=$((next + 1))
+        done
+        [[ ${#pids[@]} -gt 0 ]] || break
+        local finished="" wait_rc=0
+        mole_wait_for_any_worker finished "${pids[@]}" || wait_rc=$?
+        if [[ -z "$finished" ]]; then
+            # The poll itself was interrupted.
+            [[ $wait_rc -ge 128 ]] && _lp_interrupted=$wait_rc
+            break
+        fi
+        # The trap already stopped and cleared every worker.
+        [[ $_lp_interrupted -lt 128 ]] || break
+        local -a kept_pids=() kept_indexes=()
+        for slot in "${!pids[@]}"; do
+            [[ "${pids[$slot]}" == "$finished" ]] && continue
+            kept_pids+=("${pids[$slot]}")
+            kept_indexes+=("${indexes[$slot]}")
+        done
+        pids=("${kept_pids[@]+"${kept_pids[@]}"}")
+        indexes=("${kept_indexes[@]+"${kept_indexes[@]}"}")
+    done
+    _large_prefetch_kill
+    unset -f _large_prefetch_kill
+    trap - INT TERM
+    # eval: restore caller traps captured by $(trap -p)
+    [[ -n "$previous_int_trap" ]] && eval "$previous_int_trap"
+    [[ -n "$previous_term_trap" ]] && eval "$previous_term_trap"
+    [[ $_lp_interrupted -lt 128 ]] || return "$_lp_interrupted"
+    return 0
+}
+
+# A queued row's measurement, read-only so it also works inside $(...).
+# Returns 1 when the row has no result and must be measured inline.
+_large_prefetch_result() {
+    local path="$1"
+    local output_name="$2"
+    local status_name="$3"
+    [[ -n "${_lp_dir:-}" ]] || return 1
+    local i
+    for ((i = 0; i < ${#_lp_paths[@]}; i++)); do
+        [[ "${_lp_paths[i]}" == "$path" ]] || continue
+        [[ -f "$_lp_dir/$i" ]] || return 1
+        local measured_rc="" measured_output=""
+        { IFS= read -r measured_rc && IFS= read -r measured_output; } < "$_lp_dir/$i" || true
+        [[ "$measured_rc" =~ ^[0-9]+$ ]] || return 1
+        printf -v "$output_name" '%s' "$measured_output"
+        printf -v "$status_name" '%s' "$measured_rc"
+        return 0
+    done
+    return 1
+}
+
+# The worktree container search walks every project root (seconds on a large
+# ~/www) and only feeds the last rows, so it runs beside the size pool. Wait
+# for it here, in the report's own shell, and keep its listing only when it
+# finished cleanly.
+_large_prefetch_worktree_wait() {
+    _lp_worktree_listing=""
+    [[ -n "${_lp_dir:-}" && -n "${_lp_worktree_pid:-}" ]] || return 0
+    local wait_rc=0
+    wait "$_lp_worktree_pid" 2> /dev/null || wait_rc=$?
+    _lp_worktree_pid=""
+    if [[ $wait_rc -eq 0 && -f "$_lp_dir/worktrees" ]]; then
+        _lp_worktree_listing="$_lp_dir/worktrees"
+    fi
+}
+
+_large_prefetch_worktree_stop() {
+    [[ -n "${_lp_worktree_pid:-}" ]] || return 0
+    pkill -TERM -P "$_lp_worktree_pid" 2> /dev/null || true
+    kill "$_lp_worktree_pid" 2> /dev/null || true
+    wait "$_lp_worktree_pid" 2> /dev/null || true
+    _lp_worktree_pid=""
+}
+
 # Large file candidates (report only, no deletion).
 check_large_file_candidates() {
+    local -a _lp_paths=()
+    local _lp_dir="" _lp_max=4 _lp_interrupted=0 _lp_worktree_pid="" _lp_worktree_listing=""
+    local _lp_deadline=$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))
+    local _lp_path
+    if _lp_dir=$(create_temp_dir); then
+        while IFS= read -r _lp_path; do
+            [[ -n "$_lp_path" ]] && _lp_paths+=("$_lp_path")
+        done < <(_large_prefetch_queue_rows)
+        (agent_worktree_containers > "$_lp_dir/worktrees.tmp" && mv "$_lp_dir/worktrees.tmp" "$_lp_dir/worktrees") < /dev/null > /dev/null 2>&1 &
+        _lp_worktree_pid=$!
+    else
+        _lp_dir=""
+    fi
+
+    start_section_spinner "Scanning large files..."
+    local body_rc=0
+    if [[ -n "$_lp_dir" && ${#_lp_paths[@]} -gt 0 ]]; then
+        _large_prefetch_run || body_rc=$?
+    fi
+    if [[ $body_rc -ge 128 ]]; then
+        _mole_record_clean_cancellation "$body_rc"
+        stop_section_spinner
+    else
+        # While the report runs, a signal must still stop the background
+        # worktree search before the caller's own handler takes over.
+        local previous_int_trap previous_term_trap
+        previous_int_trap=$(trap -p INT || true)
+        previous_term_trap=$(trap -p TERM || true)
+        trap '_large_prefetch_worktree_stop; trap - INT; [[ -n "$previous_int_trap" ]] && eval "$previous_int_trap"; kill -INT $$' INT
+        trap '_large_prefetch_worktree_stop; trap - TERM; [[ -n "$previous_term_trap" ]] && eval "$previous_term_trap"; kill -TERM $$' TERM
+        _check_large_file_candidates_body || body_rc=$?
+        trap - INT TERM
+        # eval: restore caller traps captured by $(trap -p)
+        [[ -n "$previous_int_trap" ]] && eval "$previous_int_trap"
+        [[ -n "$previous_term_trap" ]] && eval "$previous_term_trap"
+    fi
+
+    _large_prefetch_worktree_stop
+    [[ -n "$_lp_dir" ]] && rm -rf "$_lp_dir" # SAFE: exact mktemp-created Large files measurement scratch directory
+    return "$body_rc"
+}
+
+_check_large_file_candidates_body() {
     local threshold_kb=$((1024 * 1024)) # 1GB
     local found_any=false
     local size_rc=0
@@ -2739,7 +2967,9 @@ check_large_file_candidates() {
         local exact="${3:-}"
         [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || timeout_seconds=3
         local du_output="" du_rc=0
-        du_output=$(run_with_timeout "$timeout_seconds" du -skP "$path" 2> /dev/null) || du_rc=$?
+        if ! _large_prefetch_result "$path" du_output du_rc; then
+            du_output=$(run_with_timeout "$timeout_seconds" du -skP "$path" 2> /dev/null) || du_rc=$?
+        fi
         # Review-only: a timed-out or failed du skips this row. Signals still
         # cancel the run so Ctrl-C stays sticky. BSD du exits 1 when some
         # entry is unreadable yet still prints the total of everything it
@@ -3028,7 +3258,8 @@ check_large_file_candidates() {
         _report_large_or_stop "JetBrains old version data" "$jetbrains_support/$jb_stale" || return $?
     done < <(jetbrains_stale_version_dirs "$jetbrains_support")
 
-    report_agent_worktree_candidates
+    _large_prefetch_worktree_wait
+    report_agent_worktree_candidates "$_lp_worktree_listing"
 
     stop_section_spinner
 
