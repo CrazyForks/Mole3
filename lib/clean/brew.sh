@@ -297,15 +297,16 @@ clean_homebrew() {
                     echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Homebrew · would cleanup"
                     note_activity
                 fi
-            fi
-            local dry_run_autoremove_file
-            dry_run_autoremove_file=$(create_temp_file)
-            local dry_run_autoremove_exit=0
-            run_brew_autoremove_preview "$autoremove_preview_timeout" "$dry_run_autoremove_file" || dry_run_autoremove_exit=$?
-            if [[ $dry_run_autoremove_exit -eq 0 ]] && brew_autoremove_preview_has_items "$dry_run_autoremove_file"; then
-                show_brew_autoremove_preview "$dry_run_autoremove_file"
-            elif mole_rc_timeout "$dry_run_autoremove_exit"; then
-                echo -e "  ${GRAY}${ICON_WARNING}${NC} Autoremove preview timed out · run ${GRAY}brew autoremove --dry-run${NC} manually"
+                # Autoremove sits after the window check in the real run too.
+                local dry_run_autoremove_file
+                dry_run_autoremove_file=$(create_temp_file)
+                local dry_run_autoremove_exit=0
+                run_brew_autoremove_preview "$autoremove_preview_timeout" "$dry_run_autoremove_file" || dry_run_autoremove_exit=$?
+                if [[ $dry_run_autoremove_exit -eq 0 ]] && brew_autoremove_preview_has_items "$dry_run_autoremove_file"; then
+                    show_brew_autoremove_preview "$dry_run_autoremove_file"
+                elif mole_rc_timeout "$dry_run_autoremove_exit"; then
+                    echo -e "  ${GRAY}${ICON_WARNING}${NC} Autoremove preview timed out · run ${GRAY}brew autoremove --dry-run${NC} manually"
+                fi
             fi
         fi
         return 0

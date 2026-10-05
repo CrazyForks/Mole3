@@ -1145,10 +1145,23 @@ mkdir -p "$HOME/.cache/mole"
 date +%s > "$HOME/.cache/mole/brew_last_cleanup"
 
 DRY_RUN=true
+calls="$HOME/brew-calls.log"
+: > "$calls"
+# Pass through so the brew() stub below is what the previews reach.
+run_with_timeout() {
+    shift
+    "$@"
+}
 brew() {
+    echo "CALL:brew $*" >> "$calls"
     case "$*" in
         "cleanup --prune=30 --dry-run")
             echo "UNEXPECTED_CLEANUP_PREVIEW"
+            return 0
+            ;;
+        "autoremove --dry-run")
+            echo "==> Would autoremove 1 unneeded formula:"
+            echo "UNEXPECTED_AUTOREMOVE_PREVIEW"
             return 0
             ;;
         *)
@@ -1158,10 +1171,13 @@ brew() {
 }
 
 clean_homebrew
+cat "$calls"
 EOF
 
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" != *"UNEXPECTED_CLEANUP_PREVIEW"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_AUTOREMOVE_PREVIEW"* ]] || return 1
+    [[ "$output" != *"CALL:brew"* ]] || return 1
     [[ "$output" != *"Homebrew cleanup"* ]] || return 1
     [[ "$output" != *"would cleanup"* ]]
 }
