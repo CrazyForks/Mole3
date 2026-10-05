@@ -1419,9 +1419,13 @@ update_progress_if_needed() {
     local last_update_var="$3" # Name of variable holding last update time
     local interval="${4:-2}"   # Default: update every 2 seconds
 
-    # Get current time
-    local current_time
-    current_time=$(get_epoch_seconds)
+    # Get current time. Callers tick once per item, so anchor $SECONDS to the
+    # epoch once per shell instead of forking date on every call; the sum is
+    # the same epoch that callers seed the last update time with.
+    if [[ ! "${_MOLE_PROGRESS_EPOCH_BASE:-}" =~ ^[0-9]+$ ]]; then
+        _MOLE_PROGRESS_EPOCH_BASE=$(($(get_epoch_seconds) - SECONDS))
+    fi
+    local current_time=$((_MOLE_PROGRESS_EPOCH_BASE + SECONDS))
 
     # Get last update time from variable
     local last_time

@@ -1068,6 +1068,27 @@ EOF
     [[ "$raw_content" == *"PID_STABLE"* ]] || { cat -v "$raw"; return 1; }
 }
 
+@test "update_progress_if_needed reads the epoch clock once per shell" {
+    local calls="$HOME/epoch-calls"
+    local spins="$HOME/spinner-text"
+    # shellcheck disable=SC2016  # inner bash expands these from its environment
+    run env PROJECT_ROOT="$PROJECT_ROOT" CALLS="$calls" SPINS="$spins" \
+        /bin/bash --noprofile --norc -c '
+            source "$PROJECT_ROOT/lib/core/common.sh"
+            get_epoch_seconds() { printf "x\n" >> "$CALLS"; echo 1000000; }
+            start_section_spinner() { printf "%s\n" "$1" >> "$SPINS"; }
+            last_tick=0
+            for i in 1 2 3 4 5 6 7 8 9 10; do
+                update_progress_if_needed "$i" 10 last_tick 60 || true
+            done
+            echo "last_tick=$last_tick"
+        '
+    [ "$status" -eq 0 ]
+    [[ "$(wc -l < "$calls" | tr -d ' ')" == "1" ]] || return 1
+    [[ "$(cat "$spins")" == "Scanning items... 1/10" ]] || return 1
+    [[ "$output" == "last_tick=1000000" || "$output" == "last_tick=1000001" ]]
+}
+
 @test "safe_clear_lines emits the same erase sequence per line to the target device" {
     local out="$HOME/clear-lines.out"
     run /bin/bash --noprofile --norc -c \
