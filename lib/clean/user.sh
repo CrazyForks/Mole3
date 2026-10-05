@@ -920,14 +920,17 @@ clean_support_app_data() {
 }
 
 # App caches (merged: macOS system caches + Sandboxed apps).
+# Runs in the caller's shell and returns the count in
+# CACHE_TOP_LEVEL_ENTRY_COUNT: it is called once per container, and a command
+# substitution plus two $(shopt -p) captures cost three forks each time.
 cache_top_level_entry_count_capped() {
     local dir="$1"
     local cap="${2:-101}"
     local count=0
-    local _nullglob_state
-    local _dotglob_state
-    _nullglob_state=$(shopt -p nullglob || true)
-    _dotglob_state=$(shopt -p dotglob || true)
+    local restore_nullglob=false
+    local restore_dotglob=false
+    shopt -q nullglob || restore_nullglob=true
+    shopt -q dotglob || restore_dotglob=true
     shopt -s nullglob dotglob
 
     local item
@@ -939,12 +942,12 @@ cache_top_level_entry_count_capped() {
         fi
     done
 
-    # eval: restore shopt state captured by $(shopt -p)
-    eval "$_nullglob_state"
-    eval "$_dotglob_state"
+    [[ "$restore_nullglob" == "true" ]] && shopt -u nullglob
+    [[ "$restore_dotglob" == "true" ]] && shopt -u dotglob
 
     [[ "$count" =~ ^[0-9]+$ ]] || count=0
-    printf '%s\n' "$count"
+    CACHE_TOP_LEVEL_ENTRY_COUNT=$count
+    return 0
 }
 
 directory_has_entries() {
@@ -1156,7 +1159,8 @@ process_container_cache() {
     [[ -d "$cache_dir" ]] || return 0
     [[ -L "$cache_dir" ]] && return 0
     local item_count
-    item_count=$(cache_top_level_entry_count_capped "$cache_dir" 101)
+    cache_top_level_entry_count_capped "$cache_dir" 101
+    item_count=$CACHE_TOP_LEVEL_ENTRY_COUNT
     [[ "$item_count" =~ ^[0-9]+$ ]] || item_count=0
     [[ "$item_count" -eq 0 ]] && return 0
     local measure_item_sizes=true
@@ -1318,7 +1322,8 @@ clean_group_container_caches() {
 
             local item
             local quick_count
-            quick_count=$(cache_top_level_entry_count_capped "$candidate" 101)
+            cache_top_level_entry_count_capped "$candidate" 101
+            quick_count=$CACHE_TOP_LEVEL_ENTRY_COUNT
             [[ "$quick_count" =~ ^[0-9]+$ ]] || quick_count=0
             [[ "$quick_count" -eq 0 ]] && continue
 
