@@ -134,6 +134,8 @@ case "$SCAN_CASE" in
     mounted) survivor="$snapshots/Survivor.app" ;;
     lookalike) survivor="$volumes/com.apple.TimeMachine.localsnapshots-copy/Survivor.app" ;;
     sibling) survivor="$volumes/External/Applications/Survivor.app" ;;
+    # Sorts after the skipped share, so the scan must continue past it.
+    stale-share-sibling) survivor="$volumes/Zeta/Applications/Survivor.app" ;;
     first-level) survivor="$volumes/Survivor.app" ;;
     *) survivor="" ;;
 esac
@@ -144,7 +146,7 @@ fi
 if [[ "$SCAN_CASE" != mounted ]]; then chmod 000 "$snapshots"; fi
 if [[ "$SCAN_CASE" == ordinary ]]; then mkdir -p "$volumes/Ordinary"; chmod 000 "$volumes/Ordinary"; fi
 case "$SCAN_CASE" in
-    stale-share | reachable-share | mount-timeout | mount-failed | mount-interrupted | probe-timeout | probe-interrupted)
+    stale-share | stale-share-sibling | reachable-share | mount-timeout | mount-failed | mount-interrupted | probe-timeout | probe-interrupted)
         mkdir -p "$volumes/Share"
         chmod 000 "$volumes/Share"
         # The fixture cannot drop a live server, so only the system answers are
@@ -1368,6 +1370,10 @@ EOF
     assert_time_machine_volume_scan stale-share 1
 }
 
+@test "skipping an unreachable share still finds a sibling on another volume" {
+    assert_time_machine_volume_scan stale-share-sibling 0
+}
+
 @test "a reachable but unreadable network share still makes sibling discovery incomplete" {
     assert_time_machine_volume_scan reachable-share 3
 }
@@ -1404,8 +1410,10 @@ table="//GUEST:@Windows%2011._smb._tcp.local/%5BC%5D on $gone (smbfs, nodev, noe
 nas:/export on $HOME/live-share (nfs, nodev)
 //host/x on $not_dir (smbfs, nodev)"
 _uninstall_volume_is_unreachable_share "$gone" "$table" "$deadline" || { echo "MISSED_STALE"; exit 1; }
-# Brackets in the name match literally, not as a pattern.
-! _uninstall_volume_is_unreachable_share "$HOME/no-such-volumes/C Windows 11.hidden" "$table" "$deadline" || { echo "PATTERN_MATCH"; exit 1; }
+# Brackets in the name match literally: as a pattern, "[C]" would match the
+# plain "C" share listed here.
+bare_table="//host/c on $HOME/no-such-volumes/C Windows 11.hidden (smbfs, nodev)"
+! _uninstall_volume_is_unreachable_share "$gone" "$bare_table" "$deadline" || { echo "PATTERN_MATCH"; exit 1; }
 ! _uninstall_volume_is_unreachable_share "$gone-2" "$table" "$deadline" || { echo "PREFIX_MATCH"; exit 1; }
 ! _uninstall_volume_is_unreachable_share "$HOME/live-share" "$table" "$deadline" || { echo "REACHABLE_SKIPPED"; exit 1; }
 # Only ENOENT counts as gone; any other lstat error keeps the share in scope.

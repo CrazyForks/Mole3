@@ -878,7 +878,8 @@ _uninstall_materialize_complete_find0() {
                 esac
                 [[ -z "$scan_error_detail" ]] || break
             done < "$scan_errors"
-            debug_log "Sibling application listing failed (exit $scan_rc): $(mole_terminal_safe_text "$1"): $(mole_terminal_safe_text "${scan_error_detail:0:512}")"
+            # A caller that passes several start points names them as one.
+            debug_log "Sibling application listing failed (exit $scan_rc): $(mole_terminal_safe_text "${_mole_find0_label:-$1}"): $(mole_terminal_safe_text "${scan_error_detail:0:512}")"
         fi
         if [[ $scan_rc -eq 1 && -s "$scan_errors" ]]; then
             # Partial view: the listing is real but not exhaustive, so it can
@@ -1272,6 +1273,7 @@ uninstall_live_bundle_has_other_install() {
             eval "$restore_glob_options"
         fi
         if [[ ${#volume_starts[@]} -gt 0 ]]; then
+            local _mole_find0_label="$_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT"
             _uninstall_materialize_complete_find0 "$volume_roots_file" \
                 "$deadline_seconds" "${volume_starts[@]}" \
                 -mindepth 1 -maxdepth 1 \
