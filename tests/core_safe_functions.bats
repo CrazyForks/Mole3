@@ -3110,17 +3110,19 @@ SCRIPT
     mkdir -p "$target_dir" "$mock_bin"
     touch "$target_file"
 
+    # Two seconds, not one: under a loaded parallel run the mock's own startup
+    # can outlast a one-second budget before it records the call.
     cat > "$mock_bin/find" <<'MOCK'
 #!/bin/bash
 printf 'find %s\n' "$*" >> "$MOLE_FIND_TRACE"
 printf '%s\0' "$TARGET_FILE"
-exec sleep 4
+exec sleep 8
 MOCK
     chmod +x "$mock_bin/find"
 
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" TARGET_DIR="$target_dir" \
         TARGET_FILE="$target_file" MOLE_FIND_TRACE="$trace" PATH="$mock_bin:$PATH" \
-        MOLE_TIMEOUT_DISK_VERIFY_SEC=1 /bin/bash --noprofile --norc <<'SCRIPT'
+        MOLE_TIMEOUT_DISK_VERIFY_SEC=2 /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 safe_remove() {
