@@ -607,13 +607,17 @@ EOF
 }
 
 @test "batch uninstall routes a root-owned app through unprivileged Trash when its parent is writable (#1331)" {
-    mkdir -p "$HOME/Applications/RootOwned.app"
-    local trace="$HOME/root-owned-trash.log"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/RootOwned.app"
+    local trace="$fixture_home/root-owned-trash.log"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 export MOLE_DELETE_MODE=trash
@@ -642,23 +646,29 @@ total_size_cleaned=0
 printf '\n' | batch_uninstall_applications
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
     }
-    [[ "$(grep -c "^DELETE:$HOME/Applications/RootOwned.app:false$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
+    [[ "$(grep -c "^DELETE:$fixture_home/Applications/RootOwned.app:false$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
     [[ "$output" != *"UNEXPECTED_SUDO"* ]] || return 1
     [[ "$output" != *"cannot be removed safely by Mole"* ]]
 }
 
 @test "batch uninstall continues when best-effort teardown steps time out" {
-    mkdir -p "$HOME/Applications/SlowTeardown.app"
-    local trace="$HOME/slow-teardown.log"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/SlowTeardown.app"
+    local trace="$fixture_home/slow-teardown.log"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 brew() { :; }
 
 start_inline_spinner() { :; }
@@ -687,11 +697,13 @@ total_size_cleaned=0
 printf '\n' | batch_uninstall_applications
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
     }
-    [[ "$(grep -c "^DELETE:$HOME/Applications/SlowTeardown.app$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
+    [[ "$(grep -c "^DELETE:$fixture_home/Applications/SlowTeardown.app$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
     [[ "$output" != *"UNEXPECTED_SUDO"* ]]
 }
 
@@ -747,16 +759,20 @@ EOF
 }
 
 @test "batch uninstall still stops on a signal during teardown before deleting" {
-    mkdir -p "$HOME/Applications/SignalTeardown.app"
-    local trace="$HOME/signal-teardown.log"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/SignalTeardown.app"
+    local trace="$fixture_home/signal-teardown.log"
 
     local step
     for step in stop_launch_services remove_login_item; do
-        rm -f "$trace"
-        run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" SIGNAL_STEP="$step" /bin/bash --noprofile --norc << 'EOF'
+        rm -f "$trace" "$fixture_home/inventory.trace"
+        run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" SIGNAL_STEP="$step" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 brew() { :; }
 
 start_inline_spinner() { :; }
@@ -784,6 +800,8 @@ batch_rc=0
 printf '\n' | batch_uninstall_applications > /dev/null 2>&1 || batch_rc=$?
 echo "BATCH_RC=$batch_rc"
 EOF
+
+        [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
         [ "$status" -eq 0 ] || {
             echo "$step: $output"
@@ -823,12 +841,16 @@ EOF
 }
 
 @test "batch uninstall names the app and step when a removal times out" {
-    mkdir -p "$HOME/Applications/SlowDelete.app"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/SlowDelete.app"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 brew() { :; }
 
 start_inline_spinner() { :; }
@@ -853,6 +875,8 @@ printf '\n' | batch_uninstall_applications 2>&1 || batch_rc=$?
 echo "BATCH_RC=$batch_rc"
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
@@ -862,13 +886,17 @@ EOF
 }
 
 @test "batch uninstall rejects privileged permanent removal below a mutable parent before side effects (#1299)" {
-    mkdir -p "$HOME/Applications/RootOwned.app"
-    mkdir -p "$HOME/Library/Application Support/RootOwned"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/RootOwned.app"
+    mkdir -p "$fixture_home/Library/Application Support/RootOwned"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 export MOLE_DELETE_MODE=permanent
@@ -899,6 +927,8 @@ batch_uninstall_applications || rc=$?
 [[ ! -e "$HOME/mutable-parent-side-effects.log" ]] || { echo "WRONG: discovery ran"; exit 1; }
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"cannot be removed safely by Mole from this location"* ]] || return 1
     [[ "$output" == *"Move it to Trash in Finder"* ]] || return 1
@@ -907,14 +937,18 @@ EOF
 }
 
 @test "a foreign Caskroom-like symlink never selects a Homebrew cask (#1299)" {
-    local fake_target="$HOME/foreign/Caskroom/real-cask/1.0/Fake.app"
-    mkdir -p "$HOME/Applications" "$fake_target"
-    ln -s "$fake_target" "$HOME/Applications/Fake.app"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    local fake_target="$fixture_home/foreign/Caskroom/real-cask/1.0/Fake.app"
+    mkdir -p "$fixture_home/Applications" "$fake_target"
+    ln -s "$fake_target" "$fixture_home/Applications/Fake.app"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 
 start_inline_spinner() { :; }
 stop_inline_spinner() { :; }
@@ -937,6 +971,8 @@ batch_uninstall_applications || rc=$?
 [[ -L "$HOME/Applications/Fake.app" ]] || { echo "WRONG: symlink removed"; exit 1; }
 [[ ! -e "$HOME/foreign-cask-side-effects.log" ]] || { echo "WRONG: discovery ran"; exit 1; }
 EOF
+
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
     [ "$status" -eq 0 ] || {
         echo "$output"
@@ -1792,19 +1828,23 @@ EOF
 }
 
 @test "batch_uninstall_applications keeps shared bundle-id leftovers when a sibling install survives" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
     # Xcode.app and Xcode-beta.app both use com.apple.dt.Xcode. Uninstalling
     # only the beta must not delete bundle-id-keyed files still owned by the
     # surviving stable install.
-    mkdir -p "$HOME/Applications/Shared.app" "$HOME/Applications/Shared-beta.app"
-    mkdir -p "$HOME/Library/Caches/com.example.Shared"
-    mkdir -p "$HOME/Library/Preferences"
-    touch "$HOME/Library/Preferences/com.example.Shared.plist"
-    mkdir -p "$HOME/Library/Caches/Shared-beta"
+    mkdir -p "$fixture_home/Applications/Shared.app" "$fixture_home/Applications/Shared-beta.app"
+    mkdir -p "$fixture_home/Library/Caches/com.example.Shared"
+    mkdir -p "$fixture_home/Library/Preferences"
+    touch "$fixture_home/Library/Preferences/com.example.Shared.plist"
+    mkdir -p "$fixture_home/Library/Caches/Shared-beta"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -1841,50 +1881,57 @@ printf '\n' | batch_uninstall_applications
 [[ -f "$HOME/Library/Preferences/com.example.Shared.plist" ]] || { echo "WRONG: shared bundle-id prefs removed"; exit 1; }
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ]
 }
 
 @test "batch_uninstall_applications keeps name-keyed leftovers when sibling installs share a display name" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
     # On unindexed volumes mdls returns (null) and CFBundleName collapses both
     # installs to one display name ("Xcode" for Xcode-beta.app). Discovery must
     # fall back to the .app basename; when even that collides with the
     # survivor, name cleanup and login-item removal must be suppressed.
-    mkdir -p "$HOME/Applications/SharedName-beta.app" "$HOME/Applications/SharedName.app"
-    mkdir -p "$HOME/OtherApps/SharedName.app"
-    mkdir -p "$HOME/Library/Application Support/SharedName"
-    mkdir -p "$HOME/Library/Caches/SharedName"
-    mkdir -p "$HOME/Library/Preferences"
-    touch "$HOME/Library/Preferences/SharedName.plist"
-    mkdir -p "$HOME/Library/Caches/SharedName-beta"
+    mkdir -p "$fixture_home/Applications/SharedName-beta.app" "$fixture_home/Applications/SharedName.app"
+    mkdir -p "$fixture_home/OtherApps/SharedName.app"
+    mkdir -p "$fixture_home/Library/Application Support/SharedName"
+    mkdir -p "$fixture_home/Library/Caches/SharedName"
+    mkdir -p "$fixture_home/Library/Preferences"
+    touch "$fixture_home/Library/Preferences/SharedName.plist"
+    mkdir -p "$fixture_home/Library/Caches/SharedName-beta"
     # Same-bundle siblings ship the same CFBundleExecutable (Xcode-beta.app
     # ships "Xcode"); diagnostic-report discovery keys on it, so the beta's
     # Info.plist points at the shared executable name.
-    mkdir -p "$HOME/Applications/SharedName-beta.app/Contents"
-    printf '%s' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.sharedname</string><key>CFBundleExecutable</key><string>SharedName</string></dict></plist>' > "$HOME/Applications/SharedName-beta.app/Contents/Info.plist"
-    mkdir -p "$HOME/Library/Logs/DiagnosticReports"
-    touch "$HOME/Library/Logs/DiagnosticReports/SharedName-2026-07-03-101010.ips"
+    mkdir -p "$fixture_home/Applications/SharedName-beta.app/Contents"
+    printf '%s' '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.sharedname</string><key>CFBundleExecutable</key><string>SharedName</string></dict></plist>' > "$fixture_home/Applications/SharedName-beta.app/Contents/Info.plist"
+    mkdir -p "$fixture_home/Library/Logs/DiagnosticReports"
+    touch "$fixture_home/Library/Logs/DiagnosticReports/SharedName-2026-07-03-101010.ips"
     # LaunchAgents referencing an install by exact path: the one pointing at
     # the selected beta must still be unloaded under the guard (the bundle id
     # is demoted to "unknown", but the path scan is exact evidence), while the
     # one pointing at the survivor must stay loaded.
-    mkdir -p "$HOME/Library/LaunchAgents" \
-        "$HOME/Applications/SharedName-beta.app/Contents/MacOS" \
-        "$HOME/Applications/SharedName.app/Contents/MacOS"
-    touch "$HOME/Applications/SharedName-beta.app/Contents/MacOS/SharedName" \
-        "$HOME/Applications/SharedName.app/Contents/MacOS/SharedName"
-    cat > "$HOME/Library/LaunchAgents/com.thirdparty.betahelper.plist" <<PLIST
-<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>$HOME/Applications/SharedName-beta.app/Contents/MacOS/SharedName</string></dict></plist>
+    mkdir -p "$fixture_home/Library/LaunchAgents" \
+        "$fixture_home/Applications/SharedName-beta.app/Contents/MacOS" \
+        "$fixture_home/Applications/SharedName.app/Contents/MacOS"
+    touch "$fixture_home/Applications/SharedName-beta.app/Contents/MacOS/SharedName" \
+        "$fixture_home/Applications/SharedName.app/Contents/MacOS/SharedName"
+    cat > "$fixture_home/Library/LaunchAgents/com.thirdparty.betahelper.plist" <<PLIST
+<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>$fixture_home/Applications/SharedName-beta.app/Contents/MacOS/SharedName</string></dict></plist>
 PLIST
-    cat > "$HOME/Library/LaunchAgents/com.thirdparty.stablehelper.plist" <<PLIST
-<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>$HOME/Applications/SharedName.app/Contents/MacOS/SharedName</string></dict></plist>
+    cat > "$fixture_home/Library/LaunchAgents/com.thirdparty.stablehelper.plist" <<PLIST
+<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>$fixture_home/Applications/SharedName.app/Contents/MacOS/SharedName</string></dict></plist>
 PLIST
     mole_test_fake_command launchctl \
         "if [[ \"\$1\" == unload ]]; then printf 'UNLOAD:%s\\n' \"\$2\" >> \"\$HOME/unload.log\"; fi"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
+_MOLE_UNINSTALL_LIVE_APP_ROOTS+=("$HOME/OtherApps")
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -2006,6 +2053,8 @@ grep -q "KILL:SoloApp" "$HOME/kill.log" 2> /dev/null || { echo "WRONG: terminati
 [[ ! -f "$HOME/Library/Logs/DiagnosticReports/SoloApp-2026-07-03-101010.ips" ]] || { echo "WRONG: diagnostic reports not collected without sibling guard (case 5)"; exit 1; }
 EOF
 
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
+
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
@@ -2040,13 +2089,17 @@ EOF
 }
 
 @test "batch_uninstall_applications keeps system remnants review-only" {
-    mkdir -p "$HOME/Applications/ReviewOnly.app" "$HOME/system"
-    touch "$HOME/system/com.example.review.helper"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/ReviewOnly.app" "$fixture_home/system"
+    touch "$fixture_home/system/com.example.review.helper"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -2095,6 +2148,8 @@ grep -q "Uninstall complete" "$HOME/output.log"
 ! grep -q "$HOME/system/com.example.review.helper" "$HOME/remove.log" || exit 1
 [[ -e "$HOME/system/com.example.review.helper" ]]
 EOF
+
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
     [ "$status" -eq 0 ]
 }
@@ -2196,12 +2251,16 @@ EOF
 }
 
 @test "batch_uninstall_applications dry-run does not report expected leftovers as failures" {
-    create_app_artifacts
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    HOME="$fixture_home" create_app_artifacts
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -2249,6 +2308,8 @@ output=$(cat "$output_file")
 [[ "$output" != *"system-level path"* ]] || { echo "WRONG: dry-run reported post-removal system leftovers"; cat "$output_file"; exit 1; }
 [[ "$output" != *"Uninstall incomplete"* ]] || { echo "WRONG: dry-run marked incomplete"; cat "$output_file"; exit 1; }
 EOF
+
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
     [ "$status" -eq 0 ]
 }
@@ -2556,16 +2617,20 @@ EOF
 }
 
 @test "batch_uninstall_applications proceeds with deletion when force_kill_app fails" {
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
     # Reproduces the issue where uninstalling a still-running app (e.g. Mole.app
     # with a watchdog or XPC helper that ignores SIGKILL) used to abort with
     # "still running" and leave the bundle on disk. macOS allows deleting a
     # running app's bundle; we should warn the user but proceed.
-    create_app_artifacts
+    HOME="$fixture_home" create_app_artifacts
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -2613,6 +2678,8 @@ output=$(cat "$output_file")
 [[ "$output" == *"Still running during uninstall"* ]] || { echo "WRONG: missing running-process warning"; cat "$output_file"; exit 1; }
 [[ "$output" == *TestApp* ]] || { echo "WRONG: warning omits app name"; exit 1; }
 EOF
+
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
     [ "$status" -eq 0 ]
 }
@@ -2673,21 +2740,25 @@ EOF
 }
 
 @test "batch_uninstall_applications preview shows full related file list" {
-    mkdir -p "$HOME/Applications/TestApp.app"
-    mkdir -p "$HOME/Library/Application Support/TestApp"
-    mkdir -p "$HOME/Library/Caches/TestApp"
-    mkdir -p "$HOME/Library/Logs/TestApp"
-    touch "$HOME/Library/Logs/TestApp/log1.log"
-    touch "$HOME/Library/Logs/TestApp/log2.log"
-    touch "$HOME/Library/Logs/TestApp/log3.log"
-    touch "$HOME/Library/Logs/TestApp/log4.log"
-    touch "$HOME/Library/Logs/TestApp/log5.log"
-    touch "$HOME/Library/Logs/TestApp/log6.log"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/inventory-fixture.XXXXXX")
+    mkdir -p "$fixture_home/Applications/TestApp.app"
+    mkdir -p "$fixture_home/Library/Application Support/TestApp"
+    mkdir -p "$fixture_home/Library/Caches/TestApp"
+    mkdir -p "$fixture_home/Library/Logs/TestApp"
+    touch "$fixture_home/Library/Logs/TestApp/log1.log"
+    touch "$fixture_home/Library/Logs/TestApp/log2.log"
+    touch "$fixture_home/Library/Logs/TestApp/log3.log"
+    touch "$fixture_home/Library/Logs/TestApp/log4.log"
+    touch "$fixture_home/Library/Logs/TestApp/log5.log"
+    touch "$fixture_home/Library/Logs/TestApp/log6.log"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
 # Homebrew is present but owns no cask; the real brew is never consulted.
 brew() { :; }
 
@@ -2725,6 +2796,8 @@ total_size_cleaned=0
 
 printf '\nq' | batch_uninstall_applications
 EOF
+
+    [[ -s "$fixture_home/inventory.trace" ]] || { echo "$output"; return 1; }
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"~/Library/Logs/TestApp/log6.log"* ]] || return 1

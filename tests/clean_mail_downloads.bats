@@ -132,15 +132,18 @@ EOF
 }
 
 @test "mo clean completes when the Mail Downloads du stalls (#1344)" {
-    mkdir -p "$HOME/Library/Caches"
-    mkdir -p "$HOME/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"
-    echo x > "$HOME/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/old.docx"
+    local fixture_home
+    fixture_home=$(mktemp -d "$HOME/integration.XXXXXX")
+    mkdir -p "$fixture_home/Library/Caches"
+    mkdir -p "$fixture_home/Library/Containers/com.apple.mail/Data/Library/Mail Downloads"
+    echo x > "$fixture_home/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/old.docx"
 
     SHIM_DIR="$(mktemp -d "${BATS_TEST_TMPDIR:-/tmp}/mail-shim.XXXXXX")"
     cat > "$SHIM_DIR/du" << 'SHIM'
 #!/bin/bash
 for a in "$@"; do
     if [[ "$a" == *"Mail Downloads"* ]]; then
+        printf 'MAIL_DU\n' >> "$HOME/mail-du.trace"
         /bin/sleep 60
         exit 124
     fi
@@ -149,11 +152,13 @@ exec /usr/bin/du "$@"
 SHIM
     chmod +x "$SHIM_DIR/du"
 
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" \
         PATH="$SHIM_DIR:$PATH" MOLE_TIMEOUT_DISK_VERIFY_SEC=2 \
         /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/bin/clean.sh"
+# The scenario requires Mail to be idle, regardless of the host's apps.
+pgrep() { return 1; }
 # Stub every other section so the run reaches the summary quickly; only
 # clean_user_essentials (which contains _clean_mail_downloads) stays real.
 for fn in clean_finder_metadata clean_app_caches clean_browsers \
@@ -172,9 +177,11 @@ EOF
 
     rm -rf "$SHIM_DIR"
 
-    [ "$status" -eq 0 ] || return 1
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == *"Cleanup complete"* ]] || return 1
     [[ "$output" == *"Mail Downloads · skipped (sizing unavailable)"* ]] || return 1
+    [[ -s "$fixture_home/mail-du.trace" ]] || return 1
+    [[ -f "$fixture_home/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/old.docx" ]] || return 1
 }
 
 @test "mail dir sizing hard failure (1) skips the target and keeps the run going (#1366)" {
