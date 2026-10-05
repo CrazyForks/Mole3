@@ -1233,6 +1233,36 @@ EOF
     rm -rf "$HOME/Projects" "$output_file"
 }
 
+@test "scan_project_cache_root prunes build outputs and package stores" {
+    local name
+    for name in target .build .gradle Index.noindex _cacache; do
+        mkdir -p "$HOME/Projects/app/$name/sub/__pycache__"
+        touch "$HOME/Projects/app/$name/sub/__pycache__/mod.pyc"
+    done
+    mkdir -p "$HOME/Projects/app/__pycache__"
+    touch "$HOME/Projects/app/pyproject.toml"
+    touch "$HOME/Projects/app/__pycache__/mod.pyc"
+
+    local output_file
+    output_file=$(mktemp)
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<EOF
+set -euo pipefail
+source "\$PROJECT_ROOT/lib/core/common.sh"
+source "\$PROJECT_ROOT/lib/clean/caches.sh"
+run_with_timeout() { shift; "\$@"; }
+scan_project_cache_root "$HOME/Projects" "$output_file"
+cat "$output_file"
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"app/__pycache__"* ]] || return 1
+    for name in target .build .gradle Index.noindex _cacache; do
+        [[ "$output" != *"/$name/"* ]] || return 1
+    done
+
+    rm -rf "$HOME/Projects" "$output_file"
+}
+
 @test "clean_project_caches excludes Library and Trash directories" {
     mkdir -p "$HOME/Library/.next/cache"
     mkdir -p "$HOME/.Trash/.next/cache"

@@ -366,9 +366,13 @@ scan_project_cache_root() {
     [[ -d "$root" ]] || return 0
     : > "$output_file"
 
+    # Build outputs and package stores (target, .build, .gradle, Index.noindex,
+    # _cacache) never hold a project cache worth cleaning, but on a typical
+    # projects folder they can be half of the directories walked, enough to push
+    # the scan past its timeout on a busy disk and skip the whole root.
     local -a find_args=(
         find -P "$root" -maxdepth 9 -mount
-        "(" -name "Library" -o -name ".Trash" -o -name "node_modules" -o -name ".git" -o -name ".svn" -o -name ".hg" -o -name ".venv" -o -name "venv" -o -name ".pnpm-store" -o -name ".fvm" -o -name "DerivedData" -o -name "Pods" -o -name "miniconda3" -o -name "anaconda3" -o -name "miniforge3" -o -name "mambaforge" -o -name "site-packages" ")"
+        "(" -name "Library" -o -name ".Trash" -o -name "node_modules" -o -name ".git" -o -name ".svn" -o -name ".hg" -o -name ".venv" -o -name "venv" -o -name ".pnpm-store" -o -name ".fvm" -o -name "DerivedData" -o -name "Pods" -o -name "miniconda3" -o -name "anaconda3" -o -name "miniforge3" -o -name "mambaforge" -o -name "site-packages" -o -name "target" -o -name ".build" -o -name ".gradle" -o -name "Index.noindex" -o -name "_cacache" ")"
         -prune -o
         -type d
         "(" -name ".next" -o -name "__pycache__" -o -name ".dart_tool" ")"
