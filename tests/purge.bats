@@ -3534,6 +3534,72 @@ EOF_INNER
 }
 
 
+@test "purge review does not walk a candidate discovery already verified" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
+set -euo pipefail
+HOME=$(cd "$HOME" && pwd -P)
+source "$PROJECT_ROOT/lib/clean/project.sh"
+mkdir -p "$HOME/www/test-project/node_modules/pkg"
+printf x > "$HOME/www/test-project/node_modules/pkg/index.js"
+printf '{}' > "$HOME/www/test-project/package.json"
+touch -t 202001010101 "$HOME/www/test-project/node_modules/pkg/index.js" \
+    "$HOME/www/test-project/node_modules" "$HOME/www/test-project/package.json" "$HOME/www/test-project"
+PURGE_SEARCH_PATHS=("$HOME/www")
+probe_log="$HOME/content-probes"
+: > "$probe_log"
+purge_artifact_has_authored_content() {
+    printf '%s\n' "$1" >> "$probe_log"
+    return 1
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts
+echo "PROBES=$(wc -l < "$probe_log" | tr -d ' ')"
+EOF_INNER
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"test-project/node_modules"* ]] || return 1
+    # Discovery and the recheck before removal; the review in between reuses
+    # the discovery verdict instead of walking the tree a third time.
+    [[ "$output" == *"PROBES=2"* ]] || {
+        echo "$output"
+        return 1
+    }
+}
+
+@test "purge still refuses a candidate that gained authored content after discovery" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
+set -euo pipefail
+HOME=$(cd "$HOME" && pwd -P)
+source "$PROJECT_ROOT/lib/clean/project.sh"
+mkdir -p "$HOME/www/test-project/node_modules/pkg"
+printf x > "$HOME/www/test-project/node_modules/pkg/index.js"
+printf '{}' > "$HOME/www/test-project/package.json"
+touch -t 202001010101 "$HOME/www/test-project/node_modules/pkg/index.js" \
+    "$HOME/www/test-project/node_modules" "$HOME/www/test-project/package.json" "$HOME/www/test-project"
+PURGE_SEARCH_PATHS=("$HOME/www")
+probe_log="$HOME/content-probes"
+: > "$probe_log"
+# Clean when discovery looks, authored content by the time removal rechecks.
+purge_artifact_has_authored_content() {
+    printf '%s\n' "$1" >> "$probe_log"
+    [[ $(wc -l < "$probe_log") -gt 1 ]]
+}
+export MOLE_DRY_RUN=1
+clean_project_artifacts
+[[ -d "$HOME/www/test-project/node_modules" ]] || exit 1
+EOF_INNER
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" != *"[DRY RUN] ~/www/test-project/node_modules"* ]] || {
+        echo "$output"
+        return 1
+    }
+}
+
 @test "activity batch inspects later fast artifacts without selecting recent or failed probes" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_ACTIVITY'
 set -euo pipefail
