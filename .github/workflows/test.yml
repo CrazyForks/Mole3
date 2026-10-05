@@ -46,11 +46,12 @@ jobs:
 
   compatibility:
     name: macOS
-    # Hosted runtime coverage is macOS 14/15. Release builds separately enforce
+    # Hosted runtime coverage is macOS 15/latest (currently 26), not macOS 14.
+    # Release builds separately enforce
     # an LC_BUILD_VERSION minimum of macOS 12 in check_release_minos.sh.
     strategy:
       matrix:
-        os: [macos-14, macos-15]
+        os: [macos-15, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
