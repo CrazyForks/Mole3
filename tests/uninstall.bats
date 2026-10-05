@@ -115,7 +115,9 @@ pkg_receipt_nonstandard_app_paths() { :; }
 mkdir -p "$HOME/Volumes/com.apple.TimeMachine.localsnapshots" "$HOME/Selected.app"
 volumes="$HOME/Volumes"
 snapshots="$volumes/com.apple.TimeMachine.localsnapshots"
-trap 'chmod 700 "$volumes" "$snapshots" "$volumes/Ordinary" "$volumes/Share" 2>/dev/null || true' EXIT
+# Restore the volumes root in its own chmod first: BSD chmod stats every
+# operand up front, so a child listed beside a still-closed parent stays 000.
+trap 'chmod 700 "$volumes" 2>/dev/null; chmod 700 "$snapshots" "$volumes/Ordinary" "$volumes/Share" 2>/dev/null || true' EXIT
 # Simulate system ownership without creating root-owned fixtures or mounting disks.
 stat() {
     if [[ "$1" == -f && "$2" == '%u:%d' ]]; then
@@ -191,6 +193,11 @@ if [[ "$EXPECTED_RC" -eq 0 ]]; then
 fi
 EOF_TM
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    # A fixture left at mode 000 breaks every later setup on runners whose rm
+    # cannot remove it; local macOS can, so check the permissions directly.
+    local locked
+    locked=$(find "$HOME/time-machine" -perm 000 2> /dev/null || true)
+    [[ -z "$locked" ]] || { echo "locked fixture left behind: $locked"; return 1; }
 }
 
 assert_time_machine_batch_plan() {
