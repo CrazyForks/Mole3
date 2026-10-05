@@ -162,3 +162,9 @@ EOF
 	}
 	[[ "$output" == *"ok"* ]]
 }
+
+@test "paginated_multi_select search keeps pasted and fast-typed terms" {
+    command -v python3 > /dev/null 2>&1 || skip "python3 not available"
+    run python3 "$PROJECT_ROOT/tests/menu_search_pty.py"
+    [ "$status" -eq 0 ]
+}

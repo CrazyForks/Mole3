@@ -331,7 +331,7 @@ EOF
     run /bin/bash --noprofile --norc <<'EOF'
 export MOLE_BASE_LOADED=1
 source "$PROJECT_ROOT/lib/core/ui.sh"
-perl() { return 127; }
+_mole_drain_with_perl() { return 127; }
 printf 'pending\n' | {
     drain_pending_input
     if IFS= read -r -s -n 1 -t 1 remaining; then
@@ -386,6 +386,44 @@ finally:
     process.stdin.close()
     process.stdout.close()
     process.stderr.close()
+PY
+    [ "$status" -eq 0 ]
+}
+
+@test "drain_pending_input does not stall a terminal when Perl fails" {
+    run python3 - <<'PY'
+import os
+import pty
+import subprocess
+import time
+
+script = '''
+export MOLE_BASE_LOADED=1
+source "$PROJECT_ROOT/lib/core/ui.sh"
+_mole_drain_with_perl() { return 127; }
+for ((i=0; i<3; i++)); do drain_pending_input; done
+printf 'DONE\\n'
+'''
+master, slave = pty.openpty()
+process = None
+try:
+    started = time.monotonic()
+    process = subprocess.Popen(
+        ["/bin/bash", "--noprofile", "--norc", "-c", script],
+        stdin=slave, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+    )
+    stdout, stderr = process.communicate(timeout=10)
+    elapsed = time.monotonic() - started
+    assert process.returncode == 0, (stdout, stderr)
+    assert stdout == b"DONE\n", (stdout, stderr)
+    # The integer fallback blocks one second per call on an idle terminal.
+    assert elapsed < 1.5, elapsed
+finally:
+    if process is not None and process.poll() is None:
+        process.kill()
+        process.wait()
+    os.close(master)
+    os.close(slave)
 PY
     [ "$status" -eq 0 ]
 }

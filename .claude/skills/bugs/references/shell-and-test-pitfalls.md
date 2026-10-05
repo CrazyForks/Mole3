@@ -34,6 +34,7 @@ macOS ships Bash 3.2 and Mole runs with nounset.
 - `fn || handler` disables errexit inside `fn` for the whole function. Safety-critical steps use explicit `if ! command; then return 1; fi` (`a33a0b51`). Installers must also verify the installed binary's reported version before claiming success; `tests/install_checksum.bats` covers the exact caller shape.
 - Do not rely on a caller's temporary `set +e` window for graceful degradation. Capture the status where the command runs.
 - Optional `[[ -n "$value" ]] && action` returns 1 when absent. Use `if/fi` inside status-sensitive blocks.
+- Fixing a branch that Bash 3.2 silently skipped is a behavior change for every caller. `read -t 0.01` fails on 3.2, so `drain_pending_input` never drained there; `ed02a6aa` made it flush the terminal queue after every menu key, and a pasted search term kept only its first character. Before enabling such a branch, list its callers and check each for text entry, call the system tool by absolute path (a version-manager `perl` shim can fail or add startup latency per key), and never fall back to a one-second integer read on a terminal.
 
 ```bash
 command grep -rn '\$\{[a-z_]*\[@\]\}' lib/ bin/
