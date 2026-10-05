@@ -61,8 +61,7 @@ clean_trash() {
                 [[ -e "$trash_item" ]] || continue
                 if is_path_whitelisted "$trash_item" 2> /dev/null ||
                     (declare -f holds_compiled_model_cache > /dev/null 2>&1 &&
-                        holds_compiled_model_cache "$trash_item" 2> /dev/null) ||
-                    ! validate_path_for_deletion "$trash_item" 2> /dev/null; then
+                        holds_compiled_model_cache "$trash_item" 2> /dev/null); then
                     continue
                 fi
                 local trash_item_kb
@@ -71,7 +70,23 @@ clean_trash() {
                 [[ $size_rc -eq 0 ]] || _mole_record_clean_cancellation "$size_rc"
                 [[ $size_rc -eq 0 ]] || return "$size_rc"
                 [[ "$trash_item_kb" =~ ^[0-9]+$ ]] || trash_item_kb=0
+                if (declare -f holds_compiled_model_cache > /dev/null 2>&1 &&
+                    holds_compiled_model_cache "$trash_item" 2> /dev/null); then
+                    continue
+                fi
+                # Same final predicate as the real sink, including the #1517
+                # top-level Trash exemption, run after sizing so live-owner and
+                # SQLite state is current. The recorder then skips its own
+                # should_protect_path pass, which lacks that exemption.
+                local validate_rc=0
+                validate_path_for_deletion "$trash_item" 2> /dev/null || validate_rc=$?
+                if mole_rc_timeout_or_signal "$validate_rc"; then
+                    _mole_record_clean_cancellation "$validate_rc"
+                    return "$validate_rc"
+                fi
+                [[ $validate_rc -eq 0 ]] || continue
                 if declare -f record_dry_run_cleanup_target > /dev/null 2>&1; then
+                    local _MOLE_DRY_RUN_TARGET_PREVALIDATED=true
                     record_dry_run_cleanup_target "$trash_item" "$trash_item_kb" 1 true || continue
                 fi
                 preview_count=$((preview_count + 1))

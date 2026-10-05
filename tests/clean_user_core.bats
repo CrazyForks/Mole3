@@ -688,6 +688,72 @@ EOF
     [[ ! -d "$HOME/.Trash/Input Methods" ]]
 }
 
+@test "clean_trash dry run previews protected-name Trash items real mode empties (#1517)" {
+    rm -rf "$HOME/.Trash" # SAFE: reset this test's temporary HOME fixture before populating it
+    mkdir -p "$HOME/.Trash/Input Methods"
+    touch "$HOME/.Trash/com.sogou.inputmethod.sogou.plist"
+    touch "$HOME/.Trash/com.tencent.inputmethod.QQInput.plist"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+eval "$(awk '/^register_dry_run_cleanup_target\(\)/,/^}/' "$PROJECT_ROOT/bin/clean.sh")"
+eval "$(awk '/^record_dry_run_cleanup_target\(\)/,/^}/' "$PROJECT_ROOT/bin/clean.sh")"
+append_dry_run_cleanup_target() { :; }
+CLEAN_PREVIEW_LEDGER_FILE="$HOME/.ledger"
+: > "$CLEAN_PREVIEW_LEDGER_FILE"
+DRY_RUN=true
+stop_section_spinner() { :; }
+note_activity() { :; }
+is_path_whitelisted() { return 1; }
+clean_trash
+EOF
+
+    rm -rf "$HOME/.Trash" "$HOME/.ledger" # SAFE: test fixture HOME
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"Trash · would empty, 3 items"* ]]
+}
+
+@test "clean_trash dry run stops when the final Trash validation times out" {
+    rm -rf "$HOME/.Trash" # SAFE: reset this test's temporary HOME fixture before populating it
+    mkdir -p "$HOME/.Trash"
+    touch "$HOME/.Trash/one.tmp" "$HOME/.Trash/two.tmp"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_CURRENT_COMMAND=clean /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+DRY_RUN=true
+stop_section_spinner() { :; }
+note_activity() { :; }
+is_path_whitelisted() { return 1; }
+validate_path_for_deletion() {
+    echo "VALIDATE:$1"
+    return 124
+}
+record_dry_run_cleanup_target() { echo "UNEXPECTED_RECORD:$1"; }
+rc=0
+clean_trash || rc=$?
+printf 'RC=%s CANCEL=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+
+    rm -rf "$HOME/.Trash" # SAFE: test fixture HOME
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    [[ "$output" == *"RC=124 CANCEL=124"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_RECORD"* ]] || return 1
+    [[ "$output" != *"would empty"* ]] || return 1
+    local validate_calls
+    validate_calls=$(grep -c '^VALIDATE:' <<< "$output" || true)
+    [ "$validate_calls" -eq 1 ]
+}
+
 @test "clean_user_essentials keeps Mole runtime logs while cleaning other user logs" {
     mkdir -p "$HOME/Library/Logs/mole"
     mkdir -p "$HOME/Library/Logs/OtherApp"
