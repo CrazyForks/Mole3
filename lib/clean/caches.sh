@@ -623,6 +623,28 @@ project_cache_git_status() {
     return 2
 }
 
+# build/ counts as Flutter output by convention only, and a repository inside
+# it (a plugin checkout, a vendored package) is authored work the outer Git
+# listing never sees. 0 keeps the folder, 1 clears it, a signal propagates;
+# a scan that cannot finish keeps the folder.
+_project_cache_holds_nested_repo() {
+    local dir="$1"
+    local found="" scan_rc=0
+    found=$(run_with_timeout "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" find -P "$dir" -mindepth 1 -name .git -print -quit 2> /dev/null) || scan_rc=$?
+    [[ $scan_rc -gt 128 ]] && return "$scan_rc"
+    local reason=""
+    if [[ $scan_rc -ne 0 ]]; then
+        reason="nested repository check incomplete"
+    elif [[ -n "$found" ]]; then
+        reason="holds a nested git repository"
+    else
+        return 1
+    fi
+    debug_log "Keeping project cache, $reason: $dir"
+    log_operation "clean" "SKIPPED" "$dir" "$reason"
+    return 0
+}
+
 project_cache_has_tracked_files() {
     local cache_path="$1"
     local tracked_rc=0
@@ -752,7 +774,12 @@ _process_project_cache_matches_indexed() {
                     clean_project_cache_target "$cache_dir" "Flutter build cache (.dart_tool)" || return $?
                     local build_dir="$(dirname "$cache_dir")/build"
                     if [[ -d "$build_dir" ]]; then
-                        clean_project_cache_target "$build_dir" "Flutter build cache (build/)" || return $?
+                        local nested_rc=0
+                        _project_cache_holds_nested_repo "$build_dir" || nested_rc=$?
+                        [[ $nested_rc -gt 128 ]] && return "$nested_rc"
+                        if [[ $nested_rc -eq 1 ]]; then
+                            clean_project_cache_target "$build_dir" "Flutter build cache (build/)" || return $?
+                        fi
                     fi
                 fi
                 ;;

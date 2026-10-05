@@ -728,6 +728,54 @@ EOF
     rm -rf "$HOME/Projects" "$HOME/Other"
 }
 
+@test "clean_project_caches keeps a Flutter build/ that holds a nested repository" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+app="$HOME/Projects/app"
+mkdir -p "$app/.dart_tool" "$app/build/plugins/local_plugin/lib"
+touch "$app/pubspec.yaml" "$app/.dart_tool/state" "$app/build/plugins/local_plugin/lib/main.dart"
+git init -q "$app"
+git init -q "$app/build/plugins/local_plugin"
+DRY_RUN=false
+clean_project_caches
+[[ ! -e "$app/.dart_tool" ]] || exit 11
+[[ -d "$app/build/plugins/local_plugin/.git" ]] || exit 12
+[[ -f "$app/build/plugins/local_plugin/lib/main.dart" ]] || exit 13
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+    rm -rf "$HOME/Projects"
+}
+
+@test "clean_project_caches keeps a Flutter build/ whose nested repository check cannot finish" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+app="$HOME/Projects/app"
+mkdir -p "$app/.dart_tool" "$app/build"
+touch "$app/pubspec.yaml" "$app/.dart_tool/state" "$app/build/out.bin"
+git init -q "$app"
+eval "real_$(declare -f run_with_timeout)"
+run_with_timeout() {
+    # Only the nested-repository probe times out; discovery still runs.
+    if [[ "$2" == find && "$*" == *"-mindepth 1 -name .git -print -quit"* ]]; then
+        return 124
+    fi
+    real_run_with_timeout "$@"
+}
+DRY_RUN=false
+clean_project_caches
+[[ ! -e "$app/.dart_tool" ]] || exit 11
+[[ -f "$app/build/out.bin" ]] || exit 12
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+    rm -rf "$HOME/Projects"
+}
+
 @test "project cache index gives no free pass to a path it never saw" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
