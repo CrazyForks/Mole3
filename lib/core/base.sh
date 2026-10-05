@@ -694,8 +694,10 @@ get_optimal_parallel_jobs() {
 # User Context Utilities
 # ============================================================================
 
+# EUID answers the same question as id -u without a subprocess; clean asks
+# it for many targets.
 is_root_user() {
-    [[ "$(id -u)" == "0" ]]
+    [[ "${EUID:-$(id -u)}" == "0" ]]
 }
 
 get_invoking_uid() {

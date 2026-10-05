@@ -501,6 +501,22 @@ EOF
     [ "$output" = OK ]
 }
 
+@test "is_root_user answers from EUID without forking id" {
+    run /bin/bash --noprofile --norc << 'EOF'
+source "$PROJECT_ROOT/lib/core/common.sh"
+id() { echo called >> "$HOME/id-calls"; command id "$@"; }
+rc=0
+is_root_user || rc=$?
+expected=1
+[[ "$(command id -u)" == "0" ]] && expected=0
+[[ $rc -eq $expected ]] || { echo "RC=$rc EXPECTED=$expected"; exit 1; }
+[[ ! -e "$HOME/id-calls" ]] || { echo "FORKED_ID"; exit 1; }
+echo OK
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$output" = OK ]
+}
+
 @test "is_critical_system_component ignores case and leaves nocasematch as it was" {
     run /bin/bash --noprofile --norc << 'EOF'
 source "$PROJECT_ROOT/lib/core/common.sh"
