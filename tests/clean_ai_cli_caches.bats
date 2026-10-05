@@ -362,13 +362,19 @@ EOF
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/dev.sh"
+pgrep() {
+    printf '%s\n' "$*" >> "$HOME/process-trace"
+    return 1
+}
 safe_clean() { echo "SAFE_CLEAN:$2|$1"; }
 clean_service_worker_cache() { echo "SWC:$1"; }
 note_activity() { :; }
 clean_antigravity_caches
+grep -qxF -- '-x Antigravity' "$HOME/process-trace" || exit 1
+grep -qxF -- '-x gemini' "$HOME/process-trace" || exit 1
 EOF
 
-    assert_run_success
+    assert_run_success || return 1
     assert_output_contains "SAFE_CLEAN:Antigravity browser cache|"
     assert_output_contains "SAFE_CLEAN:Antigravity code cache|"
     assert_output_contains "SAFE_CLEAN:Antigravity GPU cache|"

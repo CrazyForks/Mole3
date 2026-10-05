@@ -1411,11 +1411,16 @@ EOF
 }
 
 @test "explicit App Container cleanup families expose one cumulative probe deadline (#1471)" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+    local fixture_home="$HOME/container-probe-deadline"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
+pgrep() {
+    printf '%s\n' "$*" >> "$HOME/process-trace"
+    return 1
+}
 start_section_spinner() { :; }
 stop_section_spinner() { :; }
 note_activity() { :; }
@@ -1449,9 +1454,9 @@ echo x > "$HOME/Library/Containers/com.utmapp.UTM/Data/Library/Caches/blob"
 clean_app_caches
 clean_office_applications
 clean_utm_caches
+grep -qxF -- '-x UTM' "$HOME/process-trace" || exit 1
 EOF
 
-    rm -rf "$HOME/Library/Containers/com.utmapp.UTM"
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"SCOPED=Wallpaper agent cache"* ]] || return 1
     [[ "$output" == *"SCOPED=Microsoft Word container cache"* ]] || return 1
@@ -1823,10 +1828,17 @@ EOF
 }
 
 @test "clean_browsers calls expected cache paths" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" DRY_RUN=true /bin/bash --noprofile --norc << 'EOF'
+    local fixture_home="$HOME/browser-cache-paths"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" DRY_RUN=true /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
+mkdir -p "$HOME/Library/Caches/Firefox"
+touch "$HOME/Library/Caches/Firefox/candidate"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
+pgrep() {
+    printf '%s\n' "$*" >> "$HOME/process-trace"
+    return 1
+}
 safe_clean() { echo "$2"; }
 clean_service_worker_cache() { :; }
 note_activity() { :; }
@@ -1834,9 +1846,10 @@ files_cleaned=0
 total_size_cleaned=0
 total_items=0
 clean_browsers
+grep -qxF -- '-x Firefox' "$HOME/process-trace" || exit 1
 EOF
 
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"Safari cache"* ]] || return 1
     [[ "$output" == *"Firefox cache"* ]] || return 1
     [[ "$output" == *"Puppeteer browser cache"* ]]

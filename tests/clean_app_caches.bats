@@ -32,19 +32,38 @@ make_fusion_version_dir() {
 }
 
 @test "clean_xcode_tools skips derived data when Xcode running" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    local fixture_home="$HOME/xcode-running-derived-data"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
+target="$HOME/Library/Developer/Xcode/DerivedData/FixtureProject"
+mkdir -p "$target"
+touch "$target/build.bin"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
-    pgrep() { [[ "$1" == "-x" && "$2" == "xcodebuild" ]]; }
-safe_clean() { echo "$2"; }
+running=true
+pgrep() {
+    printf '%s\n' "$*" >> "$HOME/process-trace"
+    [[ "$running" == "true" && "$*" == "-x Xcode" ]]
+}
+safe_clean() { printf '%s\n' "$@" >> "$HOME/clean-trace"; }
+safe_remove() { printf '%s\n' "$1" >> "$HOME/clean-trace"; }
+get_path_size_kb() { printf '1\n'; }
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
 clean_xcode_tools
+grep -qxF -- '-x Xcode' "$HOME/process-trace" || exit 1
+[[ ! -e "$HOME/clean-trace" && -f "$target/build.bin" ]] || exit 1
+
+# The same eligible project must reach the real cleanup path once Xcode exits.
+running=false
+clean_xcode_tools
+grep -qxF "$target" "$HOME/clean-trace" || exit 1
+printf 'PASS\n'
 EOF
 
-    [ "$status" -eq 0 ]
-    [[ "$output" != *"Xcode DerivedData · skipped"* ]] || return 1
-    [[ "$output" != *"derived data"* ]] || return 1
-    [[ "$output" != *"documentation cache"* ]]
+    [ "$status" -eq 0 ] || return 1
+    [[ "$output" == *"PASS"* ]]
 }
 
 @test "clean_xcode_tools preserves device logs and user documentation stores" {
@@ -83,25 +102,37 @@ EOF
 }
 
 @test "clean_xcode_tools skips Xcode paths while xcodebuild is active" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    local fixture_home="$HOME/xcodebuild-running-paths"
+    run env HOME="$fixture_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
+cache="$HOME/Library/Caches/com.apple.dt.Xcode/candidate"
+product="$HOME/Library/Developer/Xcode/Products/candidate"
+mkdir -p "${cache%/*}" "${product%/*}"
+touch "$cache" "$product"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/app_caches.sh"
-pgrep() { [[ "$2" == "xcodebuild" ]]; }
-safe_clean() {
-    case "${!#}" in
-        "Xcode cache" | "Xcode build products") echo "UNEXPECTED_XCODE_CLEAN:${!#}" ;;
-    esac
+running=true
+pgrep() {
+    printf '%s\n' "$*" >> "$HOME/process-trace"
+    [[ "$running" == "true" && "$*" == "-x xcodebuild" ]]
 }
+safe_clean() { printf '%s\n' "$@" >> "$HOME/clean-trace"; }
 clean_xcode_tools
+grep -qxF -- '-x xcodebuild' "$HOME/process-trace" || exit 1
+[[ ! -e "$HOME/clean-trace" && -f "$cache" && -f "$product" ]] || exit 1
+
+running=false
+clean_xcode_tools
+grep -qxF "$cache" "$HOME/clean-trace" || exit 1
+grep -qxF "$product" "$HOME/clean-trace" || exit 1
+printf 'PASS\n'
 EOF
 
     [ "$status" -eq 0 ] || {
         echo "$output"
         return 1
     }
-    [[ "$output" != *"Xcode cache/build products · skipped"* ]] || return 1
-    [[ "$output" != *"UNEXPECTED_XCODE_CLEAN"* ]]
+    [[ "$output" == *"PASS"* ]]
 }
 
 @test "clean_xcode_tools fails closed when process state is unknown" {
