@@ -3186,7 +3186,9 @@ EOF
     for row in "${queued_rows[@]}"; do
         mkdir -p "$review_home/$row"
     done
-    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    # CI runners export ANDROID_HOME; every row must resolve under the fixture.
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
