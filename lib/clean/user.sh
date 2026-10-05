@@ -2736,6 +2736,7 @@ check_large_file_candidates() {
     _large_candidate_size_kb() {
         local path="$1"
         local timeout_seconds="${2:-${MOLE_LARGE_CANDIDATE_SIZE_TIMEOUT:-3}}"
+        local exact="${3:-}"
         [[ "$timeout_seconds" =~ ^[0-9]+$ ]] || timeout_seconds=3
         local du_output="" du_rc=0
         du_output=$(run_with_timeout "$timeout_seconds" du -skP "$path" 2> /dev/null) || du_rc=$?
@@ -2743,10 +2744,11 @@ check_large_file_candidates() {
         # cancel the run so Ctrl-C stays sticky. BSD du exits 1 when some
         # entry is unreadable yet still prints the total of everything it
         # read, a usable lower bound; a timeout's output is never a total.
+        # Rows passed "exact" (E5RT, #1631) never show a lower bound.
         if [[ $du_rc -ge 128 ]]; then
             return "$du_rc"
         fi
-        [[ $du_rc -eq 0 || $du_rc -eq 1 ]] || return 1
+        [[ $du_rc -eq 0 || ($du_rc -eq 1 && "$exact" != "exact") ]] || return 1
         local size_kb="${du_output%%[^0-9]*}"
         [[ "$size_kb" =~ ^[0-9]+$ ]] || return 1
         printf '%s\n' "$size_kb"
@@ -2791,15 +2793,17 @@ check_large_file_candidates() {
     }
 
     # Pass "date" as $4 on rows where staleness decides the action. Rows left
-    # without it stay two fields wide.
+    # without it stay two fields wide. Pass "exact" as $5 to drop the row
+    # instead of showing a total that skipped unreadable entries.
     _report_large_review_dir() {
         local label="$1"
         local path="$2"
         local probe_timeout="${3:-}"
         local want_date="${4:-}"
+        local exact="${5:-}"
         [[ -d "$path" ]] || return 0
         local size_kb="" size_rc=0
-        size_kb=$(_large_candidate_size_kb "$path" "$probe_timeout") || size_rc=$?
+        size_kb=$(_large_candidate_size_kb "$path" "$probe_timeout" "$exact") || size_rc=$?
         if [[ $size_rc -ge 128 ]]; then
             return "$size_rc"
         fi
@@ -2957,7 +2961,7 @@ check_large_file_candidates() {
                 [[ -d "$compiled_path" && ! -L "$compiled_path" && ! -L "${compiled_path%/*}" ]] || continue
                 compiled_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_HINT_SCAN_SEC" "$compiled_deadline") || break
                 compiled_owner="${compiled_path%/*}"
-                _report_large_or_stop "Compiled model cache (${compiled_owner##*/})" "$compiled_path" "$compiled_timeout" || {
+                _report_large_or_stop "Compiled model cache (${compiled_owner##*/})" "$compiled_path" "$compiled_timeout" "" exact || {
                     compiled_rc=$?
                     break
                 }
