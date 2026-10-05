@@ -84,7 +84,7 @@ system_maintenance|opt_system_maintenance|DNS & Spotlight Check|DNS & Spotlight 
 cache_refresh|opt_cache_refresh|Finder Cache Refresh|Finder Cache Refresh|Refresh QuickLook thumbnails & icon services cache|true
 saved_state_cleanup|opt_saved_state_cleanup|App State Cleanup|App State Cleanup|Remove old saved application states (30+ days)|true
 fix_broken_configs|opt_fix_broken_configs|Broken Config Repair|Broken Config Repair|Fix corrupted preferences files|true
-network_optimization|opt_network_optimization|Network Cache Refresh|Network Cache Refresh|Optimize DNS cache & restart mDNSResponder|true
+network_optimization|opt_network_optimization|Network Cache Refresh|Network Cache Refresh|Refresh DNS cache|true
 sqlite_vacuum|opt_sqlite_vacuum|Database Optimization|Database Optimization|Compress SQLite databases for Mail, Safari & Messages (skips if apps are running)|true
 prevent_network_dsstore|opt_prevent_network_dsstore|Prevent Finder .DS_Store|Prevent Finder .DS_Store|Set a persistent Finder preference to stop writing .DS_Store on SMB/AFP/NFS and USB volumes|true
 legacy_overrides_audit|opt_legacy_overrides_audit|Legacy Overrides|Legacy Overrides|Remove hidden App Nap and disk-image verification overrides left by old tweak tools|true
@@ -148,7 +148,7 @@ contract_hash=$(
         shasum -a 256 |
         awk '{print $1}'
 )
-expected_hash="dc42553fcae1b1d1ebf768d3cfec6d8c0171140dd5a2a532ebacfee91d27146f"
+expected_hash="f90bfe44f54c07e7b2e5d257a392b92fb7b62a7581b2d8ded9499036330a8069"
 if [[ "$contract_hash" != "$expected_hash" ]]; then
     echo "health optimization contract hash: expected $expected_hash, got $contract_hash"
     exit 1

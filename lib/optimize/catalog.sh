@@ -42,7 +42,7 @@ _optimize_catalog_register fix_broken_configs opt_fix_broken_configs \
     "Fix corrupted preferences files" true
 _optimize_catalog_register network_optimization opt_network_optimization \
     "Network Cache Refresh" "Network Cache Refresh" \
-    "Optimize DNS cache & restart mDNSResponder" true
+    "Refresh DNS cache" true
 _optimize_catalog_register sqlite_vacuum opt_sqlite_vacuum \
     "Database Optimization" "Database Optimization" \
     "Compress SQLite databases for Mail, Safari & Messages (skips if apps are running)" true

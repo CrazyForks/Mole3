@@ -137,8 +137,13 @@ has_active_vpn_interface() {
     fi
     local route_output=""
     local route_status=0
-    route_output=$(LC_ALL=C run_with_timeout "$MOLE_TIMEOUT_SHORT_QUERY_SEC" route -n get default 2> /dev/null) || route_status=$?
+    route_output=$(LC_ALL=C run_with_timeout "$MOLE_TIMEOUT_SHORT_QUERY_SEC" route -n get default 2>&1) || route_status=$?
     if [[ $route_status -ne 0 ]]; then
+        # No default route at all (offline): no full-tunnel VPN can be
+        # routing traffic, so that is a known "none", not an unknown state.
+        if [[ "$route_output" == *"not in table"* ]]; then
+            return 1
+        fi
         return 2
     fi
     local default_iface
@@ -151,7 +156,21 @@ has_active_vpn_interface() {
     return 1
 }
 
+# Return 0 when the DNS cache was flushed (or would be in dry-run), 1 when the
+# flush failed or admin access is missing, 2 when an active VPN skipped it, and
+# 3 when the VPN state is unknown. SIGHUP makes mDNSResponder drop its cache,
+# and VPN clients that watch DNS configuration (WireGuard and similar) treat
+# that as a network change and reconnect. An unknown state also skips, like
+# opt_network_stack_optimize, because the probe could not rule a VPN out.
 flush_dns_cache() {
+    local vpn_status=0
+    has_active_vpn_interface || vpn_status=$?
+    case "$vpn_status" in
+        0) return 2 ;;
+        1) ;;
+        *) return 3 ;;
+    esac
+
     if [[ "${MOLE_DRY_RUN:-0}" == "1" ]]; then
         MOLE_DNS_FLUSHED=1
         return 0
@@ -176,11 +195,13 @@ opt_system_maintenance() {
         return 0
     fi
 
-    local dns_flushed="false"
-    if flush_dns_cache; then
-        opt_msg "DNS cache flushed"
-        dns_flushed="true"
-    fi
+    local dns_status=0
+    flush_dns_cache || dns_status=$?
+    case "$dns_status" in
+        0) opt_msg "DNS cache flushed" ;;
+        2) opt_msg "DNS cache flush skipped, active VPN detected" ;;
+        3) echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to inspect active VPN state" ;;
+    esac
 
     local spotlight_status=""
     local spotlight_failed=0
@@ -195,8 +216,13 @@ opt_system_maintenance() {
 
     local applied=0
     local failed="$spotlight_failed"
-    [[ "$dns_flushed" == "true" ]] && applied=1 || failed=$((failed + 1))
-    optimize_task_result_from_counts "$applied" "$failed"
+    local skipped=0
+    case "$dns_status" in
+        0) applied=1 ;;
+        2) skipped=1 ;;
+        *) failed=$((failed + 1)) ;;
+    esac
+    optimize_task_result_from_counts "$applied" "$failed" "$skipped"
 }
 
 # Refresh Finder caches (QuickLook/icon services).
@@ -417,15 +443,14 @@ opt_fix_broken_configs() {
 # DNS cache refresh.
 opt_network_optimization() {
     if [[ "${MO_DEBUG:-}" == "1" ]]; then
-        debug_operation_start "Network Optimization" "Refresh DNS cache and restart mDNSResponder"
-        debug_operation_detail "Method" "Flush DNS cache via dscacheutil and killall mDNSResponder"
+        debug_operation_start "Network Optimization" "Refresh DNS cache"
+        debug_operation_detail "Method" "dscacheutil -flushcache, then SIGHUP to mDNSResponder (skipped under an active VPN)"
         debug_operation_detail "Expected outcome" "Faster DNS resolution, fixed network connectivity issues"
         debug_risk_level "LOW" "DNS cache is automatically rebuilt"
     fi
 
     if [[ "${MOLE_DNS_FLUSHED:-0}" == "1" ]]; then
         opt_msg "DNS cache already refreshed"
-        opt_msg "mDNSResponder already restarted"
         optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_UNCHANGED"
         return 0
     fi
@@ -436,14 +461,26 @@ opt_network_optimization() {
         return 0
     fi
 
-    if flush_dns_cache; then
-        opt_msg "DNS cache refreshed"
-        opt_msg "mDNSResponder restarted"
-        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
-    else
-        echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to refresh DNS cache"
-        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
-    fi
+    local dns_status=0
+    flush_dns_cache || dns_status=$?
+    case "$dns_status" in
+        0)
+            opt_msg "DNS cache refreshed"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_APPLIED"
+            ;;
+        2)
+            opt_msg "DNS cache refresh skipped, active VPN detected"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_SKIPPED"
+            ;;
+        3)
+            echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to inspect active VPN state"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
+            ;;
+        *)
+            echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to refresh DNS cache"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
+            ;;
+    esac
 }
 
 # Quarantine database cleanup (Gatekeeper download history).
