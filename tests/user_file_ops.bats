@@ -357,7 +357,9 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 fixture=$(mktemp -d "$HOME/log-append.XXXXXX")
 touch "$fixture/events"
 ensure_user_file() { echo setup >> "$fixture/setups"; mkdir -p "${1%/*}"; touch "$1"; }
+id() { echo id >> "$fixture/id-calls"; command id "$@"; }
 append_log_line "$fixture/events" first
+[[ ! -e "$fixture/id-calls" ]] || exit 1
 command rm -f "$fixture/events"
 append_log_line "$fixture/events" second
 [[ $(wc -l < "$fixture/setups") -eq 1 ]] || exit 1

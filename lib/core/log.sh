@@ -39,8 +39,9 @@ fi
 
 # Existing writable logs need no mkdir/touch before each synchronous append.
 # Missing files and privileged ownership repair retain the original setup path.
+# EUID avoids forking id(1) once per log line.
 _mole_prepare_log_append() {
-    if [[ -f "$1" && -w "$1" ]] && ! is_root_user; then
+    if [[ -f "$1" && -w "$1" && ${EUID:-0} -ne 0 ]]; then
         return 0
     fi
     ensure_user_file "$1"
