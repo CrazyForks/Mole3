@@ -22,7 +22,7 @@ At the start of any release-flavored task, restate which channels this run will 
 Resolve the latest published stable tag from GitHub before choosing the version or review range. Reconcile handoff claims against the current branch, worktree, and remote SHA; an earlier report of uncommitted work may describe commits that have already landed. Review all changes since that stable tag, not just the final fix batch.
 
 1. `grep '^VERSION=' mole` matches the new version.
-2. `SECURITY_AUDIT.md` opening line reflects the new version and date.
+2. `SECURITY_AUDIT.md` opening line reflects the new version and date, and its CI coverage list matches the matrix in `.github/workflows/test.yml`.
 3. `git status -s` is empty or only contains intentionally staged release work.
 4. `git log origin/main..HEAD --oneline` shows only commits you intend to ship.
 5. `./scripts/check.sh --format` and `TERM=xterm-256color MOLE_TEST_NO_AUTH=1 MOLE_TEST_JOBS=2 BATS_FORMATTER=tap ./scripts/test.sh` both exit 0.

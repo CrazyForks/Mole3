@@ -284,7 +284,7 @@ Repository-level signals include:
 - pre-commit hook that mirrors GitHub CI checks locally (shell syntax, shfmt, shellcheck, Go vet)
 - CI checks for unsafe `rm -rf` usage patterns and core protection behavior
 - targeted tests for path validation, purge boundaries, symlink behavior, dry-run flows, and destructive helpers
-- macOS 14 and macOS 15 compatibility coverage for core Bats suites
+- macOS 15 and macOS 26 compatibility coverage for core Bats suites
 - CodeQL scanning for Go and GitHub Actions workflows, with workflow permission hardening
 - curated changelog-driven release notes for user-visible changes
 - published SHA-256 checksums for release assets
