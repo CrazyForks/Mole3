@@ -2783,6 +2783,64 @@ EOF
     [[ "$output" == *"Android emulators"* ]]
 }
 
+@test "large files keeps a du total that skipped unreadable entries" {
+    local review_home
+    review_home=$(mktemp -d "$HOME/du-partial.XXXXXX")
+    mkdir -p "$review_home/Library/Developer/CoreSimulator/Devices"
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { :; }
+defaults() { return 1; }
+docker() { return 1; }
+run_with_timeout() {
+    shift
+    if [[ "$1" == du ]]; then
+        # BSD du prints the readable total and exits 1 for an unreadable entry.
+        printf '12000000\t%s\n' "${!#}"
+        return 1
+    fi
+    "$@"
+}
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Simulator data"* ]]
+}
+
+@test "large files continues later rows when the E5RT listing has no scratch file" {
+    local review_home
+    review_home=$(mktemp -d "$HOME/e5rt-scratch.XXXXXX")
+    mkdir -p "$review_home/Library/Caches/python/com.apple.e5rt.e5bundlecache" "$review_home/.android/avd"
+    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+note_activity() { echo "ACTIVITY"; }
+defaults() { return 1; }
+docker() { return 1; }
+create_temp_file() { return 1; }
+run_with_timeout() {
+    shift
+    if [[ "$1" == du ]]; then
+        printf '75497472\t%s\n' "${!#}"
+        return 0
+    fi
+    "$@"
+}
+check_large_file_candidates
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" != *"Compiled model cache"* ]] || return 1
+    [[ "$output" == *"Android emulators"* ]] || return 1
+    [[ "$output" == *"ACTIVITY"* ]]
+}
+
 @test "large files discards incomplete E5RT discovery and propagates measurement signals (#1631)" {
     local review_home
     review_home=$(mktemp -d "$HOME/e5rt-errors.XXXXXX")

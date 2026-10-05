@@ -2740,11 +2740,13 @@ check_large_file_candidates() {
         local du_output="" du_rc=0
         du_output=$(run_with_timeout "$timeout_seconds" du -skP "$path" 2> /dev/null) || du_rc=$?
         # Review-only: a timed-out or failed du skips this row. Signals still
-        # cancel the run so Ctrl-C stays sticky.
+        # cancel the run so Ctrl-C stays sticky. BSD du exits 1 when some
+        # entry is unreadable yet still prints the total of everything it
+        # read, a usable lower bound; a timeout's output is never a total.
         if [[ $du_rc -ge 128 ]]; then
             return "$du_rc"
         fi
-        [[ $du_rc -eq 0 ]] || return 1
+        [[ $du_rc -eq 0 || $du_rc -eq 1 ]] || return 1
         local size_kb="${du_output%%[^0-9]*}"
         [[ "$size_kb" =~ ^[0-9]+$ ]] || return 1
         printf '%s\n' "$size_kb"
@@ -2940,10 +2942,12 @@ check_large_file_candidates() {
     # neither the current build nor older build subdirectories are deleted.
     # Bound the complete listing and all measurements with one shared budget.
     local cache_root="$HOME/Library/Caches"
-    if [[ -d "$cache_root" && ! -L "$cache_root" ]]; then
-        local compiled_list compiled_rc=0 compiled_path compiled_owner compiled_timeout
+    local compiled_list=""
+    # Without a scratch listing only this row is skipped; the remaining rows
+    # and the section's activity still follow.
+    if [[ -d "$cache_root" && ! -L "$cache_root" ]] && compiled_list=$(create_temp_file); then
+        local compiled_rc=0 compiled_path compiled_owner compiled_timeout
         local compiled_deadline=$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))
-        compiled_list=$(create_temp_file) || return 0
         run_with_timeout "$MOLE_TIMEOUT_HINT_SCAN_SEC" find "$cache_root" -mindepth 1 -maxdepth 2 \
             \( -name '.*' -prune \) -o \
             \( -type d -name 'com.apple.e5rt.e5bundlecache' -print0 \) \
