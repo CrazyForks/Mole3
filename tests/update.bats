@@ -926,6 +926,30 @@ EOF
 	grep -q '^upgrade mole$' "$brew_log"
 }
 
+@test "mo update --nightly sends Homebrew installs to the formula's main build" {
+	local fake_brew_bin="$TEST_ROOT/homebrew/bin"
+	local fake_brew_mole="$TEST_ROOT/homebrew/Cellar/mole/9.9.9/bin/mole"
+	local brew_log="$TEST_ROOT/brew.log"
+
+	make_homebrew_shadow "$fake_brew_bin" "$fake_brew_mole"
+	: > "$brew_log"
+
+	run env \
+		HOME="$HOME" \
+		PATH="$fake_brew_bin:/usr/bin:/bin" \
+		BREW_LOG="$brew_log" \
+		"$fake_brew_bin/mo" update --nightly
+
+	[ "$status" -eq 1 ] || { echo "$output"; return 1; }
+	[[ "$output" == *"brew install --HEAD mole"* ]] || { echo "$output"; return 1; }
+	# The script install refuses while Homebrew owns mole.
+	[[ "$output" != *"via script"* ]] || { echo "$output"; return 1; }
+	if grep -q '^upgrade' "$brew_log"; then
+		cat "$brew_log"
+		return 1
+	fi
+}
+
 @test "Homebrew update bounds fallback installed-binary version probes" {
 	run env HOME="$HOME/bounded-homebrew-version" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail

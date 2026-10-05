@@ -1024,7 +1024,9 @@ update_mole() (
         if [[ "$nightly_update" == "true" ]]; then
             local review_icon="${ICON_REVIEW:-⊙}"
             log_error "Nightly update is only available for script installations. Homebrew installs follow stable releases."
-            printf '%s Reinstall via script to use: mo update --nightly\n' "$review_icon"
+            # install.sh exits while Homebrew owns mole; the formula's head
+            # builds main, so stay on Homebrew to try it.
+            printf '%s To try main: brew uninstall mole && brew install --HEAD mole\n' "$review_icon"
             exit 1
         fi
         update_via_homebrew "$VERSION"
