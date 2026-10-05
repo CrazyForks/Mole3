@@ -534,6 +534,20 @@ EOF
     [ "$output" = "~"'/Library/Application Support/MobileSync/Backup' ]
 }
 
+@test "format_path_link shows a short label inside a link to the full path" {
+    output="$(
+        HOME="$HOME" MOLE_ANSI_SUPPORTED_CACHE=0 /bin/bash --noprofile --norc << 'EOF'
+source "$PROJECT_ROOT/lib/core/common.sh"
+format_path_link "$HOME/Library/Application Support/MobileSync/Backup" "…/MobileSync/Backup"
+EOF
+    )"
+
+    local st=$'\033\\'
+    local expected_link="]8;;file://$HOME/Library/Application%20Support/MobileSync/Backup${st}"
+    [[ "$output" == *"$expected_link…/MobileSync/Backup"$'\033'* ]] || { printf '%q\n' "$output"; return 1; }
+    [[ "$output" != *"${st}~/Library"* ]] || { printf '%q\n' "$output"; return 1; }
+}
+
 @test "format_path_link keeps the full path in plain text despite a short label" {
     output="$(
         HOME="$HOME" /bin/bash --noprofile --norc << 'EOF'
