@@ -1465,7 +1465,7 @@ uninstall_strip_version_suffix() {
 # a manual Finder removal.
 # Reads:  selected_apps
 # Writes: running_apps, sudo_apps, brew_cask_apps, blocked_apps,
-#         manual_removal_apps, app_details, total_estimated_size
+#         manual_removal_apps, leftover_notes, app_details, total_estimated_size
 _batch_refresh_selected_app_bundle_id() {
     local app_path="$1"
     local fallback_bundle_id="$2"
@@ -1632,7 +1632,10 @@ _batch_scan_app_details_impl() {
             # 1 with a debug-only line for apps whose scan touched anything TCC
             # protects (#1339, #1340).
             live_sibling_present=true
-            log_warning "$(printf "%s: some paths could not be read, so shared leftovers are left in place" "$app_name")"
+            # Printed with this app's preview, not here: the scan spinner owns
+            # this line, and the note belongs next to the plan it explains.
+            leftover_notes+=("$app_path|Shared leftovers kept (some paths unreadable)")
+            debug_log "Same-bundle scan for $app_name could not read every path; shared leftovers kept"
         elif [[ $live_sibling_rc -ge 128 ]]; then
             return "$live_sibling_rc"
         else
@@ -1643,7 +1646,7 @@ _batch_scan_app_details_impl() {
             # identity-bound bundle. Refusing here blocked every uninstall
             # on managed Macs (#1624).
             live_sibling_present=true
-            log_warning "$(printf "%s: could not check for other copies, so shared leftovers are left in place" "$app_name")"
+            leftover_notes+=("$app_path|Shared leftovers kept (other copies unchecked)")
             debug_log "Could not complete the live same-bundle scan for $app_name (exit $live_sibling_rc)"
         fi
         local preview_live_sibling_fingerprint="$_MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT"
@@ -1807,7 +1810,8 @@ _batch_scan_app_details_impl() {
                 # the selected app removable and leave leftovers alone rather
                 # than aborting the whole batch with "nothing was removed".
                 related_files=""
-                log_warning "$(printf "%s: leftover scan timed out; only the app bundle will be removed" "$app_name")"
+                leftover_notes+=("$app_path|Leftovers kept (scan timed out)")
+                debug_log "Leftover scan for $app_name timed out; only the app bundle will be removed"
             elif [[ $discovery_rc -ne 0 ]]; then
                 return "$discovery_rc"
             fi
@@ -1957,7 +1961,7 @@ _batch_scan_app_details_impl() {
 #   2 - user cancelled (ESC / 'q' / unknown key)
 #   1 - sudo authorization denied
 # Reads:  app_details, brew_cask_apps, running_apps, sudo_apps,
-#         total_estimated_size
+#         leftover_notes, total_estimated_size
 _batch_preview_and_confirm() {
     local size_display=$(bytes_to_human "$((total_estimated_size * 1024))")
 
@@ -2010,6 +2014,11 @@ _batch_preview_and_confirm() {
         if [[ "$steam_managed" == "true" ]]; then
             echo -e "  ${YELLOW}${ICON_WARNING}${NC} Steam launcher only; game files managed by Steam are not included"
         fi
+        local leftover_note
+        for leftover_note in ${leftover_notes[@]+"${leftover_notes[@]}"}; do
+            [[ "${leftover_note%%|*}" == "$app_path" ]] || continue
+            echo -e "  ${YELLOW}${ICON_WARNING}${NC} ${leftover_note#*|}"
+        done
 
         local preview_path=""
         preview_path=$(format_uninstall_preview_path "$app_path") || return $?
@@ -2877,6 +2886,7 @@ batch_uninstall_applications() {
     local -a brew_cask_apps=()
     local -a blocked_apps=()
     local -a manual_removal_apps=()
+    local -a leftover_notes=()
     local total_estimated_size=0
     local -a app_details=()
 

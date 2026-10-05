@@ -752,7 +752,65 @@ EOF
         echo "$output"
         return 1
     }
-    [[ "$output" == *"could not check for other copies"* ]] || return 1
+    [[ "$output" == *"Shared leftovers kept (other copies unchecked)"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_"* ]] || return 1
+    [[ "$(grep -c "^DELETE:$HOME/Applications/Managed.app$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
+    [[ "$(grep -c "Preferences" "$trace" 2> /dev/null || true)" -eq 0 ]]
+}
+
+@test "batch uninstall shows a partial same-bundle scan in the preview, not on the scan spinner" {
+    mkdir -p "$HOME/Applications/Managed.app" "$HOME/Library/Preferences"
+    local pref="$HOME/Library/Preferences/com.example.Managed.plist"
+    printf 'pref' > "$pref"
+    local trace="$HOME/managed-deletes.log"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+brew() { :; }
+
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+pgrep() { return 1; }
+find_app_files() { printf '%s\n' "$HOME/Library/Preferences/com.example.Managed.plist"; }
+find_app_system_files() { return 0; }
+ensure_sudo_session() { return 1; }
+# TCC hides one directory from the same-bundle scan, as on macOS 26.
+uninstall_live_bundle_has_other_install() {
+	_MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT=""
+	_MOLE_UNINSTALL_LIVE_SIBLING_PATHS=()
+	return "$MOLE_UNINSTALL_SCAN_PARTIAL"
+}
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+remove_login_item() { echo "UNEXPECTED_LOGIN_ITEM"; }
+force_kill_app() { echo "UNEXPECTED_KILL"; return 0; }
+mole_delete() {
+	printf 'DELETE:%s\n' "$1" >> "$HOME/managed-deletes.log"
+	return 0
+}
+
+selected_apps=("0|$HOME/Applications/Managed.app|Managed|com.example.Managed|0|Never")
+files_cleaned=0
+total_items=0
+total_size_cleaned=0
+
+printf '\n' | batch_uninstall_applications 2>&1
+EOF
+
+    [ "$status" -eq 0 ] || {
+        echo "$output"
+        return 1
+    }
+    # The note belongs to this app's preview block. Printed during the scan,
+    # it landed on the scan spinner line, before the preview header.
+    local header_line app_line note_line
+    header_line=$(printf '%s\n' "$output" | grep -n 'Files to be removed' | head -1 | cut -d: -f1)
+    app_line=$(printf '%s\n' "$output" | grep -n ' Managed .*0B' | head -1 | cut -d: -f1)
+    note_line=$(printf '%s\n' "$output" | grep -n 'Shared leftovers kept (some paths unreadable)' | head -1 | cut -d: -f1)
+    [[ -n "$header_line" && -n "$app_line" && -n "$note_line" ]] || { echo "$output"; return 1; }
+    [[ $app_line -gt $header_line && $note_line -eq $((app_line + 1)) ]] || { echo "$output"; return 1; }
     [[ "$output" != *"UNEXPECTED_"* ]] || return 1
     [[ "$(grep -c "^DELETE:$HOME/Applications/Managed.app$" "$trace" 2> /dev/null || true)" -eq 1 ]] || return 1
     [[ "$(grep -c "Preferences" "$trace" 2> /dev/null || true)" -eq 0 ]]
@@ -4562,11 +4620,14 @@ sudo_apps=()
 brew_cask_apps=()
 blocked_apps=()
 manual_removal_apps=()
+leftover_notes=()
 app_details=()
 total_estimated_size=0
 rc=0
 _batch_scan_app_details || rc=$?
 printf 'RC=%s DETAILS=%s\n' "$rc" "${#app_details[@]}"
+# The note waits for the preview instead of printing over the scan spinner.
+printf 'NOTES=%s\n' "${leftover_notes[*]-}"
 # Plan must exist: one detail row, app-only (no leftover encoding of UNEXPECTED_*)
 [[ $rc -eq 0 && ${#app_details[@]} -eq 1 ]]
 printf 'DETAIL=%s\n' "${app_details[0]}"
@@ -4574,7 +4635,7 @@ INNER
 
     [ "$status" -eq 0 ] || return 1
     [[ "$output" == *"RC=0 DETAILS=1"* ]] || return 1
-    [[ "$output" == *"leftover scan timed out; only the app bundle will be removed"* ]] || return 1
+    [[ "$output" == *"NOTES="*"|Leftovers kept (scan timed out)"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_DIAG"* ]] || return 1
     [[ "$output" != *"UNEXPECTED_SYSTEM"* ]] || return 1
 }
