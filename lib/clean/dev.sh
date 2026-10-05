@@ -2910,6 +2910,7 @@ clean_dev_jvm() {
     ' _ "$gradle_root" "$scan_dir" > "$scan_dir/targets" 2> /dev/null < /dev/null || scan_rc=$?
     debug_timer_end "Gradle candidate listing" scan_start
     if [[ $scan_rc -ne 0 ]]; then
+        stop_section_spinner
         rm -rf "$scan_dir" # SAFE: exact mktemp-created Gradle scan scratch directory
         debug_log "Gradle candidate listing incomplete (status $scan_rc); targets kept"
         [[ $scan_rc -lt 128 ]] || return "$scan_rc"
@@ -2927,6 +2928,7 @@ clean_dev_jvm() {
                 debug_log "Gradle build cache filtering exceeded its budget; build cache targets kept"
                 break
             fi
+            stop_section_spinner
             rm -rf "$scan_dir" # SAFE: exact mktemp-created Gradle scan scratch directory
             debug_log "Gradle candidate filtering exceeded its budget; targets kept"
             return 0
@@ -2944,6 +2946,9 @@ clean_dev_jvm() {
             *) daemon_targets+=("$target") ;;
         esac
     done < "$scan_dir/targets"
+    # The scan spinner ends with the scan, before any deferral, warning row,
+    # or cleanup output.
+    stop_section_spinner
     rm -rf "$scan_dir" # SAFE: exact mktemp-created Gradle scan scratch directory
     debug_log "Gradle eligible targets: build=${#build_targets[@]}, notifications=${#notification_targets[@]}, daemon/workers=${#daemon_targets[@]}"
     if [[ $((${#build_targets[@]} + ${#notification_targets[@]} + ${#daemon_targets[@]})) -gt 0 ]]; then

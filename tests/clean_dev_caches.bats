@@ -755,6 +755,45 @@ EOF
     [[ "$output" != *"SAFE_CLEAN:Gradle"* ]] || return 1
 }
 
+@test "clean_dev_jvm stops its scan spinner before every exit and row" {
+    rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon" "$HOME/.gradle/workers"
+    mkdir -p "$HOME/.gradle/caches/build-cache-1" "$HOME/.gradle/notifications"
+    touch "$HOME/.gradle/caches/build-cache-1/entry" "$HOME/.gradle/notifications/entry" "$HOME/.gradle/notifications/entry2"
+
+    local scenario
+    for scenario in unknown running listing-failed whitelisted budget; do
+        run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" SCENARIO="$scenario" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+spinner=off
+start_section_spinner() { spinner=on; }
+stop_section_spinner() { spinner=off; }
+note_activity() { echo "ROW spinner=$spinner"; }
+mole_defer_cleanup_family() { echo "DEFER spinner=$spinner"; }
+safe_clean() { echo "SAFE_CLEAN spinner=$spinner"; }
+case "$SCENARIO" in
+    unknown) pgrep() { return 2; } ;;
+    running) gradle_daemon_running() { return 0; } ;;
+    listing-failed) run_with_timeout() { return 124; } ;;
+    whitelisted) is_path_whitelisted() { return 0; } ;;
+    # The first entry spends the budget; the second hits the non-build deadline exit.
+    budget) is_path_whitelisted() { SECONDS=$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC + 1)); return 1; } ;;
+esac
+clean_dev_jvm
+echo "RETURN spinner=$spinner"
+EOF
+        [ "$status" -eq 0 ] || { echo "$scenario: $output"; return 1; }
+        [[ "$output" == *"RETURN spinner=off"* ]] || { echo "$scenario: $output"; return 1; }
+        [[ "$output" != *"spinner=on"* ]] || { echo "$scenario: $output"; return 1; }
+        case "$scenario" in
+            unknown) [[ "$output" == *"ROW spinner=off"* ]] || { echo "$scenario: $output"; return 1; } ;;
+            running) [[ "$output" == *"DEFER spinner=off"* ]] || { echo "$scenario: $output"; return 1; } ;;
+            *) [[ "$output" != *"SAFE_CLEAN"* ]] || { echo "$scenario: $output"; return 1; } ;;
+        esac
+    done
+}
+
 @test "clean_dev_jvm defers every Gradle target while Gradle is running" {
     rm -rf "$HOME/.gradle/caches" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon" "$HOME/.gradle/workers"
     mkdir -p "$HOME/.gradle/caches/build-cache-1" "$HOME/.gradle/notifications" "$HOME/.gradle/daemon/8.14" "$HOME/.gradle/workers/worker-1"
