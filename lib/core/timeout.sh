@@ -292,6 +292,9 @@ run_with_timeout() {
             };
 
             my $deadline = time() + $duration;
+            # Short metadata probes should not each pay a 100ms polling wait.
+            # Back off to the existing cadence for long-running commands.
+            my $poll_interval = 0.01;
 
             while (1) {
                 my $result = waitpid($pid, WNOHANG);
@@ -323,7 +326,9 @@ run_with_timeout() {
                     exit 124;
                 }
 
-                sleep 0.1;
+                sleep $poll_interval;
+                $poll_interval *= 2;
+                $poll_interval = 0.1 if $poll_interval > 0.1;
             }
         ' "$duration" "$@"
         return $?

@@ -17,6 +17,29 @@ setup() {
     source "$PROJECT_ROOT/lib/core/base.sh"
 }
 
+@test "Perl timeout backend completes short probes within a shared scan budget" {
+    [[ -x /usr/bin/perl ]] || skip "Perl fallback unavailable"
+    run /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+export MO_TIMEOUT_INITIALIZED=1 MO_TIMEOUT_BIN="" MO_TIMEOUT_PERL_BIN=/usr/bin/perl
+source "$PROJECT_ROOT/lib/core/timeouts.sh"
+source "$PROJECT_ROOT/lib/core/timeout.sh"
+SECONDS=0
+deadline=$((SECONDS + 8))
+completed=0
+rc=0
+for ((i=0; i<100; i++)); do
+    remaining=$(_mole_timeout_with_deadline 8 "$deadline") || { rc=$?; break; }
+    run_with_timeout "$remaining" /usr/bin/true < /dev/null || { rc=$?; break; }
+    completed=$((completed + 1))
+done
+printf 'COMPLETED=%s RC=%s\n' "$completed" "$rc"
+[[ "$completed" == 100 && "$rc" == 0 ]] || exit 1
+EOF
+    [ "$status" -eq 0 ] || { printf '%s\n' "$output"; return 1; }
+    [[ "$output" == *"COMPLETED=100 RC=0"* ]]
+}
+
 @test "scan workers reap a completed peer before a blocked queue head" {
     run /bin/bash <<'EOF'
 set -euo pipefail
