@@ -1627,6 +1627,7 @@ uninstall_abort() {
 # Cleanup: restore cursor and kill keepalive.
 cleanup() {
     local exit_code="${1:-$?}"
+    trap - EXIT INT TERM
     stop_uninstall_interactive_screen
     if [[ -n "${sudo_keepalive_pid:-}" ]]; then
         kill "$sudo_keepalive_pid" 2> /dev/null || true

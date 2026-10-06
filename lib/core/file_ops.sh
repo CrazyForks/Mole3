@@ -3852,8 +3852,10 @@ safe_sudo_find_delete() {
                     ' sh "$STAT_BSD" "$age_days" > "$batch_result_file" 2> /dev/null || batch_rc=$?
 
             local batch_ts=""
+            local batch_command=""
             if oplog_enabled; then
                 batch_ts=$(get_timestamp)
+                operation_log_command batch_command "${MOLE_CURRENT_COMMAND:-clean}"
             fi
             local batch_ack_count=0
             local -a removed_lines=()
@@ -3861,7 +3863,7 @@ safe_sudo_find_delete() {
             while IFS= read -r -d '' batch_file; do
                 batch_ack_count=$((batch_ack_count + 1))
                 if [[ -n "$batch_ts" ]]; then
-                    removed_lines+=("[$batch_ts] [${MOLE_CURRENT_COMMAND:-clean}] REMOVED $batch_file (batch)")
+                    removed_lines+=("[$batch_ts] [$batch_command] REMOVED $batch_file (batch)")
                 fi
             done < "$batch_result_file"
             rm -f -- "$batch_result_file" 2> /dev/null || true # SAFE: exact tracked temp file created above

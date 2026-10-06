@@ -2654,6 +2654,8 @@ SCRIPT
     cat > "$script" <<'SCRIPT'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
+: > "$OPERATIONS_LOG_FILE"
+log_operation_session_start clean
 TRACE="$TARGET_DIR/sudo.trace"
 > "$TRACE"
 
@@ -2704,6 +2706,7 @@ printf 'XARGS_CALLS=%s\n' "$(grep -c 'SUDO:-n xargs' "$TRACE" || true)"
 cat "$TRACE"
 echo "--OPLOG--"
 cat "$HOME/Library/Logs/mole/operations.log" 2> /dev/null || true
+log_operation_session_end clean 2 0
 exit 0
 SCRIPT
     chmod +x "$script"
@@ -2720,6 +2723,16 @@ SCRIPT
     [[ "$output" == *"REMOVED $target_dir/a.log (batch)"* ]] || return 1
     [[ "$output" == *"REMOVED $target_dir/b.log (batch)"* ]] || return 1
     [[ "$output" != *"INTERACTIVE_SUDO"* ]] || return 1
+
+    run env HOME="$HOME" MOLE_TEST_NO_AUTH=1 "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert len(sessions) == 1, sessions
+assert sessions[0]["run_id"], sessions
+assert sessions[0]["actions"]["removed"] == 2, sessions
+'
 }
 
 @test "safe_sudo_find_delete reports a failed batch without logging REMOVED" {

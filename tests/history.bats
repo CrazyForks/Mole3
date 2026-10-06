@@ -65,6 +65,8 @@ assert data["sessions"][0]["command"] == "purge"
 assert data["sessions"][1]["command"] == "clean"
 assert data["sessions"][1]["actions"]["trashed"] == 1
 assert data["sessions"][1]["actions"]["failed"] == 1
+assert all(s["run_id"] == "" for s in data["sessions"])
+assert all(s["attribution"] == "command" for s in data["sessions"])
 assert data["deletions"][0]["mode"] == "permanent"
 assert data["deletions"][0]["size_kb"] == 10
 assert data["deletions"][1]["path"] == "/tmp/Old App.app"
@@ -198,6 +200,226 @@ uninstall, purge, clean = sessions
 assert purge["actions"]["removed"] == 0, purge
 assert clean["actions"]["removed"] == 4, clean
 assert uninstall["actions"]["trashed"] == 1, uninstall
+'
+}
+
+@test "operation history keeps overlapping runs and their child-shell actions apart" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" python3 <<'PY'
+import json
+import os
+import select
+import subprocess
+
+root = os.environ["PROJECT_ROOT"]
+script = r'''
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+get_timestamp() { printf '2026-05-24 10:00:00\n'; }
+log_operation_session_start clean
+printf 'ready\n'
+while IFS= read -r step; do
+    case "$step" in
+        removed) log_operation clean REMOVED /tmp/first 1KB ;;
+        trashed) log_operation clean TRASHED /tmp/second 2KB ;;
+        worker)
+            /bin/bash --noprofile --norc -c '
+                source "$PROJECT_ROOT/lib/core/common.sh"
+                log_operation clean SKIPPED /tmp/worker whitelist
+            '
+            ;;
+        end-first) log_operation_session_end clean 1 1; exit ;;
+        end-second) log_operation_session_end clean 1 2; exit ;;
+    esac
+    printf 'ready\n'
+done
+'''
+
+def ready(writer):
+    assert select.select([writer.stdout], [], [], 10)[0], "writer stalled"
+    assert writer.stdout.readline() == "ready\n", "writer failed"
+
+def step(writer, action, final=False):
+    writer.stdin.write(action + "\n")
+    writer.stdin.flush()
+    if final:
+        assert writer.wait(timeout=10) == 0
+    else:
+        ready(writer)
+
+writers = []
+try:
+    for _ in range(2):
+        writer = subprocess.Popen(
+            ["/bin/bash", "--noprofile", "--norc", "-c", script],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        )
+        writers.append(writer)
+        ready(writer)
+    first, second = writers
+    step(first, "removed")
+    step(second, "trashed")
+    step(first, "worker")
+    step(second, "end-second", final=True)
+    step(first, "end-first", final=True)
+    result = subprocess.run(
+        [root + "/mole", "history", "--json"],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+    sessions = json.loads(result.stdout)["sessions"]
+    assert len(sessions) == 2, sessions
+    assert all(s["run_id"] for s in sessions), sessions
+    assert all(s["attribution"] == "run" for s in sessions), sessions
+    assert sessions[0]["run_id"] != sessions[1]["run_id"], sessions
+    first, second = sorted(sessions, key=lambda s: s["size"])
+    assert first["actions"]["removed"] == 1, first
+    assert first["actions"]["skipped"] == 1, first
+    assert first["actions"]["trashed"] == 0, first
+    assert second["actions"]["trashed"] == 1, second
+    assert second["operation_count"] == 1, second
+    assert all(s["ended_at"] for s in sessions), sessions
+finally:
+    for writer in writers:
+        if writer.poll() is None:
+            writer.kill()
+        writer.wait(timeout=10)
+PY
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+}
+
+@test "mo history marks ambiguous legacy runs without inventing identities or dropping actions" {
+    cat > "$HOME/Library/Logs/mole/operations.log" <<'EOF'
+# ========== clean session started at 2026-05-24 10:00:00 ==========
+[2026-05-24 10:00:01] [clean] REMOVED /tmp/first (1KB)
+# ========== clean session started at 2026-05-24 10:01:00 ==========
+[2026-05-24 10:01:01] [clean] FAILED /tmp/second (permission denied)
+# ========== clean session ended at 2026-05-24 10:02:00, 0 items, 0B ==========
+[2026-05-24 10:02:30] [clean] REMOVED /tmp/late-first (1KB)
+# ========== clean session ended at 2026-05-24 10:03:00, 1 items, 1KB ==========
+EOF
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert all(s["run_id"] == "" for s in sessions), sessions
+assert all(s["attribution"] == "ambiguous" for s in sessions), sessions
+assert sum(s["actions"]["removed"] for s in sessions) == 2, sessions
+assert sum(s["actions"]["failed"] for s in sessions) == 1, sessions
+'
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"legacy run attribution uncertain"* ]] || return 1
+}
+
+@test "ending a session with logging disabled releases its operation ownership" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+log_operation_session_start clean
+log_operation clean REMOVED /tmp/inside 1KB
+MO_NO_OPLOG=1 log_operation_session_end clean 1 1
+log_operation clean SKIPPED /tmp/outside whitelist
+EOF
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert len(sessions) == 2, sessions
+identified, = [s for s in sessions if s["run_id"]]
+legacy, = [s for s in sessions if not s["run_id"]]
+assert not identified["ended_at"], identified
+assert identified["actions"]["removed"] == 1, identified
+assert identified["actions"]["skipped"] == 0, identified
+assert legacy["actions"]["skipped"] == 1, legacy
+assert legacy["operation_count"] == 1, legacy
+'
+}
+
+@test "new child invocations own a fresh run while interrupted parents keep their actions" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+get_timestamp() { printf '2026-05-24 10:00:00\n'; }
+log_operation_session_start clean
+log_operation clean REMOVED /tmp/parent 1KB
+/bin/bash --noprofile --norc -c '
+    source "$PROJECT_ROOT/lib/core/common.sh"
+    log_operation_session_start clean
+    log_operation clean FAILED /tmp/child "permission denied"
+    log_operation_session_end clean 0 0
+'
+log_operation clean SKIPPED /tmp/parent-kept whitelist
+kill -TERM "$$"
+EOF
+    [[ "$status" -eq 143 ]] || { echo "$output"; return 1; }
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert len(sessions) == 2, sessions
+parent, = [s for s in sessions if not s["ended_at"]]
+child, = [s for s in sessions if s["ended_at"]]
+assert parent["run_id"] and parent["run_id"] != child["run_id"], sessions
+assert parent["actions"]["removed"] == 1, parent
+assert parent["actions"]["skipped"] == 1, parent
+assert parent["actions"]["failed"] == 0, parent
+assert child["actions"]["failed"] == 1, child
+assert child["operation_count"] == 1, child
+'
+}
+
+@test "mo history retains identified runs across missing markers and ignores malformed identities" {
+    cat > "$HOME/Library/Logs/mole/operations.log" <<'EOF'
+[2026-05-24 10:00:01] [clean run=left] REMOVED /tmp/first (1KB)
+# ========== purge session started at 2026-05-24 10:01:00 ==========
+[2026-05-24 10:01:01] [purge] TRASHED /tmp/legacy (1KB)
+# ========== clean run=right session started at 2026-05-24 10:02:00 ==========
+[2026-05-24 10:02:01] [clean run=right] FAILED /tmp/second (permission denied)
+[2026-05-24 10:02:02] [clean run=] REMOVED /tmp/invalid-empty
+[2026-05-24 10:02:03] [clean run=bad token] REMOVED /tmp/invalid-space
+# ========== clean run=right session ended at 2026-05-24 10:03:00, 0 items, 0B ==========
+# ========== purge session ended at 2026-05-24 10:04:00, 1 items, 1KB ==========
+# ========== clean run=left session ended at 2026-05-24 10:05:00, 1 items, 1KB ==========
+EOF
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert len(sessions) == 3, sessions
+by_id = {s["run_id"]: s for s in sessions}
+assert set(by_id) == {"left", "right", ""}, sessions
+assert by_id["left"]["actions"]["removed"] == 1, sessions
+assert by_id["left"]["ended_at"] == "2026-05-24 10:05:00", sessions
+assert by_id["right"]["actions"]["failed"] == 1, sessions
+assert by_id["right"]["actions"]["removed"] == 0, sessions
+assert by_id[""]["actions"]["trashed"] == 1, sessions
+assert by_id[""]["attribution"] == "command", sessions
+assert sum(s["operation_count"] for s in sessions) == 3, sessions
+'
+}
+
+@test "uninstall signal cleanup ends its run once" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_SKIP_MAIN=1 \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/uninstall.sh"
+log_operation_session_start uninstall
+log_operation uninstall SKIPPED /tmp/kept whitelist
+kill -TERM "$$"
+EOF
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+assert len(sessions) == 1, sessions
+assert sessions[0]["run_id"] and sessions[0]["ended_at"], sessions
+assert sessions[0]["attribution"] == "run", sessions
+assert sessions[0]["actions"]["skipped"] == 1, sessions
 '
 }
 

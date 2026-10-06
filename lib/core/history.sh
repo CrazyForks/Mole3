@@ -18,6 +18,8 @@ readonly MOLE_HISTORY_DEFAULT_LIMIT=20
 readonly MOLE_HISTORY_MAX_LIMIT=200
 
 declare -a HISTORY_SESSION_COMMANDS=()
+declare -a HISTORY_SESSION_RUN_IDS=()
+declare -a HISTORY_SESSION_AMBIGUOUS=()
 declare -a HISTORY_SESSION_STARTED_AT=()
 declare -a HISTORY_SESSION_ENDED_AT=()
 declare -a HISTORY_SESSION_ITEMS=()
@@ -39,6 +41,8 @@ declare -a HISTORY_DELETE_STATUSES=()
 declare -a HISTORY_DELETE_PATHS=()
 
 HISTORY_ACTIVE_COMMAND=""
+HISTORY_ACTIVE_RUN_ID=""
+HISTORY_ACTIVE_AMBIGUOUS=0
 HISTORY_ACTIVE_STARTED_AT=""
 HISTORY_ACTIVE_ENDED_AT=""
 HISTORY_ACTIVE_ITEMS=0
@@ -111,6 +115,8 @@ history_parse_limit() {
 
 history_reset_active_session() {
     HISTORY_ACTIVE_COMMAND=""
+    HISTORY_ACTIVE_RUN_ID=""
+    HISTORY_ACTIVE_AMBIGUOUS=0
     HISTORY_ACTIVE_STARTED_AT=""
     HISTORY_ACTIVE_ENDED_AT=""
     HISTORY_ACTIVE_ITEMS=0
@@ -127,35 +133,31 @@ history_reset_active_session() {
     HISTORY_ACTIVE_START_SEQ=0
 }
 
-# Sessions of different commands can overlap in one log: a `mo purge` started
-# while `mo clean` still runs writes its markers between clean's operation
-# lines. Every operation line names its command, so keep at most one open
-# session per command and route each line to that command's session instead
-# of whichever marker came last. Open sessions of other commands wait here,
-# one record per session, fields separated by \x1f. Only sessions opened by a
-# start marker are kept open this way: commands that log without markers
-# (installer) still end at the next marker, as before.
+# Identified runs can overlap even when they execute the same command. Older
+# records have no run id, so only their command can be used for attribution.
+# Open sessions wait here, with fields separated by \x1f. Marker-less legacy
+# commands (installer) still end at the next marker, as before.
 declare -a HISTORY_PARKED_SESSIONS=()
 
 history_park_active_session() {
     [[ -n "$HISTORY_ACTIVE_COMMAND" ]] || return 0
     local sep=$'\x1f'
-    HISTORY_PARKED_SESSIONS+=("${HISTORY_ACTIVE_COMMAND}${sep}${HISTORY_ACTIVE_STARTED_AT}${sep}${HISTORY_ACTIVE_ENDED_AT}${sep}${HISTORY_ACTIVE_ITEMS}${sep}${HISTORY_ACTIVE_SIZE}${sep}${HISTORY_ACTIVE_REMOVED}${sep}${HISTORY_ACTIVE_TRASHED}${sep}${HISTORY_ACTIVE_SKIPPED}${sep}${HISTORY_ACTIVE_FAILED}${sep}${HISTORY_ACTIVE_REBUILT}${sep}${HISTORY_ACTIVE_OTHER}${sep}${HISTORY_ACTIVE_OPERATIONS}${sep}${HISTORY_ACTIVE_FAILED_TASKS}${sep}${HISTORY_ACTIVE_START_SEQ}${sep}${HISTORY_ACTIVE_MARKED}")
+    HISTORY_PARKED_SESSIONS+=("${HISTORY_ACTIVE_COMMAND}${sep}${HISTORY_ACTIVE_RUN_ID}${sep}${HISTORY_ACTIVE_AMBIGUOUS}${sep}${HISTORY_ACTIVE_STARTED_AT}${sep}${HISTORY_ACTIVE_ENDED_AT}${sep}${HISTORY_ACTIVE_ITEMS}${sep}${HISTORY_ACTIVE_SIZE}${sep}${HISTORY_ACTIVE_REMOVED}${sep}${HISTORY_ACTIVE_TRASHED}${sep}${HISTORY_ACTIVE_SKIPPED}${sep}${HISTORY_ACTIVE_FAILED}${sep}${HISTORY_ACTIVE_REBUILT}${sep}${HISTORY_ACTIVE_OTHER}${sep}${HISTORY_ACTIVE_OPERATIONS}${sep}${HISTORY_ACTIVE_FAILED_TASKS}${sep}${HISTORY_ACTIVE_START_SEQ}${sep}${HISTORY_ACTIVE_MARKED}")
     history_reset_active_session
 }
 
-# Make the open session of <command> the active one. Returns 1 when that
-# command has no open session; the previously active session stays parked.
-history_activate_command_session() {
+# Activate an open (command, run id) session. An empty id denotes legacy logs.
+history_activate_session() {
     local command="$1"
-    [[ "$HISTORY_ACTIVE_COMMAND" == "$command" ]] && return 0
+    local run_id="${2:-}"
+    [[ "$HISTORY_ACTIVE_COMMAND" == "$command" && "$HISTORY_ACTIVE_RUN_ID" == "$run_id" ]] && return 0
 
     history_park_active_session
 
     local -a remaining=()
     local record found=""
     for record in "${HISTORY_PARKED_SESSIONS[@]+"${HISTORY_PARKED_SESSIONS[@]}"}"; do
-        if [[ -z "$found" && "${record%%$'\x1f'*}" == "$command" ]]; then
+        if [[ -z "$found" && "$record" == "$command"$'\x1f'"$run_id"$'\x1f'* ]]; then
             found="$record"
         else
             remaining+=("$record")
@@ -164,7 +166,7 @@ history_activate_command_session() {
     HISTORY_PARKED_SESSIONS=("${remaining[@]+"${remaining[@]}"}")
     [[ -n "$found" ]] || return 1
 
-    IFS=$'\x1f' read -r HISTORY_ACTIVE_COMMAND HISTORY_ACTIVE_STARTED_AT \
+    IFS=$'\x1f' read -r HISTORY_ACTIVE_COMMAND HISTORY_ACTIVE_RUN_ID HISTORY_ACTIVE_AMBIGUOUS HISTORY_ACTIVE_STARTED_AT \
         HISTORY_ACTIVE_ENDED_AT HISTORY_ACTIVE_ITEMS HISTORY_ACTIVE_SIZE \
         HISTORY_ACTIVE_REMOVED HISTORY_ACTIVE_TRASHED HISTORY_ACTIVE_SKIPPED \
         HISTORY_ACTIVE_FAILED HISTORY_ACTIVE_REBUILT HISTORY_ACTIVE_OTHER \
@@ -177,18 +179,20 @@ history_activate_command_session() {
 history_finish_unmarked_sessions() {
     local keep_command="${1:-}"
     if [[ -n "$HISTORY_ACTIVE_COMMAND" && "$HISTORY_ACTIVE_MARKED" != "1" &&
-        "$HISTORY_ACTIVE_COMMAND" != "$keep_command" ]]; then
+        -z "$HISTORY_ACTIVE_RUN_ID" && "$HISTORY_ACTIVE_COMMAND" != "$keep_command" ]]; then
         history_finish_session
     fi
     local -a unmarked=()
-    local record command
+    local record command run_id
     for record in "${HISTORY_PARKED_SESSIONS[@]+"${HISTORY_PARKED_SESSIONS[@]}"}"; do
         [[ "${record##*$'\x1f'}" == "1" ]] && continue
+        IFS=$'\x1f' read -r command run_id _ <<< "$record"
+        [[ -n "$run_id" ]] && continue
         [[ "${record%%$'\x1f'*}" == "$keep_command" ]] && continue
         unmarked+=("${record%%$'\x1f'*}")
     done
     for command in "${unmarked[@]+"${unmarked[@]}"}"; do
-        history_activate_command_session "$command" && history_finish_session
+        history_activate_session "$command" && history_finish_session
     done
     return 0
 }
@@ -200,7 +204,9 @@ history_finish_unmarked_sessions() {
 history_finish_all_sessions() {
     history_finish_session
     while [[ ${#HISTORY_PARKED_SESSIONS[@]} -gt 0 ]]; do
-        history_activate_command_session "${HISTORY_PARKED_SESSIONS[0]%%$'\x1f'*}" || break
+        local command run_id
+        IFS=$'\x1f' read -r command run_id _ <<< "${HISTORY_PARKED_SESSIONS[0]}"
+        history_activate_session "$command" "$run_id" || break
         history_finish_session
     done
 
@@ -224,11 +230,13 @@ history_finish_all_sessions() {
     )
     [[ ${#order[@]} -eq $count ]] || return 0
 
-    local -a sorted_commands=() sorted_started=() sorted_ended=() sorted_items=() sorted_size=() sorted_removed=() sorted_trashed=()
+    local -a sorted_commands=() sorted_run_ids=() sorted_started=() sorted_ended=() sorted_items=() sorted_size=() sorted_removed=() sorted_trashed=()
     local -a sorted_skipped=() sorted_failed=() sorted_rebuilt=() sorted_other=() sorted_operations=() sorted_failed_tasks=()
-    local -a sorted_start_seq=()
+    local -a sorted_start_seq=() sorted_ambiguous=()
     for idx in "${order[@]}"; do
         sorted_commands+=("${HISTORY_SESSION_COMMANDS[$idx]}")
+        sorted_run_ids+=("${HISTORY_SESSION_RUN_IDS[$idx]}")
+        sorted_ambiguous+=("${HISTORY_SESSION_AMBIGUOUS[$idx]}")
         sorted_started+=("${HISTORY_SESSION_STARTED_AT[$idx]}")
         sorted_ended+=("${HISTORY_SESSION_ENDED_AT[$idx]}")
         sorted_items+=("${HISTORY_SESSION_ITEMS[$idx]}")
@@ -244,6 +252,8 @@ history_finish_all_sessions() {
         sorted_start_seq+=("${HISTORY_SESSION_START_SEQ[$idx]}")
     done
     HISTORY_SESSION_COMMANDS=("${sorted_commands[@]}")
+    HISTORY_SESSION_RUN_IDS=("${sorted_run_ids[@]}")
+    HISTORY_SESSION_AMBIGUOUS=("${sorted_ambiguous[@]}")
     HISTORY_SESSION_STARTED_AT=("${sorted_started[@]}")
     HISTORY_SESSION_ENDED_AT=("${sorted_ended[@]}")
     HISTORY_SESSION_ITEMS=("${sorted_items[@]}")
@@ -263,15 +273,37 @@ history_start_session() {
     local command="$1"
     local started_at="$2"
     local marked="${3:-0}"
+    local run_id="${4:-}"
+    local ambiguous=0
 
-    # A new start of the same command closes that command's previous
-    # session (it never wrote an end marker). Other commands stay open.
-    if history_activate_command_session "$command"; then
+    # A repeated start closes only that identity. Legacy logs can distinguish
+    # commands but cannot identify overlapping invocations of one command.
+    if history_activate_session "$command" "$run_id"; then
+        if [[ -z "$run_id" && "$marked" == 1 && "$HISTORY_ACTIVE_MARKED" == 1 ]]; then
+            # A missing end could mean interruption or overlap. The old format
+            # cannot tell which run owns later actions or end markers.
+            HISTORY_ACTIVE_AMBIGUOUS=1
+            ambiguous=1
+        fi
         history_finish_session
+    fi
+
+    if [[ "$marked" != 1 && -z "$run_id" ]]; then
+        # Later unmarked actions and ends cannot be assigned to either run
+        # after overlapping legacy starts. A new start resets that uncertainty.
+        local idx
+        for ((idx = ${#HISTORY_SESSION_COMMANDS[@]} - 1; idx >= 0; idx--)); do
+            [[ "${HISTORY_SESSION_COMMANDS[$idx]}" == "$command" &&
+                -z "${HISTORY_SESSION_RUN_IDS[$idx]}" ]] || continue
+            ambiguous=${HISTORY_SESSION_AMBIGUOUS[$idx]}
+            break
+        done
     fi
 
     history_reset_active_session
     HISTORY_ACTIVE_COMMAND="$command"
+    HISTORY_ACTIVE_RUN_ID="$run_id"
+    HISTORY_ACTIVE_AMBIGUOUS=$ambiguous
     HISTORY_ACTIVE_STARTED_AT="$started_at"
     HISTORY_ACTIVE_MARKED="$marked"
     HISTORY_START_SEQ_COUNTER=$((HISTORY_START_SEQ_COUNTER + 1))
@@ -282,6 +314,8 @@ history_finish_session() {
     [[ -z "$HISTORY_ACTIVE_COMMAND" ]] && return 0
 
     HISTORY_SESSION_COMMANDS+=("$HISTORY_ACTIVE_COMMAND")
+    HISTORY_SESSION_RUN_IDS+=("$HISTORY_ACTIVE_RUN_ID")
+    HISTORY_SESSION_AMBIGUOUS+=("$HISTORY_ACTIVE_AMBIGUOUS")
     HISTORY_SESSION_STARTED_AT+=("$HISTORY_ACTIVE_STARTED_AT")
     HISTORY_SESSION_ENDED_AT+=("$HISTORY_ACTIVE_ENDED_AT")
     HISTORY_SESSION_ITEMS+=("$HISTORY_ACTIVE_ITEMS")
@@ -303,9 +337,10 @@ history_record_operation() {
     local command="$1"
     local action="$2"
     local timestamp="$3"
+    local run_id="${4:-}"
 
-    if ! history_activate_command_session "$command"; then
-        history_start_session "$command" "$timestamp"
+    if ! history_activate_session "$command" "$run_id"; then
+        history_start_session "$command" "$timestamp" 0 "$run_id"
     fi
 
     HISTORY_ACTIVE_OPERATIONS=$((HISTORY_ACTIVE_OPERATIONS + 1))
@@ -320,6 +355,20 @@ history_record_operation() {
     esac
 }
 
+# Decode the command field used by both markers and operation records. A
+# malformed identity is not a legacy record and must not enter a legacy run.
+history_parse_command() {
+    local field="$1"
+    local LC_ALL=C
+    HISTORY_LOG_COMMAND="${field%% run=*}"
+    HISTORY_LOG_RUN_ID=""
+    [[ -n "$HISTORY_LOG_COMMAND" ]] || return 1
+    if [[ "$field" == *" run="* ]]; then
+        HISTORY_LOG_RUN_ID="${field#* run=}"
+        [[ "$HISTORY_LOG_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+    fi
+}
+
 history_parse_session_start() {
     local line="$1"
     local inner command started_at
@@ -330,10 +379,11 @@ history_parse_session_start() {
     esac
     inner="${line#"# ========== "}"
     command="${inner%% session started at *}"
+    history_parse_command "$command" || return 1
     started_at="${inner#* session started at }"
     started_at="${started_at%" =========="}"
     history_finish_unmarked_sessions
-    history_start_session "$command" "$started_at" 1
+    history_start_session "$HISTORY_LOG_COMMAND" "$started_at" 1 "$HISTORY_LOG_RUN_ID"
     return 0
 }
 
@@ -347,6 +397,7 @@ history_parse_session_end() {
     esac
     inner="${line#"# ========== "}"
     command="${inner%% session ended at *}"
+    history_parse_command "$command" || return 1
     rest="${inner#* session ended at }"
     rest="${rest%" =========="}"
     ended_at="$rest"
@@ -361,9 +412,9 @@ history_parse_session_end() {
         fi
     fi
 
-    history_finish_unmarked_sessions "$command"
-    if ! history_activate_command_session "$command"; then
-        history_start_session "$command" "$ended_at"
+    history_finish_unmarked_sessions "$HISTORY_LOG_COMMAND"
+    if ! history_activate_session "$HISTORY_LOG_COMMAND" "$HISTORY_LOG_RUN_ID"; then
+        history_start_session "$HISTORY_LOG_COMMAND" "$ended_at" 0 "$HISTORY_LOG_RUN_ID"
     fi
 
     HISTORY_ACTIVE_ENDED_AT="$ended_at"
@@ -384,11 +435,12 @@ history_parse_operation_line() {
     rest="${line#*\] }"
     command="${rest#\[}"
     command="${command%%]*}"
+    history_parse_command "$command" || return 1
     rest_after_command="${rest#*\] }"
     action="${rest_after_command%% *}"
 
     [[ -n "$timestamp" && -n "$command" && -n "$action" ]] || return 1
-    history_record_operation "$command" "$action" "$timestamp"
+    history_record_operation "$HISTORY_LOG_COMMAND" "$action" "$timestamp" "$HISTORY_LOG_RUN_ID"
     return 0
 }
 
@@ -396,6 +448,8 @@ history_reset_sessions() {
     history_reset_active_session
     HISTORY_PARKED_SESSIONS=()
     HISTORY_SESSION_COMMANDS=()
+    HISTORY_SESSION_RUN_IDS=()
+    HISTORY_SESSION_AMBIGUOUS=()
     HISTORY_SESSION_STARTED_AT=()
     HISTORY_SESSION_ENDED_AT=()
     HISTORY_SESSION_ITEMS=()
@@ -593,6 +647,9 @@ history_render_text() {
             if [[ "$failed_tasks" -gt 0 ]]; then
                 count_text+=", $failed_tasks optimize tasks failed"
             fi
+            if [[ "${HISTORY_SESSION_AMBIGUOUS[$idx]}" == 1 ]]; then
+                count_text+=", legacy run attribution uncertain"
+            fi
             [[ -z "$ended" ]] && ended="not ended"
             printf '  %-10s %s, %s items, %s\n' "$command" "$started" "$items" "$size"
             printf '             %s, ended %s\n' "$count_text" "$ended"
@@ -639,6 +696,11 @@ history_render_json_sessions() {
             [[ "$emitted" -gt 0 ]] && printf ',\n'
             printf '    {\n'
             history_json_string_field "      " "command" "${HISTORY_SESSION_COMMANDS[$idx]}"
+            history_json_string_field "      " "run_id" "${HISTORY_SESSION_RUN_IDS[$idx]}"
+            local attribution=command
+            [[ -n "${HISTORY_SESSION_RUN_IDS[$idx]}" ]] && attribution=run
+            [[ "${HISTORY_SESSION_AMBIGUOUS[$idx]}" == 1 ]] && attribution=ambiguous
+            history_json_string_field "      " "attribution" "$attribution"
             history_json_string_field "      " "started_at" "${HISTORY_SESSION_STARTED_AT[$idx]}"
             history_json_string_field "      " "ended_at" "${HISTORY_SESSION_ENDED_AT[$idx]}"
             history_json_number_field "      " "items" "${HISTORY_SESSION_ITEMS[$idx]}"
