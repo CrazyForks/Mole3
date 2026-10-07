@@ -13,6 +13,7 @@ _mole_browser_clone_root() {
 _mole_browser_clones_idle() {
     local output rc=0 line
     output=$(run_with_timeout 2 /bin/ps -axo comm= 2>&1) || rc=$?
+    [[ $rc -lt 128 ]] || return "$rc"
     [[ $rc -eq 0 && "$output" == *"/sbin/launchd"* ]] || return 1
     while IFS= read -r line; do
         line="${line#"${line%%[![:space:]]*}"}"
@@ -62,10 +63,16 @@ _mole_browser_clone_snapshot() {
         [[ -e "$component" && ! -L "$component" ]] || return 1
     done
     [[ -f "$exe" && -f "$plist" && "$(/usr/bin/stat -f %z "$plist")" -le 65536 ]] || return 1
-    [[ "$(run_with_timeout 1 /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2> /dev/null)" == "${id%.code_sign_clone}" ]] || return 1
-    [[ "$(run_with_timeout 1 /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2> /dev/null)" == "$app" ]] || return 1
-    local opened rc=0
+    local metadata rc=0
+    metadata=$(run_with_timeout 1 /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2> /dev/null) || rc=$?
+    [[ $rc -lt 128 ]] || return "$rc"
+    [[ $rc -eq 0 && "$metadata" == "${id%.code_sign_clone}" ]] || return 1
+    metadata=$(run_with_timeout 1 /usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist" 2> /dev/null) || rc=$?
+    [[ $rc -lt 128 ]] || return "$rc"
+    [[ $rc -eq 0 && "$metadata" == "$app" ]] || return 1
+    local opened
     opened=$(run_with_timeout 1 /usr/sbin/lsof -nP -F pn -- "$exe" 2>&1) || rc=$?
+    [[ $rc -lt 128 ]] || return "$rc"
     [[ $rc -eq 1 && -z "$opened" ]] || return 1
     stats=$(/usr/bin/stat -f '%d:%i:%m:%c' "${path%/*}" "$path" "$bundle" "$plist" "$exe") || return 1
     printf '%s\n' "$stats"
@@ -73,26 +80,34 @@ _mole_browser_clone_snapshot() {
 
 _mole_browser_clone_final_guard() {
     local current
-    _mole_browser_clones_idle || return 1
-    current=$(_mole_browser_clone_snapshot "$1") || return 1
+    _mole_browser_clones_idle || return $?
+    current=$(_mole_browser_clone_snapshot "$1") || return $?
     [[ "$current" == "${_MOLE_BROWSER_CLONE_REVIEW:-}" ]] || return 1
     _mole_browser_clones_idle
 }
 
 clean_browser_code_sign_clones() {
-    local deadline="${1:-}" root id path
+    local deadline="${1:-}" root id path rc=0
     root=$(_mole_browser_clone_root) || return 0
-    _mole_browser_clones_idle || return 0
+    _mole_browser_clones_idle || rc=$?
+    [[ $rc -lt 128 ]] || return "$rc"
+    [[ $rc -eq 0 ]] || return 0
     local _MOLE_BROWSER_CLONE_REVIEW="" _MOLE_SAFE_REMOVE_FINAL_GUARD=_mole_browser_clone_final_guard
     for id in com.google.Chrome com.google.Chrome.beta com.google.Chrome.dev com.google.Chrome.canary org.chromium.Chromium; do
         for path in "$root/$id.code_sign_clone"/code_sign_clone.*; do
             [[ -d "$path" && ! -L "$path" ]] || continue
             system_cleanup_budget_reached "$deadline" && return 0
-            _MOLE_BROWSER_CLONE_REVIEW=$(_mole_browser_clone_snapshot "$path") || continue
+            rc=0
+            _MOLE_BROWSER_CLONE_REVIEW=$(_mole_browser_clone_snapshot "$path") || rc=$?
+            [[ $rc -lt 128 ]] || return "$rc"
+            [[ $rc -eq 0 ]] || continue
             _mole_snapshot_path_identity "$path" || continue
             local parent="$_MOLE_PATH_SNAPSHOT_PARENT" parent_id="$_MOLE_PATH_SNAPSHOT_PARENT_ID" target_id="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
-            _mole_browser_clone_final_guard "$path" || continue
-            local rc=0
+            rc=0
+            _mole_browser_clone_final_guard "$path" || rc=$?
+            [[ $rc -lt 128 ]] || return "$rc"
+            [[ $rc -eq 0 ]] || continue
+            rc=0
             safe_remove "$path" true unknown "$deadline" "$parent" "$parent_id" "$target_id" || rc=$?
             mole_rc_timeout_or_signal "$rc" && return "$rc"
             [[ $rc -ne 0 ]] || code_sign_cleaned=$((code_sign_cleaned + 1))

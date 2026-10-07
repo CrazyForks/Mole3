@@ -132,3 +132,85 @@ Google Chrome Helper'
     REMOVE_RC=1 clean_browser_code_sign_clones
     [ "$code_sign_cleaned" -eq 0 ]
 }
+
+@test "browser clone probe signals stop every later candidate and section" {
+    local phase code failures=0
+    cp -R "$CLONE" "${CLONE%?}d"
+    for code in 130 143; do
+        for phase in ps:1 ps:2 ps:3 ps:4 ps:5 identifier:1 identifier:2 identifier:3 executable:1 executable:2 executable:3 handles:1 handles:2 handles:3; do
+            run env PROJECT_ROOT="$PROJECT_ROOT" CLONE_ROOT="$CLONE_ROOT" CLONE="$CLONE" PHASE="$phase" CODE="$code" HOME="$HOME" /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+_mole_browser_clone_root() { printf '%s\n' "$CLONE_ROOT"; }
+system_cleanup_budget_reached() { return 1; }
+trace="$HOME/probe-$CODE-${PHASE/:/-}"
+mkdir -p "$trace"
+run_with_timeout() {
+    shift
+    local kind=""
+    case "$1" in
+        /bin/ps) kind=ps ;;
+        /usr/sbin/lsof) kind=handles ;;
+        /usr/libexec/PlistBuddy)
+            case "$3" in *CFBundleIdentifier) kind=identifier;; *) kind=executable;; esac ;;
+        *) exit 90 ;;
+    esac
+    printf 'call\n' >> "$trace/$kind"
+    local count
+    count=$(wc -l < "$trace/$kind")
+    count=$((count))
+    if [[ "$kind:$count" == "$PHASE" ]]; then return "$CODE"; fi
+    case "$kind" in
+        ps) printf '/sbin/launchd\n' ;;
+        handles) return 1 ;;
+        *) "$@" ;;
+    esac
+}
+safe_remove() {
+    "$_MOLE_SAFE_REMOVE_FINAL_GUARD" "$1" || return $?
+    printf '%s\n' "$1" >> "$trace/deleted"
+}
+code_sign_cleaned=0
+rc=0
+clean_browser_code_sign_clones && touch "$trace/later-section" || rc=$?
+[[ "$rc" == "$CODE" ]] || { printf 'rc=%s expected=%s\n' "$rc" "$CODE"; exit 11; }
+[[ ! -e "$trace/deleted" && ! -e "$trace/later-section" ]] || exit 12
+[[ "$code_sign_cleaned" == 0 ]] || exit 13
+SCRIPT
+            [ "$status" -eq 0 ] || { echo "$phase/$code: $output"; failures=$((failures + 1)); }
+        done
+    done
+    [ "$failures" -eq 0 ]
+}
+
+@test "browser clone interruption stops the next deep system cleanup stage" {
+    run env PROJECT_ROOT="$PROJECT_ROOT" HOME="$HOME" /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/system.sh"
+_mole_browser_clone_root() { printf '/unused-fixture\n'; }
+safe_sudo_find_delete() { MOLE_SAFE_SUDO_FIND_DELETE_COUNT=0; }
+safe_sudo_remove() { :; }
+safe_remove() { :; }
+get_current_macos_major_version() { printf '26\n'; }
+macos_installer_candidate_identity() { return 1; }
+materialize_completed_system_scan() { : > "$1"; }
+start_section_spinner() {
+    if [[ "$1" == 'Cleaning rebuildable system service caches...' ]]; then touch "$HOME/later-stage"; fi
+}
+stop_section_spinner() { :; }
+system_cleanup_budget_reached() { [[ -e "$HOME/later-stage" ]]; }
+run_with_timeout() {
+    shift
+    case "$1" in
+        /bin/ps) touch "$HOME/interrupted-probe"; return 130 ;;
+        *) return 0 ;;
+    esac
+}
+rc=0
+clean_deep_system || rc=$?
+[[ -e "$HOME/interrupted-probe" ]] || exit 10
+[[ "$rc" == 130 && ! -e "$HOME/later-stage" ]] || exit 11
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
