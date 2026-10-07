@@ -2302,14 +2302,19 @@ _mole_report_unverified_delete() {
     local mode="$2"
     local size_kb="$3"
     local reason="${4:-$MOLE_ERR_OWNER_UNVERIFIED}"
+    local refusal_reason="ownership-unverified"
+    local detail="agent ownership unverified"
+    local explanation="the agent file changed or could not be inspected. Review the plist before retrying."
     if [[ $reason -eq $MOLE_ERR_APP_REAPPEARED ]]; then
-        _mole_delete_log "$mode" "$size_kb" "app-reappeared" "$path"
-        log_operation "${MOLE_CURRENT_COMMAND:-uninstall}" "SKIPPED" "$path" "selected app path reappeared"
-        printf 'Kept %s: the selected app path exists again. Select the app and review its removal plan.\n' "$path" >&2
-    else
-        _mole_delete_log "$mode" "$size_kb" "ownership-unverified" "$path"
-        log_operation "${MOLE_CURRENT_COMMAND:-uninstall}" "SKIPPED" "$path" "agent ownership unverified"
-        printf 'Kept %s: the agent file changed or could not be inspected. Review the plist before retrying.\n' "$path" >&2
+        refusal_reason="app-reappeared"
+        detail="selected app path reappeared"
+        explanation="the selected app path exists again. Select the app and review its removal plan."
+    fi
+    _mole_delete_log "$mode" "$size_kb" "$refusal_reason" "$path"
+    log_operation "${MOLE_CURRENT_COMMAND:-uninstall}" "SKIPPED" "$path" "$detail"
+    _mole_record_uninstall_refusal "$path" "$refusal_reason"
+    if [[ "${_MOLE_UNINSTALL_REFUSALS_ACTIVE:-0}" != 1 ]]; then
+        printf 'Kept %s: %s\n' "$path" "$explanation" >&2
     fi
 }
 

@@ -2172,13 +2172,16 @@ printf '\n' | batch_uninstall_applications > /dev/null 2>&1
 
 # Case 4: inverse direction: uninstalling the base-named install while the
 # hyphen-suffixed sibling survives. The discovery name ("RevBase") is
-# contained in the survivor's identifiers ("RevBase-beta"), and downstream
-# matchers are substring-based (the LaunchAgents scan globs "*<name>*.plist"),
-# so name discovery must be suppressed entirely.
-mkdir -p "$HOME/Applications/RevBase.app" "$HOME/Applications/RevBase-beta.app"
+# contained in the survivor's identifiers ("RevBase-beta"), so shared
+# name-based leftovers stay. A shared bundle-ID agent bound to the survivor
+# must also stay loaded.
+mkdir -p "$HOME/Applications/RevBase.app" "$HOME/Applications/RevBase-beta.app/Contents/MacOS"
 mkdir -p "$HOME/Library/Application Support/RevBase"
 mkdir -p "$HOME/Library/LaunchAgents"
-touch "$HOME/Library/LaunchAgents/com.example.RevBase-beta.agent.plist"
+touch "$HOME/Applications/RevBase-beta.app/Contents/MacOS/RevBase"
+cat > "$HOME/Library/LaunchAgents/com.example.revbase.plist" <<PLIST
+<?xml version="1.0"?><plist version="1.0"><dict><key>Program</key><string>$HOME/Applications/RevBase-beta.app/Contents/MacOS/RevBase</string></dict></plist>
+PLIST
 
 apps_data=(
 	"0|$HOME/Applications/RevBase.app|RevBase|com.example.revbase|0|Never|0"
@@ -2190,7 +2193,8 @@ printf '\n' | batch_uninstall_applications > /dev/null 2>&1
 
 [[ ! -d "$HOME/Applications/RevBase.app" ]] || { echo "WRONG: selected base bundle preserved (case 4)"; exit 1; }
 [[ -d "$HOME/Applications/RevBase-beta.app" ]] || { echo "WRONG: suffixed survivor removed (case 4)"; exit 1; }
-[[ -f "$HOME/Library/LaunchAgents/com.example.RevBase-beta.agent.plist" ]] || { echo "WRONG: survivor launch agent removed (case 4)"; exit 1; }
+[[ -f "$HOME/Library/LaunchAgents/com.example.revbase.plist" ]] || { echo "WRONG: survivor launch agent removed (case 4)"; exit 1; }
+! grep -q "com.example.revbase.plist" "$HOME/unload.log" 2> /dev/null || { echo "WRONG: survivor's agent unloaded (case 4)"; cat "$HOME/unload.log"; exit 1; }
 [[ -d "$HOME/Library/Application Support/RevBase" ]] || { echo "WRONG: shared app support removed (case 4)"; exit 1; }
 [[ ! -f "$HOME/login.log" ]] || { echo "WRONG: login item removed (case 4)"; exit 1; }
 
@@ -5352,6 +5356,117 @@ printf '\n' | batch_uninstall_applications > "$HOME/output.log" 2>&1
 ! grep -q 'Logs/com.openai.codex' "$HOME/output.log" || exit 1
 SCRIPT
     [ "$status" -eq 0 ] || { echo "$output"; cat "$HOME/output.log"; return 1; }
+}
+
+@test "batch uninstall explains changed agent ownership once after the cleanup phase" {
+    for preview in 0 1; do
+        mkdir -p "$HOME/Applications/OwnedApp.app/Contents/MacOS" "$HOME/Library/LaunchAgents"
+        touch "$HOME/Applications/OwnedApp.app/Contents/MacOS/OwnedApp"
+        cat > "$HOME/Applications/OwnedApp.app/Contents/Info.plist" <<'PLIST'
+<plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.owned</string></dict></plist>
+PLIST
+        cat > "$HOME/Library/LaunchAgents/com.thirdparty.owned.plist" <<PLIST
+<plist version="1.0"><dict><key>Program</key><string>$HOME/Applications/OwnedApp.app/Contents/MacOS/OwnedApp</string></dict></plist>
+PLIST
+        run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_DRY_RUN="$preview" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+source "$PROJECT_ROOT/tests/helpers/uninstall.bash"
+mole_test_isolate_uninstall_inventory
+export MOLE_TEST_TRASH_DIR="$HOME/Trash"
+brew() { :; }
+request_sudo_access() { :; }
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+enter_alt_screen() { :; }
+leave_alt_screen() { :; }
+hide_cursor() { :; }
+show_cursor() { :; }
+remove_apps_from_dock() { :; }
+pgrep() { return 1; }
+stop_launch_services() {
+    cat > "$HOME/Library/LaunchAgents/com.thirdparty.owned.plist" <<'PLIST'
+<plist version="1.0"><dict><key>Program</key><string>/bin/true</string></dict></plist>
+PLIST
+    printf 'OWNERSHIP_CHANGED\n'
+}
+unregister_app_bundle() { :; }
+selected_apps=("0|$HOME/Applications/OwnedApp.app|OwnedApp|com.example.owned|0|Never")
+files_cleaned=0 total_items=0 total_size_cleaned=0
+printf '\n' | batch_uninstall_applications
+if [[ "$MOLE_DRY_RUN" == 1 ]]; then
+    [[ -d "$HOME/Applications/OwnedApp.app" ]] || exit 1
+else
+    [[ ! -e "$HOME/Applications/OwnedApp.app" ]] || exit 1
+fi
+[[ -f "$HOME/Library/LaunchAgents/com.thirdparty.owned.plist" ]] || exit 1
+SCRIPT
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"OWNERSHIP_CHANGED"* ]] || return 1
+        [[ "$output" == *"Kept (agent ownership unverified; review the plist): ~/Library/LaunchAgents/com.thirdparty.owned.plist"* ]] || return 1
+        [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (agent ownership unverified; review the plist):')" -eq 1 ]] || return 1
+        [[ "$output" != *"Could not remove"* && "$output" != *"Kept $HOME/Library/LaunchAgents"* ]] || return 1
+    done
+}
+
+@test "batch uninstall reports refused system-pass agents once" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=trash
+export MOLE_TEST_TRASH_DIR="$HOME/Trash" MOLE_DELETE_LOG="$HOME/deletions.log"
+app="$HOME/Applications/SystemOwned.app"
+agent="$HOME/Library/LaunchAgents/com.thirdparty.system-owned.plist"
+container_stub="$HOME/Library/Containers/com.thirdparty.system-owned"
+# Use a user-owned agent in the system pass so the real ownership gate runs
+# without writing to /Library or requesting privileged removal.
+mkdir -p "$app/Contents/MacOS" "${agent%/*}"
+mkdir -p "$container_stub"
+touch "$container_stub/.com.apple.containermanagerd.metadata.plist"
+touch "$app/Contents/MacOS/SystemOwned"
+cat > "$agent" <<PLIST
+<plist version="1.0"><dict><key>Program</key><string>$app/Contents/MacOS/SystemOwned</string></dict></plist>
+PLIST
+stop_launch_services() {
+    [[ "$2" == true ]] || return 99
+    cat > "$agent" <<'PLIST'
+<plist version="1.0"><dict><key>Program</key><string>/bin/true</string></dict></plist>
+PLIST
+    printf 'SYSTEM_AGENT_CHANGED\n'
+}
+unregister_app_bundle() { :; }
+# A refusal recorded before a successful Trash retry must not become a kept row.
+mv() {
+    [[ "$1" == "$app" ]] || return 99
+    _mole_record_uninstall_refusal "$1" access-denied
+    # Existing container-stub refusals remain hidden in real-run summaries.
+    _mole_record_uninstall_refusal "$container_stub" access-denied
+    printf '%s\n' "$1" > "$HOME/recovered-move"
+    command mv "$@"
+}
+# Repeated plan entries must not duplicate the final explanation.
+encoded_system=$(printf '%s\n%s\n' "$agent" "$agent" | base64 | tr -d '\n')
+app_details=("SystemOwned|$app|unknown|0||$encoded_system|false|false|false|||||guard_login|$(_batch_selected_app_identity "$app")|unknown||missing")
+success_count=0 failed_count=0 brew_apps_removed=0
+failed_items=() success_items=() success_dock_targets=()
+system_extension_warning_apps=() review_only_system_leftovers=()
+review_only_system_leftover_keys=() running_at_uninstall_apps=()
+total_size_freed=0 files_cleaned=0 total_items=0
+_batch_execute_removals
+[[ $success_count -eq 1 && $failed_count -eq 0 ]] || exit 1
+[[ ! -e "$app" && -f "$agent" ]] || exit 1
+[[ -d "$container_stub" ]] || exit 1
+[[ "$(cat "$HOME/recovered-move")" == "$app" ]] || exit 1
+[[ "$(grep -c $'\townership-unverified\t' "$MOLE_DELETE_LOG")" -eq 2 ]] || { cat "$MOLE_DELETE_LOG"; exit 1; }
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SYSTEM_AGENT_CHANGED"* ]] || return 1
+    [[ "$output" == *"Kept (agent ownership unverified; review the plist): ~/Library/LaunchAgents/com.thirdparty.system-owned.plist"* ]] || return 1
+    [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (agent ownership unverified; review the plist):')" -eq 1 ]] || return 1
+    [[ "$output" != *"Could not remove"* && "$output" != *"Kept $HOME/Library/LaunchAgents"* ]] || return 1
+    [[ "$output" != *"macOS denied access:"* ]] || return 1
 }
 
 @test "batch uninstall explains actual refusal and clears it for the next app" {

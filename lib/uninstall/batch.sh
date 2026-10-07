@@ -1763,10 +1763,9 @@ _batch_scan_app_details_impl() {
                 [[ -z "$survivor_name" ]] && continue
                 # Equality catches the display-name collapse. The substring
                 # direction catches the inverse case: uninstalling "Foo.app"
-                # while "Foo-beta.app" survives. Downstream matchers are
-                # substring-based (the LaunchAgents scan globs
-                # "*<name>*.plist"), so a discovery name contained anywhere
-                # in a survivor identifier can still reach survivor data.
+                # while "Foo-beta.app" survives. Name-based leftover matchers
+                # use substrings, so a discovery name contained anywhere in a
+                # survivor identifier can still reach survivor data.
                 # Reverse containment (survivor inside discovery) stays
                 # allowed: patterns keyed on the longer "Foo-beta" cannot
                 # match the survivor's shorter "Foo"-keyed paths.
@@ -2650,10 +2649,28 @@ _batch_execute_removals() {
                 echo -e "${GREEN}${ICON_SUCCESS}${NC} [$current_index/${#app_details[@]}] ${app_name}"
             fi
 
+            # Include retained ownership refusals from every removal pass once.
+            # Previews still explain every refusal, excluding expected survivors.
+            local refusal_path refusal_index
+            for ((refusal_index = 0; refusal_index < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; refusal_index++)); do
+                refusal_path="${_MOLE_UNINSTALL_REFUSAL_PATHS[$refusal_index]}"
+                if ! is_uninstall_dry_run; then
+                    case "${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}" in
+                        ownership-unverified | app-reappeared) ;;
+                        *) continue ;;
+                    esac
+                    [[ -e "$refusal_path" || -L "$refusal_path" ]] || continue
+                fi
+                if [[ ${#leftover_paths[@]} -eq 0 ]] ||
+                    ! mole_identity_in_list "$refusal_path" "${leftover_paths[@]}"; then
+                    leftover_paths+=("$refusal_path")
+                fi
+            done
+
             # Warn about files that could not be removed and exclude them from freed total.
             if [[ ${#leftover_paths[@]} -gt 0 ]]; then
                 for _lpath in "${leftover_paths[@]}"; do
-                    local kept_reason="" refusal_index
+                    local kept_reason=""
                     for ((refusal_index = 0; refusal_index < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; refusal_index++)); do
                         if [[ "${_MOLE_UNINSTALL_REFUSAL_PATHS[$refusal_index]}" == "$_lpath" ]]; then
                             kept_reason="${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}"
@@ -2664,6 +2681,8 @@ _batch_execute_removals() {
                         protected) kept_label="Kept (protected by Mole)" ;;
                         live-cache) kept_label="Kept (app may be active)" ;;
                         access-denied) kept_label="macOS denied access" ;;
+                        ownership-unverified) kept_label="Kept (agent ownership unverified; review the plist)" ;;
+                        app-reappeared) kept_label="Kept (selected app path exists again; select the app again)" ;;
                     esac
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} $kept_label: ${_lpath/#$HOME/$tilde_display}"
                 done
