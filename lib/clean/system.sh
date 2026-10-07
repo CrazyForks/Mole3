@@ -544,7 +544,9 @@ clean_deep_system() {
                     continue
                 fi
                 local code_sign_remove_rc=0
-                safe_sudo_remove "$cache_dir" "" "$system_cleanup_deadline" || code_sign_remove_rc=$?
+                # APFS clones share blocks with the live app and each other.
+                # du measures occupancy, not reclaimable bytes for this family.
+                safe_sudo_remove "$cache_dir" unknown "$system_cleanup_deadline" || code_sign_remove_rc=$?
                 if mole_rc_timeout_or_signal "$code_sign_remove_rc"; then
                     code_sign_scan_rc=$code_sign_remove_rc
                     break

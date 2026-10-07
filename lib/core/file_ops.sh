@@ -1359,6 +1359,11 @@ _record_file_ops_dry_run_target() {
     local eligibility_still_current=true
     if [[ -n "$precomputed_size_kb" && "$precomputed_size_kb" =~ ^[0-9]+$ ]]; then
         size_kb="$precomputed_size_kb"
+    elif [[ "$precomputed_size_kb" == "unknown" ]]; then
+        # The caller cannot infer reclaimable bytes from allocated blocks
+        # (for example APFS code-signature clones). Keep the preview partial.
+        size_known=false
+        eligibility_still_current=false
     else
         eligibility_still_current=false
         local measured_size=""
@@ -1529,13 +1534,19 @@ safe_remove() {
 
             if [[ -e "$path" ]]; then
                 local size_kb=0
-                local size_rc=0
-                size_kb=$(get_path_size_kb "$path" 2> /dev/null) || size_rc=$?
-                if mole_rc_timeout_or_signal "$size_rc"; then
-                    _mole_record_clean_cancellation "$size_rc"
-                    return "$size_rc"
+                if [[ -n "$precomputed_size_kb" ]]; then
+                    if [[ "$precomputed_size_kb" =~ ^[0-9]+$ ]]; then
+                        size_kb="$precomputed_size_kb"
+                    fi
+                else
+                    local size_rc=0
+                    size_kb=$(get_path_size_kb "$path" 2> /dev/null) || size_rc=$?
+                    if mole_rc_timeout_or_signal "$size_rc"; then
+                        _mole_record_clean_cancellation "$size_rc"
+                        return "$size_rc"
+                    fi
+                    [[ $size_rc -eq 0 ]] || size_kb=0
                 fi
-                [[ $size_rc -eq 0 ]] || size_kb=0
                 if [[ "$size_kb" -gt 0 ]]; then
                     file_size=$(bytes_to_human "$((size_kb * 1024))")
                 fi
@@ -2006,7 +2017,7 @@ safe_sudo_remove() {
     if _mole_privileged_path_has_mutable_ancestor "$path"; then
         if [[ ${EUID:-0} -ne 0 ]]; then
             debug_log "Downgrading sudo remove below mutable parent: $path"
-            safe_remove "$path" true "" "$deadline_seconds" \
+            safe_remove "$path" true "$precomputed_size_kb" "$deadline_seconds" \
                 "$expected_parent" "$expected_parent_id" "$expected_target_id" \
                 "$expected_file_sha256" "$expected_absent_path"
             return $?

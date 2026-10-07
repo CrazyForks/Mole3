@@ -1641,7 +1641,7 @@ sudo() {
 }
 safe_sudo_find_delete() { return 0; }
 safe_sudo_remove() {
-    echo "safe_sudo_remove:$1" >> "$CALL_LOG"
+    echo "safe_sudo_remove:$1:size=${2:-}" >> "$CALL_LOG"
     return 0
 }
 log_success() { echo "SUCCESS:$1" >> "$CALL_LOG"; }
@@ -1663,7 +1663,7 @@ cat "$CALL_LOG"
 EOF
 
     [ "$status" -eq 0 ]
-    [[ "$output" == *"safe_sudo_remove:/private/var/folders/test/a/X/demo.code_sign_clone"* ]] || return 1
+    [[ "$output" == *"safe_sudo_remove:/private/var/folders/test/a/X/demo.code_sign_clone:size=unknown"* ]] || return 1
     [[ "$output" == *"SUCCESS:Browser code signature caches"* ]]
 }
 

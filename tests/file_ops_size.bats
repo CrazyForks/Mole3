@@ -30,6 +30,77 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 EOF
 }
 
+@test "clone preview keeps unknown bytes through both removal routes (#1698)" {
+    mkdir -p "$SANDBOX/clone" "$SANDBOX/ordinary"
+    for mutable in yes no; do
+        run env PROJECT_ROOT="$PROJECT_ROOT" HOME="$SANDBOX" MUTABLE="$mutable" \
+            MOLE_DRY_RUN=1 MO_DEBUG=1 /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+validate_path_for_deletion() { return 0; }
+is_path_whitelisted() { return 1; }
+holds_compiled_model_cache() { return 1; }
+_mole_privileged_path_has_mutable_ancestor() { [[ "$MUTABLE" == yes ]]; }
+get_path_size_kb() { echo UNEXPECTED_SIZE_PROBE >&2; echo 999999; }
+record_dry_run_cleanup_target() {
+    printf 'RECORD:%s:%s:%s\n' "${1##*/}" "$2" "$4"
+    printf 'PREVALIDATED:%s:%s\n' "${1##*/}" "${_MOLE_DRY_RUN_TARGET_PREVALIDATED:-}"
+}
+safe_sudo_remove "$HOME/clone" unknown
+safe_sudo_remove "$HOME/ordinary" 42
+EOF
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"RECORD:clone:0:false"* ]] || return 1
+        [[ "$output" == *"RECORD:ordinary:42:true"* ]] || return 1
+        [[ "$output" == *"PREVALIDATED:clone:false"* ]] || return 1
+        [[ "$output" != *"UNEXPECTED_SIZE_PROBE"* ]] || return 1
+        [[ "$output" != *"976.56MB"* ]] || return 1
+    done
+}
+
+@test "unknown clone preview renders a partial total beside measured bytes (#1698)" {
+    mkdir -p "$SANDBOX/clone" "$SANDBOX/ordinary"
+    run env PROJECT_ROOT="$PROJECT_ROOT" HOME="$SANDBOX" MOLE_DRY_RUN=1 \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=true
+CLEAN_PREVIEW_FINAL_FILE="$HOME/preview.txt"
+prepare_clean_preview_file
+CURRENT_SECTION=System
+get_path_size_kb() { echo 999999; }
+_record_file_ops_dry_run_target "$HOME/clone" unknown
+_record_file_ops_dry_run_target "$HOME/ordinary" 42
+render_clean_preview_from_ledger
+printf 'PARTIAL=%s TOTAL=%s ITEMS=%s\n' "$DRY_RUN_TOTAL_PARTIAL" "$total_size_cleaned" "$files_cleaned"
+cat "$EXPORT_LIST_FILE"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"PARTIAL=true TOTAL=42 ITEMS=2"* ]] || return 1
+    [[ "$output" == *"clone  # size unknown"* ]] || return 1
+    [[ "$output" == *"ordinary  # 43KB"* ]] || { echo "$output"; return 1; }
+}
+
+@test "unknown clone removal does not log allocated bytes as freed (#1698)" {
+    mkdir -p "$SANDBOX/clone"
+    touch "$SANDBOX/clone/fixture"
+    run env PROJECT_ROOT="$PROJECT_ROOT" HOME="$SANDBOX" MOLE_DRY_RUN=0 \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+get_path_size_kb() { echo 999999; }
+oplog_enabled() { return 0; }
+log_operation() { printf 'OP:%s:%s:%s\n' "$2" "${3##*/}" "$4"; }
+safe_remove "$HOME/clone" true unknown
+[[ ! -e "$HOME/clone" ]] || exit 1
+echo FIXTURE_REMOVED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"FIXTURE_REMOVED"* ]] || return 1
+    [[ "$output" == *"OP:REMOVED:clone:"* ]] || return 1
+    [[ "$output" != *"MB"* && "$output" != *"GB"* ]]
+}
+
 @test "get_path_size_kb returns 0 for empty path" {
     run /bin/bash --noprofile --norc << EOF
 $(prelude)
