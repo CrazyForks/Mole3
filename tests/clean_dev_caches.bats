@@ -3959,6 +3959,57 @@ EOF
         "$HOME/Library/Logs/mole/mole.log"
 }
 
+@test "clean_tool_cache treats non-signal high owner statuses as failures (#1695)" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+note_activity() { echo ACTIVITY; }
+debug_log() { echo "DEBUG:$*"; }
+owner() { return "$owner_rc"; }
+for owner_rc in 128 160 192 243 255; do
+    _run_developer_cleanup_step clean_tool_cache "owner $owner_rc" "" owner
+done
+clean_tool_cache "later owner" "" true
+printf 'CANCEL=%s\n' "$MOLE_CLEAN_CANCEL_STATUS"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"owner command exited 243"* ]] || return 1
+    [[ "$output" == *"owner command exited 255"* ]] || return 1
+    [[ "$output" == *"later owner"* ]] || return 1
+    [[ "$output" == *"CANCEL=0"* ]] || return 1
+    [ "$(printf '%s\n' "$output" | grep -c '^ACTIVITY$')" -eq 1 ]
+}
+
+@test "clean_tool_cache keeps valid signal statuses sticky (#1695)" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+note_activity() { echo UNEXPECTED_ACTIVITY; }
+debug_log() { echo "DEBUG:$*"; }
+owner() { return "$owner_rc"; }
+later() { echo UNEXPECTED_LATER; }
+for owner_rc in 129 130 131 137 143 159; do
+    MOLE_CLEAN_CANCEL_STATUS=0
+    rc=0
+    clean_tool_cache "signal owner" "" owner || rc=$?
+    [[ "$rc" -eq "$owner_rc" && "$MOLE_CLEAN_CANCEL_STATUS" -eq "$owner_rc" ]] || exit 1
+    clean_tool_cache "later owner" "" later || :
+done
+echo SIGNALS_PRESERVED
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SIGNALS_PRESERVED"* ]] || return 1
+    [[ "$output" == *"signal owner: owner command interrupted (exit 130)"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_"* ]]
+}
+
 @test "an interrupted owner command stops the next pnpm store before its probe or prune" {
     # Ctrl-C while `pnpm store prune` holds the terminal reaches only the
     # child. Whichever store runs first is interrupted; the other one must

@@ -42,10 +42,13 @@ clean_tool_cache() {
         if [[ $command_rc -eq 0 ]]; then
             echo -e "  ${GREEN}${ICON_SUCCESS}${NC} $description"
             note_activity
-        elif ! mole_rc_timeout_or_signal "$command_rc" || mole_rc_timeout "$command_rc"; then
+        elif ! mole_rc_timeout_or_signal "$command_rc" || mole_rc_timeout "$command_rc" ||
+            ! kill -l "$command_rc" > /dev/null 2>&1; then
             # Routine owner failures stay in diagnostics, without a success
             # row or activity marker. A timeout here skips this one tool, and
             # mole.log names it so a slow tool is not left to guesswork.
+            # Owners may return errno-derived statuses such as npm's 243.
+            # Only a status that names a real signal can cancel later work.
             debug_log "$description: owner command exited $command_rc: $*"
             if mole_rc_timeout "$command_rc"; then
                 log_warning_to_file "$description timed out and was skipped: $*"
@@ -54,6 +57,7 @@ clean_tool_cache() {
             # Ctrl-C while the owner command holds the terminal reaches only
             # the child. Record it and hand it back so no later owner command
             # starts.
+            debug_log "$description: owner command interrupted (exit $command_rc): $*"
             _mole_record_clean_cancellation "$command_rc" "$description"
             return "$command_rc"
         fi
