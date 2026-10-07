@@ -51,6 +51,9 @@ append_log_line() {
     local file_path="$1"
     local line="${2:-}"
 
+    if [[ "$file_path" == "$OPERATIONS_LOG_FILE" ]]; then
+        _mole_escape_log_value line "$line"
+    fi
     _mole_prepare_log_append "$file_path"
     printf '%s\n' "$line" >> "$file_path" 2> /dev/null || true
 }
@@ -60,7 +63,46 @@ append_log_lines() {
     shift
 
     _mole_prepare_log_append "$file_path"
-    printf '%s\n' "$@" >> "$file_path" 2> /dev/null || true
+    if [[ "$file_path" == "$OPERATIONS_LOG_FILE" ]]; then
+        local record
+        local -a operation_records=()
+        for record in "$@"; do
+            _mole_escape_log_value record "$record"
+            operation_records+=("$record")
+        done
+        printf '%s\n' "${operation_records[@]+"${operation_records[@]}"}" >> "$file_path" 2> /dev/null || true
+    else
+        printf '%s\n' "$@" >> "$file_path" 2> /dev/null || true
+    fi
+}
+
+# Escape operation records and deletion-log fields at their write boundaries.
+# Control bytes must never create audit records or terminal controls.
+# Only the logged copy changes, never the action path.
+_mole_escape_log_value() {
+    local _output="$1" _value="$2" _escaped="" _char _code _index
+    local LC_ALL=C
+    _value="${_value//\\/\\\\}"
+    if [[ "$_value" =~ [[:cntrl:]] ]]; then
+        for ((_index = 0; _index < ${#_value}; _index++)); do
+            _char="${_value:_index:1}"
+            case "$_char" in
+                $'\n') _escaped+='\n' ;;
+                $'\r') _escaped+='\r' ;;
+                $'\t') _escaped+='\t' ;;
+                *)
+                    if [[ "$_char" =~ [[:cntrl:]] ]]; then
+                        printf -v _code '\\x%02x' "'$_char"
+                        _escaped+="$_code"
+                    else
+                        _escaped+="$_char"
+                    fi
+                    ;;
+            esac
+        done
+        _value="$_escaped"
+    fi
+    printf -v "$_output" '%s' "$_value"
 }
 
 # Rotate log file if it exceeds maximum size

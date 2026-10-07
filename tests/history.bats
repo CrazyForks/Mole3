@@ -36,6 +36,29 @@ EOF
     printf '2026-05-24T11:00:01+0000\tpermanent\t10\tdry-run\t/tmp/build\n' >> "$HOME/Library/Logs/mole/deletions.log"
 }
 
+@test "operation log writers keep control characters inside one audit record" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+log_operation_session_start clean
+log_operation clean SKIPPED $'/tmp/example\n[2026-10-07 12:00:00] [clean] REMOVED /tmp/not-removed' $'reason\r\033[2J\tend'
+operation_log_command command clean
+append_log_lines "$OPERATIONS_LOG_FILE" "[2026-10-07 12:00:00] [$command] REMOVED "$'/tmp/batch\n[2026-10-07 12:00:00] [clean] FAILED /tmp/forged'" (batch)"
+log_operation_session_end clean 1 0
+"$PROJECT_ROOT/mole" history --json
+EOF
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | python3 -c '
+import json,sys
+s, = json.load(sys.stdin)["sessions"]
+assert s["operation_count"] == 2, s
+assert s["actions"]["removed"] == 1 and s["actions"]["skipped"] == 1, s
+assert s["actions"]["failed"] == 0, s
+'
+    run python3 -c 'import pathlib,sys; b=pathlib.Path(sys.argv[1]).read_bytes(); assert b"\\n[2026" in b; assert not any(c < 32 and c != 10 or c == 127 for c in b)' "$HOME/Library/Logs/mole/operations.log"
+    [ "$status" -eq 0 ]
+}
+
 @test "mo history summarizes operation sessions and deletion audit" {
     write_history_logs
 

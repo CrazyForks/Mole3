@@ -1044,6 +1044,24 @@ EOF
     [[ ! -s "$MOLE_DELETE_LOG" ]]
 }
 
+@test "mole_delete rejection cannot forge TSV audit records" {
+    run env HOME="$SANDBOX" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/core/history.sh"
+victim="$SANDBOX/kept"$'\n2026-10-07T10:00:00+0000\ttrash\t999\tok\tforged\r\033'
+touch "$victim"
+if mole_delete "$victim"; then exit 1; fi
+[[ -f "$victim" ]] || exit 1
+history_load_deletions "$MOLE_DELETE_LOG"
+printf 'records=%s\n' "${#HISTORY_DELETE_STATUSES[@]}"
+[[ ${#HISTORY_DELETE_STATUSES[@]} -eq 1 ]] || exit 1
+[[ "${HISTORY_DELETE_STATUSES[0]}" == rejected ]] || exit 1
+[[ "${HISTORY_DELETE_PATHS[0]}" == *'\n2026-'*'\ttrash\t999\tok\tforged\r\x1b' ]] || exit 1
+EOF
+    [ "$status" -eq 0 ]
+}
+
 @test "mole_delete rejects unknown delete mode without touching target" {
     local victim="$SANDBOX/invalid_mode_target"
     : > "$victim"

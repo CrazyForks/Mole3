@@ -3360,6 +3360,10 @@ _mole_delete_log() {
     local ts
     ts=$(date '+%Y-%m-%dT%H:%M:%S%z' 2> /dev/null || echo "unknown")
 
+    _mole_escape_log_value mode "$mode"
+    _mole_escape_log_value size_kb "$size_kb"
+    _mole_escape_log_value status "$status"
+    _mole_escape_log_value target "$target"
     if ! printf '%s\t%s\t%s\t%s\t%s\n' \
         "$ts" "$mode" "$size_kb" "$status" "$target" \
         >> "$log_file" 2> /dev/null; then
