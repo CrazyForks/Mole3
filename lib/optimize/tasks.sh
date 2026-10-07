@@ -1013,9 +1013,32 @@ opt_prune_spotlight_orphan_rules() {
         return 0
     fi
 
-    local -a keep=() removed=()
-    local i=0 entry
-    while entry=$(/usr/libexec/PlistBuddy -c "Print :EnabledPreferenceRules:$i" "$plist" 2> /dev/null); do
+    # Parse one complete immutable snapshot before resolving any apps. An
+    # indexed read failure against the live file is not an end-of-array marker.
+    local snapshot="" count="" entry="" i=0
+    local -a rules=() keep=() removed=()
+    if ! snapshot=$(/usr/bin/plutil -convert xml1 -o - "$plist" 2> /dev/null) ||
+        ! count=$(printf '%s' "$snapshot" | /usr/bin/plutil -extract EnabledPreferenceRules raw -expect array -o - - 2> /dev/null) ||
+        [[ ! "$count" =~ ^[0-9]+$ ]]; then
+        echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to inspect Spotlight search rules"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
+        return 0
+    fi
+    for ((i = 0; i < count; i++)); do
+        # The sentinel preserves trailing newlines in a stored string.
+        if ! entry=$(
+            printf '%s' "$snapshot" | /usr/bin/plutil -extract "EnabledPreferenceRules.$i" raw -expect string -o - - 2> /dev/null || exit $?
+            printf '\001'
+        ); then
+            echo -e "  ${YELLOW}${ICON_WARNING}${NC} Failed to inspect Spotlight search rules"
+            optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
+            return 0
+        fi
+        entry="${entry%$'\001'}"
+        entry="${entry%$'\n'}" # plutil's terminating newline, not string content.
+        rules+=("$entry")
+    done
+    for entry in "${rules[@]+"${rules[@]}"}"; do
         case "$entry" in
             # Never touch system or Apple rules (e.g. System.iphoneApps); these
             # pass the reverse-DNS shape check but are not removable app bundles.
@@ -1042,7 +1065,6 @@ opt_prune_spotlight_orphan_rules() {
                 fi
                 ;;
         esac
-        i=$((i + 1))
     done
 
     if [[ ${#removed[@]} -eq 0 ]]; then
@@ -1060,6 +1082,13 @@ opt_prune_spotlight_orphan_rules() {
     # Rewrite the filtered array through cfprefsd (defaults), not by deleting
     # plist indices in place: this avoids the cfprefsd cache overwriting a direct
     # file edit, and ensures System Settings reflects the change and it persists.
+    local current_snapshot=""
+    if ! current_snapshot=$(/usr/bin/plutil -convert xml1 -o - "$plist" 2> /dev/null) ||
+        [[ "$current_snapshot" != "$snapshot" ]]; then
+        echo -e "  ${YELLOW}${ICON_WARNING}${NC} Spotlight search rules changed or could not be read; kept"
+        optimize_task_result "$MOLE_OPTIMIZE_OUTCOME_FAILED"
+        return 0
+    fi
     local write_status=0
     if [[ ${#keep[@]} -gt 0 ]]; then
         defaults write "$domain" EnabledPreferenceRules -array "${keep[@]}" 2> /dev/null || write_status=$?

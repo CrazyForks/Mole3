@@ -995,6 +995,48 @@ EOF
 	[[ "$output" != *"UNEXPECTED_WRITE"* ]]
 }
 
+@test "Spotlight rules keep the entire array when it changes during app resolution" {
+    for change in corrupt append; do
+        run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" CHANGE="$change" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+PLIST="$HOME/Library/Preferences/com.apple.spotlight.plist"
+mkdir -p "${PLIST%/*}"
+printf '%s' '<plist version="1.0"><dict><key>EnabledPreferenceRules</key><array><string>com.missing.App</string><string>com.apple.Safari</string></array></dict></plist>' > "$PLIST"
+defaults() { case "$1" in read) return 0;; *) echo "UNEXPECTED_WRITE $*";; esac; }
+bundle_has_installed_app() {
+    if [[ "$CHANGE" == corrupt ]]; then
+        printf 'incomplete plist' > "$PLIST"
+    else
+        /usr/libexec/PlistBuddy -c 'Add :EnabledPreferenceRules: string System.iphoneApps' "$PLIST"
+    fi
+    return 1
+}
+execute_optimization spotlight_orphan_rules_cleanup
+EOF
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" != *"UNEXPECTED_WRITE"* ]] || return 1
+        [[ "$output" != *"Removed 1 orphan"* ]] || return 1
+    done
+}
+
+@test "Spotlight rules refuse an array containing a non-string before any write" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+PLIST="$HOME/Library/Preferences/com.apple.spotlight.plist"
+mkdir -p "${PLIST%/*}"
+printf '%s' '<plist version="1.0"><dict><key>EnabledPreferenceRules</key><array><string>com.missing.App</string><dict><key>protected</key><true/></dict></array></dict></plist>' > "$PLIST"
+defaults() { case "$1" in read) return 0;; *) echo "UNEXPECTED_WRITE $*";; esac; }
+bundle_has_installed_app() { return 1; }
+execute_optimization spotlight_orphan_rules_cleanup
+EOF
+    [ "$status" -eq 0 ]
+    [[ "$output" != *"UNEXPECTED_WRITE"* ]] || return 1
+}
+
 @test "opt_spotlight_index_optimize reports optimal when probes are fast" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
