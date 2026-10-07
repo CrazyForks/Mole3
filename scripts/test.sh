@@ -150,10 +150,11 @@ prepare_go_test_helpers() {
 
 echo "1. Linting test scripts..."
 if command -v shellcheck > /dev/null 2>&1; then
+    # Concurrent Bats runs own tests/tmp-* fixtures, not lint inputs.
     TEST_FILES=()
     while IFS= read -r file; do
         TEST_FILES+=("$file")
-    done < <(find tests -type f \( -name '*.bats' -o -name '*.bash' -o -name '*.sh' \) | sort)
+    done < <(find tests -type d -path 'tests/tmp-*' -prune -o -type f \( -name '*.bats' -o -name '*.bash' -o -name '*.sh' \) -print | sort)
     if [[ ${#TEST_FILES[@]} -gt 0 ]]; then
         if shellcheck --rcfile "$PROJECT_ROOT/.shellcheckrc" "${TEST_FILES[@]}"; then
             printf "${GREEN}${ICON_SUCCESS} Test script lint passed${NC}\n"

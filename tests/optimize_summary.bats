@@ -18,6 +18,12 @@ teardown_file() {
 @test "optimize dry-run summary reports outcomes instead of catalog size" {
 	# The dry run probes Spotlight; answer without reading the real index.
 	mole_test_fake_command mdfind
+	# defaults uses cfprefsd's user domain even with a fixture HOME. Model
+	# missing preferences so this summary never depends on the host settings.
+	# shellcheck disable=SC2016 # The generated stub reads its own arguments.
+	mole_test_fake_command defaults '[[ "${1:-}" == read ]] && exit 1
+printf "UNEXPECTED defaults %s\n" "$*" >&2
+exit 97'
 	run env HOME="$TEST_HOME" MOLE_TEST_NO_AUTH=1 MOLE_ASSUME_VPN_ACTIVE=0 NO_COLOR=1 "$PROJECT_ROOT/mole" optimize --dry-run
 
 	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
