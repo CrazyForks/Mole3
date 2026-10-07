@@ -492,6 +492,26 @@ EOF
 	[[ "$output" == *"aborting instead of falling back"* ]] || return 1
 }
 
+@test "install_files preserves literal shell and sed characters in config paths" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mole_source_installer
+SOURCE_DIR="$HOME/source"
+INSTALL_DIR="$HOME/install"
+CONFIG_DIR="$HOME/"'config &|"$HOME" `printf BACKTICK` $(printf SUBSTITUTED) \ end'"'quote"
+mkdir -p "$CONFIG_DIR/bin" "$CONFIG_DIR/lib"
+printf '%s\n' '#!/bin/bash' 'SCRIPT_DIR="old"' > "$SOURCE_DIR/mole"
+resolve_source_dir() { :; }
+needs_sudo() { return 1; }
+maybe_sudo() { "$@"; }
+download_binary() { return 0; }
+install_files
+actual=$(/bin/bash -c 'source "$1"; printf "%s" "$SCRIPT_DIR"' _ "$INSTALL_DIR/mole")
+[[ "$actual" == "$CONFIG_DIR" ]] || { printf 'WRONG:%s\nEXPECTED:%s\n' "$actual" "$CONFIG_DIR"; exit 1; }
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "install_files fails closed when sudo is unavailable, even under || caller (#update-incident)" {
 	# Old moles invoke `install_files || {...}`, which disables errexit inside
 	# the function. Uncached `sudo -n` then failed on every copy while the

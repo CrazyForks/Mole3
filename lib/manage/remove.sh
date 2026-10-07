@@ -9,6 +9,22 @@ if [[ -n "${MOLE_MANAGE_REMOVE_LOADED:-}" ]]; then
 fi
 readonly MOLE_MANAGE_REMOVE_LOADED=1
 
+# Read the shipped launcher signatures, never execute a discovered command.
+# Both main headers and common.sh locations are used by released Mole builds.
+_remove_is_mole_launcher() {
+    [[ -f "$1" ]] || return 1
+    /usr/bin/awk '
+        NR == 1 { bash = ($0 == "#!/bin/bash") }
+        $0 == "# Mole - Main CLI entrypoint." || $0 == "# Mole - Main Entry Point" { main = 1 }
+        /^VERSION=/ { version = 1 }
+        $0 == "source \"$SCRIPT_DIR/lib/core/common.sh\"" || $0 == "source \"$SCRIPT_DIR/lib/common.sh\"" { library = 1 }
+        $0 == "# Lightweight alias to run Mole via `mo`" { alias = 1 }
+        $0 == "exec \"$SCRIPT_DIR/mole\" \"$@\"" { dispatch = 1 }
+        NR >= 256 { exit }
+        END { exit !(bash && ((main && version && library) || (alias && dispatch))) }
+    ' "$1" 2> /dev/null
+}
+
 # Resolve this install without using directory contents as ownership proof.
 # Source checkouts and Homebrew keep settings at the default path; install.sh
 # records the chosen config in SCRIPT_DIR, including colocated installations.
@@ -73,7 +89,7 @@ remove_mole() {
     found_mole=""
     if [[ "$test_mode" != "true" ]]; then
         found_mole=$(command -v mole 2> /dev/null || true)
-        if [[ -n "$found_mole" && -f "$found_mole" ]]; then
+        if [[ -n "$found_mole" ]] && _remove_is_mole_launcher "$found_mole"; then
             if [[ ! -L "$found_mole" ]] || ! readlink "$found_mole" | grep -q "Cellar/mole"; then
                 manual_installs+=("$found_mole")
             fi
@@ -92,7 +108,7 @@ remove_mole() {
     fi
 
     for path in "${fallback_paths[@]}"; do
-        if [[ -f "$path" && "$path" != "$found_mole" ]]; then
+        if [[ "$path" != "$found_mole" ]] && _remove_is_mole_launcher "$path"; then
             if [[ ! -L "$path" ]] || ! readlink "$path" | grep -q "Cellar/mole"; then
                 manual_installs+=("$path")
             fi
@@ -103,7 +119,7 @@ remove_mole() {
     found_mo=""
     if [[ "$test_mode" != "true" ]]; then
         found_mo=$(command -v mo 2> /dev/null || true)
-        if [[ -n "$found_mo" && -f "$found_mo" ]]; then
+        if [[ -n "$found_mo" ]] && _remove_is_mole_launcher "$found_mo"; then
             if [[ ! -L "$found_mo" ]] || ! readlink "$found_mo" | grep -q "Cellar/mole"; then
                 alias_installs+=("$found_mo")
             fi
@@ -122,7 +138,7 @@ remove_mole() {
     fi
 
     for alias in "${alias_fallback[@]}"; do
-        if [[ -f "$alias" && "$alias" != "$found_mo" ]]; then
+        if [[ "$alias" != "$found_mo" ]] && _remove_is_mole_launcher "$alias"; then
             if [[ ! -L "$alias" ]] || ! readlink "$alias" | grep -q "Cellar/mole"; then
                 alias_installs+=("$alias")
             fi
@@ -226,36 +242,21 @@ remove_mole() {
             log_success "Mole uninstalled via Homebrew."
         fi
     fi
-    if [[ ${manual_count:-0} -gt 0 ]]; then
-        for install in "${manual_installs[@]}"; do
-            if [[ -f "$install" ]]; then
-                if [[ ! -w "$(dirname "$install")" ]]; then
-                    if [[ "${MOLE_TEST_MODE:-0}" == "1" || "${MOLE_TEST_NO_AUTH:-0}" == "1" ]] || ! sudo rm -f "$install" 2> /dev/null; then
-                        has_error=true
-                    fi
-                else
-                    if ! rm -f "$install" 2> /dev/null; then
-                        has_error=true
-                    fi
-                fi
+    # Aliases can be links to mole, so remove them while their target can
+    # still prove ownership. Recheck after confirmation in case it changed.
+    local install
+    for install in ${alias_installs[@]+"${alias_installs[@]}"} ${manual_installs[@]+"${manual_installs[@]}"}; do
+        if ! _remove_is_mole_launcher "$install"; then
+            continue
+        fi
+        if [[ ! -w "$(dirname "$install")" ]]; then
+            if [[ "${MOLE_TEST_MODE:-0}" == "1" || "${MOLE_TEST_NO_AUTH:-0}" == "1" ]] || ! sudo rm -f "$install" 2> /dev/null; then
+                has_error=true
             fi
-        done
-    fi
-    if [[ ${alias_count:-0} -gt 0 ]]; then
-        for alias in "${alias_installs[@]}"; do
-            if [[ -f "$alias" ]]; then
-                if [[ ! -w "$(dirname "$alias")" ]]; then
-                    if [[ "${MOLE_TEST_MODE:-0}" == "1" || "${MOLE_TEST_NO_AUTH:-0}" == "1" ]] || ! sudo rm -f "$alias" 2> /dev/null; then
-                        has_error=true
-                    fi
-                else
-                    if ! rm -f "$alias" 2> /dev/null; then
-                        has_error=true
-                    fi
-                fi
-            fi
-        done
-    fi
+        elif ! rm -f "$install" 2> /dev/null; then
+            has_error=true
+        fi
+    done
     if [[ -d "$HOME/.cache/mole" ]]; then
         rm -rf "$HOME/.cache/mole" 2> /dev/null || true # SAFE: hardcoded Mole-owned dir, -d guarded
     fi

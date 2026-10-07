@@ -3560,10 +3560,32 @@ EOF
     [ "$(printf '%s\n' "$output" | grep -c '^CALL:')" -eq 1 ]
 }
 
+@test "remove_mole preserves unrelated commands named mo and mole without executing them" {
+    local iso="$BATS_TEST_TMPDIR/foreign-remove"
+    mkdir -p "$iso/.local/bin"
+    for name in mo mole; do
+        # shellcheck disable=SC2016 # The fixture script expands its own HOME.
+        printf '%s\n' '#!/bin/bash' 'touch "$HOME/EXECUTED"' > "$iso/.local/bin/$name"
+        chmod +x "$iso/.local/bin/$name"
+    done
+    run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_MODE=1 MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+remove_mole true
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" != *"Would remove: $iso/.local/bin/"* ]] || return 1
+    [ ! -e "$iso/EXECUTED" ] || return 1
+    [ -f "$iso/.local/bin/mo" ] || return 1
+    [ -f "$iso/.local/bin/mole" ]
+}
+
 @test "remove_mole deletes manual binaries and caches" {
     mkdir -p "$HOME/.local/bin"
-    touch "$HOME/.local/bin/mole"
-    touch "$HOME/.local/bin/mo"
+    cp "$PROJECT_ROOT/mole" "$HOME/.local/bin/mole"
+    cp "$PROJECT_ROOT/mo" "$HOME/.local/bin/mo"
     mkdir -p "$HOME/.config/mole" "$HOME/.cache/mole" "$HOME/Library/Logs/mole"
     echo "protected-entry" > "$HOME/.config/mole/whitelist"
 
@@ -3612,11 +3634,54 @@ EOF
     [ -f "$HOME/.Trash/mole-config/whitelist" ] || return 1
 }
 
+@test "remove_mole removes a legacy launcher and its symlink alias" {
+    local iso="$BATS_TEST_TMPDIR/legacy-remove"
+    mkdir -p "$iso/.local/bin"
+    # Released V1.10.0 used this header and the pre-core common.sh location.
+    cat > "$iso/.local/bin/mole" <<'EOF'
+#!/bin/bash
+# Mole - Main Entry Point
+source "$SCRIPT_DIR/lib/common.sh"
+VERSION="1.10.0"
+EOF
+    ln -s mole "$iso/.local/bin/mo"
+    run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_MODE=1 MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+drain_pending_input() { :; }
+remove_mole false < <(printf '\n')
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ ! -e "$iso/.local/bin/mole" ] || return 1
+    [ ! -L "$iso/.local/bin/mo" ]
+}
+
+@test "remove_mole rechecks launcher ownership after confirmation" {
+    local iso="$BATS_TEST_TMPDIR/changed-remove"
+    mkdir -p "$iso/.local/bin"
+    cp "$PROJECT_ROOT/mole" "$iso/.local/bin/mole"
+    cp "$PROJECT_ROOT/mo" "$iso/.local/bin/mo"
+    run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_MODE=1 MOLE_TEST_NO_AUTH=1 \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+drain_pending_input() { printf '%s\n' '#!/bin/bash' '# unrelated replacement' > "$HOME/.local/bin/mo"; }
+remove_mole false < <(printf '\n')
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ ! -e "$iso/.local/bin/mole" ] || return 1
+    grep -q 'unrelated replacement' "$iso/.local/bin/mo"
+}
+
 @test "remove_mole preserves custom config and unrelated default settings (#1589)" {
     local iso="$HOME/custom-remove"
     mkdir -p "$iso/.local/bin" "$iso/.local/lib/core" "$iso/.local/lib/python3"
     mkdir -p "$iso/.config/mole"
-    touch "$iso/.local/bin/mole" "$iso/.local/bin/mo"
+    cp "$PROJECT_ROOT/mole" "$iso/.local/bin/mole"
+    cp "$PROJECT_ROOT/mo" "$iso/.local/bin/mo"
     touch "$iso/.local/lib/core/common.sh" "$iso/.local/install_channel"
     echo foreign > "$iso/.local/bin/other-tool"
     echo foreign > "$iso/.local/lib/python3/user-data"
@@ -3642,7 +3707,8 @@ EOF
     local iso="$HOME/custom-preview"
     local custom="$iso/Library/Application Support/mole"
     mkdir -p "$iso/.local/bin" "$custom/lib/core" "$iso/.config/mole"
-    touch "$iso/.local/bin/mole" "$custom/lib/core/common.sh"
+    cp "$PROJECT_ROOT/mole" "$iso/.local/bin/mole"
+    touch "$custom/lib/core/common.sh"
     echo custom > "$custom/whitelist"
     echo default > "$iso/.config/mole/whitelist"
 
@@ -3683,8 +3749,8 @@ EOF
 
 @test "remove_mole dry-run keeps manual binaries and caches" {
     mkdir -p "$HOME/.local/bin"
-    touch "$HOME/.local/bin/mole"
-    touch "$HOME/.local/bin/mo"
+    cp "$PROJECT_ROOT/mole" "$HOME/.local/bin/mole"
+    cp "$PROJECT_ROOT/mo" "$HOME/.local/bin/mo"
     mkdir -p "$HOME/.config/mole" "$HOME/.cache/mole" "$HOME/Library/Logs/mole"
 
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PATH="/usr/bin:/bin" MOLE_TEST_MODE=1 /bin/bash --noprofile --norc << 'EOF'
@@ -3706,8 +3772,8 @@ EOF
 
 @test "remove_mole test mode ignores PATH installs outside test HOME" {
     mkdir -p "$HOME/.local/bin" "$HOME/.config/mole" "$HOME/.cache/mole" "$HOME/Library/Logs/mole"
-    touch "$HOME/.local/bin/mole"
-    touch "$HOME/.local/bin/mo"
+    cp "$PROJECT_ROOT/mole" "$HOME/.local/bin/mole"
+    cp "$PROJECT_ROOT/mo" "$HOME/.local/bin/mo"
 
     fake_global_bin="$(mktemp -d "${BATS_TEST_DIRNAME}/tmp-remove-path.XXXXXX")"
     touch "$fake_global_bin/mole"
