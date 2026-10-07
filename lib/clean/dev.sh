@@ -4011,7 +4011,8 @@ clean_dev_other_langs() {
 clean_dev_cicd() {
     safe_clean ~/.cache/terraform/* "Terraform cache"
     safe_clean ~/.grafana/cache/* "Grafana cache"
-    safe_clean ~/.prometheus/data/wal/* "Prometheus WAL cache"
+    # Prometheus WAL holds committed samples needed after an unclean exit.
+    # No open writer does not mean those samples have reached a data block.
     safe_clean ~/.jenkins/workspace/*/target/* "Jenkins workspace cache"
     safe_clean ~/.cache/gitlab-runner/* "GitLab Runner cache"
     safe_clean ~/.github/cache/* "GitHub Actions cache"
@@ -5355,12 +5356,9 @@ clean_dev_misc() {
 }
 # Shell and VCS leftovers.
 clean_dev_shell() {
-    safe_clean ~/.gitconfig.lock "Git config lock"
-    safe_clean ~/.gitconfig.bak* "Git config backup"
+    # Git owns its transaction lock; config and history backups can be the
+    # only remaining copy of user state. Neither is an automatic cache target.
     safe_clean ~/.oh-my-zsh/cache/* "Oh My Zsh cache"
-    safe_clean ~/.config/fish/fish_history.bak* "Fish shell backup"
-    safe_clean ~/.bash_history.bak* "Bash history backup"
-    safe_clean ~/.zsh_history.bak* "Zsh history backup"
     safe_clean ~/.cache/pre-commit/* "pre-commit cache"
 }
 # Network tool caches.

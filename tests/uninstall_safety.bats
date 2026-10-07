@@ -558,6 +558,9 @@ brew() { :; }
 trace="$HOME/mole_delete.log"
 mole_delete() {
 	printf '%s|%s\n' "$1" "${2:-false}" >> "$trace"
+	if [[ "$1" == "$app_bundle" ]]; then
+		mv "$app_bundle" "$HOME/removed-app-fixture"
+	fi
 	return 0
 }
 request_sudo_access() { return 0; }
@@ -986,4 +989,168 @@ EOF
 	[[ "$output" == *"should_protect_path com.apple.loginitems.agent=protected"* ]] || return 1
 	[[ "$output" == *"org.example.plain/data=open"*"org.example.plain/data=open"* ]] || return 1
 	[[ "${lines[${#lines[@]} - 1]}" == "calls=0" ]]
+}
+
+@test "live uninstall inventory treats independent longer bundle IDs as shared owners" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/IntelliJ IDEA.app"
+other="$HOME/Applications/Community.app"
+mkdir -p "$selected/Contents" "$other/Contents"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij.ce</string></dict></plist>' > "$other/Contents/Info.plist"
+rc=0
+uninstall_live_bundle_has_other_install com.jetbrains.intellij "$selected" || rc=$?
+printf 'LONGER_OWNER_RC=%s\n' "$rc"
+[[ $rc -eq 0 && -n "$_MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT" ]] || exit 1
+# A textual neighbour is not an owner. Nested helpers still belong to the
+# selected app and must not make every extension-bearing app unremovable.
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellix.ce</string></dict></plist>' > "$other/Contents/Info.plist"
+mkdir -p "$selected/Contents/Helper.app/Contents"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij.helper</string></dict></plist>' > "$selected/Contents/Helper.app/Contents/Info.plist"
+rc=0
+uninstall_live_bundle_has_other_install com.jetbrains.intellij "$selected" || rc=$?
+printf 'UNRELATED_AND_EMBEDDED_RC=%s\n' "$rc"
+[[ $rc -eq 1 ]] || exit 1
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "live uninstall inventory protects stable data while removing a differently identified channel" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/Zed Nightly.app"
+other="$HOME/Applications/Zed.app"
+mkdir -p "$selected/Contents" "$other/Contents" "$HOME/.config/zed"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>dev.zed.Zed</string></dict></plist>' > "$other/Contents/Info.plist"
+rc=0
+uninstall_live_bundle_has_other_install dev.zed.Zed-Nightly "$selected" || rc=$?
+printf 'CHANNEL_OWNER_RC=%s\n' "$rc"
+[[ $rc -eq 0 && -n "$_MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT" ]] || exit 1
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "leftover sink rechecks new sibling owners and unknown inventory after app removal" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 MOLE_UNINSTALL_MODE=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/IntelliJ IDEA.app"
+other="$HOME/Applications/Community.app"
+data="$HOME/Library/Containers/com.jetbrains.intellij.ce"
+mkdir -p "$HOME/Applications" "$data/Data/Documents"
+printf 'only copy\n' > "$data/Data/Documents/project"
+# Exercise the real caller and policy but replace the irreversible sink.
+mole_delete() { printf '%s\n' "$1" >> "$HOME/sink-attempts"; }
+# Preview proved absence; a sibling then appears while the selected app moves.
+rc=0
+uninstall_live_bundle_has_other_install com.jetbrains.intellij "$selected" || rc=$?
+[[ $rc -eq 1 ]] || exit 1
+mkdir -p "$other/Contents"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij.ce</string></dict></plist>' > "$other/Contents/Info.plist"
+for mode in trash permanent; do
+    export MOLE_DELETE_MODE="$mode"
+    rc=0
+    remove_file_list "$data" false com.jetbrains.intellij "$selected" || rc=$?
+    [[ $rc -eq 16 && ! -e "$HOME/sink-attempts" ]] || exit 1
+done
+# An unreadable inventory also keeps the reviewed data.
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/unknown-root")
+ln -s "$HOME/Applications" "$HOME/unknown-root"
+rc=0
+remove_file_list "$data" false com.jetbrains.intellij "$selected" || rc=$?
+[[ $rc -eq 16 && ! -e "$HOME/sink-attempts" ]] || exit 1
+# Complete absence keeps normal deletion reachable, including extension data.
+mkdir -p "$HOME/empty-apps"
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/empty-apps")
+remove_file_list "$data" false com.jetbrains.intellij "$selected"
+[[ $(cat "$HOME/sink-attempts") == "$data" ]] || exit 1
+[[ -f "$data/Data/Documents/project" ]] || exit 1
+printf 'FRESH_OWNER_GATE_AND_ABSENCE_CONTROL_OK\n'
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "a new owner after the app move preserves defaults helpers and full container bytes" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=trash /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/IntelliJ IDEA.app"
+other="$HOME/Applications/Community.app"
+data="$HOME/Library/Containers/com.jetbrains.intellij.ce"
+mkdir -p "$selected/Contents" "$data/Data/Documents" "$HOME/Library/Preferences/ByHost"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij</string></dict></plist>' > "$selected/Contents/Info.plist"
+printf 'container metadata\n' > "$data/.com.apple.containermanagerd.metadata.plist"
+printf 'only copy of document\n' > "$data/Data/Documents/project"
+printf 'preferences\n' > "$HOME/Library/Preferences/ByHost/com.jetbrains.intellij.ce.fixture.plist"
+retained_kb=$(du -skP "$data" | awk '{print $1}')
+encoded=$(printf '%s' "$data" | base64 | tr -d '\n')
+fields=(IDEA "$selected" com.jetbrains.intellij "$((1000 + retained_kb))" "$encoded" '' false false false '' '' '' '' none x com.jetbrains.intellij '' x)
+IFS='|' detail="${fields[*]}"; unset IFS
+app_details=("$detail")
+_batch_selected_app_plan_matches() { return 0; }
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+remove_login_item() { :; }
+force_kill_app() { :; }
+stop_inline_spinner() { :; }
+defaults() { printf 'defaults:%s\n' "$*" >> "$HOME/forbidden"; }
+bootout_login_item_helpers() { printf 'helpers\n' >> "$HOME/forbidden"; }
+mole_delete() {
+    if [[ "$1" == "$selected" ]]; then
+        mv "$selected" "$HOME/removed-fixture.app"
+        mkdir -p "$other/Contents"
+        printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij.ce</string></dict></plist>' > "$other/Contents/Info.plist"
+        return 0
+    fi
+    printf 'sink:%s\n' "$1" >> "$HOME/forbidden"
+}
+success_count=0 failed_count=0 brew_apps_removed=0 total_size_freed=0 files_cleaned=0 total_items=0
+failed_items=() success_items=() success_dock_targets=() system_extension_warning_apps=()
+review_only_system_leftovers=() review_only_system_leftover_keys=() running_at_uninstall_apps=()
+_batch_execute_removals
+printf 'SUCCESS=%s FREED_KB=%s\n' "$success_count" "$total_size_freed"
+[[ $success_count -eq 1 && $failed_count -eq 0 ]] || exit 1
+[[ ! -e "$HOME/forbidden" ]] || { cat "$HOME/forbidden"; exit 1; }
+[[ $total_size_freed -eq 1000 ]] || exit 1
+[[ -f "$data/Data/Documents/project" && -d "$other" ]] || exit 1
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "leftover sink keeps data when the selected app path is reinstalled" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=permanent /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+app="$HOME/Applications/Target.app"
+data="$HOME/Library/Containers/com.example.Target"
+mkdir -p "$app/Contents" "$data"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.example.Target</string></dict></plist>' > "$app/Contents/Info.plist"
+mole_delete() { printf 'unexpected sink\n' > "$HOME/forbidden"; }
+rc=0
+remove_file_list "$data" false com.example.Target "$app" || rc=$?
+[[ ! -e "$HOME/forbidden" && $rc -eq 16 ]] || exit 1
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }

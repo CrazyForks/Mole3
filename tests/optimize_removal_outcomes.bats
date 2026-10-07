@@ -94,7 +94,7 @@ EOF
 	[[ "$output" == *"Failed to repair 1 corrupted shared file list(s)"* ]] || return 1
 }
 
-@test "CoreDuet cleanup reports a failed sidecar removal" {
+@test "CoreDuet cleanup leaves sidecars to SQLite even when pruning fails" {
 	run env HOME="$TEST_HOME/coreduet" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -102,17 +102,24 @@ source "$PROJECT_ROOT/lib/optimize/tasks.sh"
 
 knowledge_dir="$HOME/Library/Application Support/Knowledge"
 mkdir -p "$knowledge_dir"
-touch "$knowledge_dir/knowledgeC.db" "$knowledge_dir/knowledgeC.db-wal"
+printf 'database' > "$knowledge_dir/knowledgeC.db"
+printf 'committed recovery data' > "$knowledge_dir/knowledgeC.db-wal"
+printf 'shared state' > "$knowledge_dir/knowledgeC.db-shm"
 run_with_timeout() { echo "112640 total"; }
-safe_remove() { return 1; }
-sqlite3() { return 0; }
+safe_remove() { printf '%s\n' "$1" >> "$HOME/unexpected-removals"; return 1; }
+sqlite3() { echo 'SQL_ATTEMPT'; return 1; }
 
 execute_optimization coreduet_cleanup
 [[ "$(optimize_outcome_count failed)" == "1" ]] || exit 1
+[[ "$(cat "$knowledge_dir/knowledgeC.db-wal")" == "committed recovery data" ]] || exit 1
+[[ "$(cat "$knowledge_dir/knowledgeC.db-shm")" == "shared state" ]] || exit 1
+[[ ! -e "$HOME/unexpected-removals" ]] || { cat "$HOME/unexpected-removals"; exit 1; }
 EOF
 
 	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
-	[[ "$output" == *"Knowledge database cleanup incomplete"* ]] || return 1
+	[[ "$output" == *"busy or locked"* ]] || return 1
+	[[ "$output" == *"SQL_ATTEMPT"* ]] || return 1
+	[[ "$output" != *"UNEXPECTED_REMOVE"* ]] || return 1
 }
 
 @test "CoreDuet cleanup preserves sidecars when sqlite3 is unavailable" {

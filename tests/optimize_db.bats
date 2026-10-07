@@ -272,3 +272,44 @@ EOF
 	[[ "$output" != *"All databases already optimized"* ]] || return 1
 	[[ "$output" != *"UNEXPECTED_SQLITE"* ]] || return 1
 }
+
+@test "CoreDuet cleanup recovers committed WAL before pruning old records" {
+	local case_home="$BATS_TEST_TMPDIR/knowledge-recovery"
+	local db="$case_home/Library/Application Support/Knowledge/knowledgeC.db"
+	mkdir -p "$(dirname "$db")"
+	# Leave committed transactions in WAL as an abruptly stopped owner does.
+	python3 - "$db" <<'PYSQL'
+import os
+import sqlite3
+import sys
+import time
+
+connection = sqlite3.connect(sys.argv[1])
+connection.execute("PRAGMA journal_mode=WAL")
+connection.execute("PRAGMA wal_autocheckpoint=0")
+connection.execute("CREATE TABLE ZOBJECT (ZCREATIONDATE REAL, value TEXT)")
+connection.commit()
+connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+now = time.time() - 978307200
+connection.executemany("INSERT INTO ZOBJECT VALUES (?, ?)", [
+    (now, "recent-committed"), (now - 120 * 86400, "expired")
+])
+connection.commit()
+os._exit(0)
+PYSQL
+	[[ -s "$db-wal" ]] || return 1
+	# Cross only the size threshold; all database operations remain real.
+	mole_test_fake_command du "printf '112640 total\n'"
+	run env HOME="$case_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+# The fixture writer exited. Supply its known idle state without host lsof/sudo.
+_mole_paths_have_open_handle() { return 1; }
+execute_optimization coreduet_cleanup
+[[ "$(optimize_outcome_count applied)" == "1" ]] || exit 1
+rows=$(sqlite3 "$HOME/Library/Application Support/Knowledge/knowledgeC.db" 'SELECT value FROM ZOBJECT ORDER BY value;')
+[[ "$rows" == "recent-committed" ]] || { printf 'unexpected surviving rows: %s\n' "$rows"; exit 1; }
+EOF
+	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+}

@@ -653,6 +653,36 @@ remove_file_list() {
     local count=0
     local mode="${MOLE_DELETE_MODE:-permanent}"
 
+    # The app move can take long enough for another installation to appear.
+    # Recheck at the leftover boundary, not only at preview or before moving
+    # the app. A conflicting owner or incomplete inventory keeps the whole
+    # data family; no name-derived row is strong enough to override it.
+    if [[ -n "$app_path" ]] && mole_is_reverse_dns_bundle_id "$bundle_id"; then
+        local owner_rc=0
+        local owner_reappeared=false
+        if ! is_uninstall_dry_run && [[ -e "$app_path" || -L "$app_path" ]]; then
+            owner_rc=0 # A replacement at the selected path is a new owner too.
+            owner_reappeared=true
+        else
+            uninstall_live_bundle_has_other_install "$bundle_id" "$app_path" || owner_rc=$?
+        fi
+        [[ $owner_rc -ge 128 ]] && return "$owner_rc"
+        if [[ $owner_rc -ne 1 ]]; then
+            debug_log "Keeping uninstall leftovers: another owner exists or the installation inventory is incomplete"
+            local retained_path
+            while IFS= read -r retained_path; do
+                [[ -n "$retained_path" ]] || continue
+                if [[ "$owner_reappeared" == true ]]; then
+                    _mole_report_unverified_delete "$retained_path" "$mode" unknown "$MOLE_ERR_APP_REAPPEARED"
+                else
+                    _mole_record_uninstall_refusal "$retained_path" protected
+                fi
+            done <<< "$file_list"
+            printf '0\n'
+            return "$MOLE_ERR_OWNER_UNVERIFIED"
+        fi
+    fi
+
     local -a trash_batch=()
     local -a fallback_paths=()
     _MOLE_TRASH_BATCH_SNAPSHOT_PATHS=()
@@ -817,6 +847,27 @@ remove_file_list() {
 # `LC_ALL=C tr` rather than `${var,,}`: this repo still supports bash 3.2.
 uninstall_normalize_bundle_id() {
     printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+}
+
+# The scanner claims dot-continuation IDs and channel-stripped app names.
+# Any independent installed bundle matching either form can still own those
+# rows. This is a retention predicate, never permission to claim new data.
+uninstall_bundles_share_remnants() {
+    local selected_id="$1" other_id="$2" selected_path="$3" other_path="$4"
+    local selected_lower other_lower
+    selected_lower=$(uninstall_normalize_bundle_id "$selected_id")
+    other_lower=$(uninstall_normalize_bundle_id "$other_id")
+    if [[ "$selected_lower" == "$other_lower" ||
+        "$selected_lower" == "$other_lower."* || "$other_lower" == "$selected_lower."* ]]; then
+        return 0
+    fi
+    local selected_name="${selected_path##*/}" other_name="${other_path##*/}"
+    selected_name="${selected_name%.[aA][pP][pP]}"
+    other_name="${other_name%.[aA][pP][pP]}"
+    selected_name=$(uninstall_strip_version_suffix "$selected_name")
+    other_name=$(uninstall_strip_version_suffix "$other_name")
+    [[ ${#selected_name} -ge 2 && ${#other_name} -ge 2 ]] || return 1
+    [[ "$(uninstall_normalize_bundle_id "$selected_name")" == "$(uninstall_normalize_bundle_id "$other_name")" ]]
 }
 
 # A preview-time inventory cannot authorize bundle-id teardown: an app may be
@@ -1101,7 +1152,7 @@ _uninstall_collect_live_sibling_candidate() {
         fi
         return 2
     fi
-    [[ "$(uninstall_normalize_bundle_id "$app_bundle")" == "$bundle_id_lower" ]] || return 1
+    uninstall_bundles_share_remnants "$bundle_id_lower" "$app_bundle" "$selected_path" "$app" || return 1
     _uninstall_live_sibling_path_is_duplicate "$app" && return 1
 
     local live_record=""
@@ -1448,7 +1499,7 @@ uninstall_bundle_id_has_surviving_sibling() {
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path _ other_bundle _ _ _ <<< "$row"
         other_bundle_lower=$(uninstall_normalize_bundle_id "$other_bundle")
-        [[ "$other_bundle_lower" == "$bundle_id_lower" ]] || continue
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle_lower" "$app_path" "$other_path" || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -1485,7 +1536,7 @@ uninstall_surviving_sibling_names() {
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path other_name other_bundle _ _ _ <<< "$row"
         other_bundle_lower=$(uninstall_normalize_bundle_id "$other_bundle")
-        [[ "$other_bundle_lower" == "$bundle_id_lower" ]] || continue
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle_lower" "$app_path" "$other_path" || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -2523,6 +2574,14 @@ _batch_execute_removals() {
             remove_file_list "$related_files" "false" \
                 "$bundle_id" "$app_path" > /dev/null || related_remove_rc=$?
             mole_rc_timeout_or_signal "$related_remove_rc" && return "$related_remove_rc"
+            if [[ $related_remove_rc -eq $MOLE_ERR_OWNER_UNVERIFIED ]]; then
+                # Reuse the preview's retained-family state for every later
+                # side effect, including defaults, ByHost and helper bootout.
+                bundle_id="unknown"
+                sibling_guard="guard_login"
+                system_files=""
+                diag_system=""
+            fi
 
             # Identify leftovers (silent rm failures, e.g. container directories
             # macOS protects via com.apple.provenance xattr). Compute their
@@ -2537,7 +2596,8 @@ _batch_execute_removals() {
                     # Skip macOS-managed container stubs: containermanagerd protects
                     # these directories via com.apple.provenance xattr; rm -rf always
                     # fails on them by design. User data is already gone at this point.
-                    if [[ "$_lf" == */Library/Containers/* && -f "$_lf/.com.apple.containermanagerd.metadata.plist" ]]; then
+                    if [[ $related_remove_rc -ne $MOLE_ERR_OWNER_UNVERIFIED &&
+                        "$_lf" == */Library/Containers/* && -f "$_lf/.com.apple.containermanagerd.metadata.plist" ]]; then
                         continue
                     fi
                     leftover_paths+=("$_lf")
@@ -2565,8 +2625,10 @@ _batch_execute_removals() {
             fi
             if [[ "$used_brew_successfully" == "true" ]]; then
                 local system_remove_rc=0
-                remove_file_list "$diag_system" "true" \
-                    "$bundle_id" "$app_path" > /dev/null || system_remove_rc=$?
+                if [[ -n "$diag_system" ]]; then
+                    remove_file_list "$diag_system" "true" \
+                        "$bundle_id" "$app_path" > /dev/null || system_remove_rc=$?
+                fi
                 mole_rc_timeout_or_signal "$system_remove_rc" && return "$system_remove_rc"
             else
                 local system_all="$system_files"
@@ -2577,9 +2639,15 @@ _batch_execute_removals() {
                     system_all+="$diag_system"
                 fi
                 local system_remove_rc=0
-                remove_file_list "$system_all" "true" \
-                    "$bundle_id" "$app_path" > /dev/null || system_remove_rc=$?
+                if [[ -n "$system_all" ]]; then
+                    remove_file_list "$system_all" "true" \
+                        "$bundle_id" "$app_path" > /dev/null || system_remove_rc=$?
+                fi
                 mole_rc_timeout_or_signal "$system_remove_rc" && return "$system_remove_rc"
+            fi
+            if [[ $system_remove_rc -eq $MOLE_ERR_OWNER_UNVERIFIED ]]; then
+                bundle_id="unknown"
+                sibling_guard="guard_login"
             fi
 
             # Defaults writes are side effects that should never run in dry-run mode.
