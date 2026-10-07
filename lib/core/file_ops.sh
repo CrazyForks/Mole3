@@ -39,6 +39,9 @@ if [[ -z "${MOLE_TIMEOUTS_LOADED:-}" ]]; then
     source "$_MOLE_CORE_DIR/timeouts.sh"
 fi
 
+# shellcheck source=lib/core/browser_clones.sh
+source "$_MOLE_CORE_DIR/browser_clones.sh"
+
 # Keep the removal-timeout summary actionable: record which path ran out of
 # budget so the closing note can name it instead of a bare count.
 _mole_record_removal_timeout_path() {

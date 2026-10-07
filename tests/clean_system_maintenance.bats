@@ -1622,143 +1622,45 @@ EOF
     [ -z "$output" ]
 }
 
-@test "clean_deep_system cleans code_sign_clone caches via safe_sudo_remove" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+@test "clean_deep_system routes signing clones through current-user guarded cleanup" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
-CALL_LOG="$HOME/code_sign_clone_calls.log"
-> "$CALL_LOG"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/system.sh"
-
-sudo() {
-    if [[ "$1" == "test" ]]; then
-        return 1
-    fi
-    if [[ "$1" == "find" ]]; then
-        return 0
-    fi
-    return 0
-}
+sudo() { return 1; }
 safe_sudo_find_delete() { return 0; }
-safe_sudo_remove() {
-    echo "safe_sudo_remove:$1:size=${2:-}" >> "$CALL_LOG"
-    return 0
-}
-log_success() { echo "SUCCESS:$1" >> "$CALL_LOG"; }
 start_section_spinner() { :; }
 stop_section_spinner() { :; }
 find() { return 0; }
-run_with_timeout() {
-    local _timeout="$1"
-    shift
-    if [[ "${1:-}" == "/usr/bin/find" && "${2:-}" == "/private/var/folders" ]]; then
-        printf '%s\0' "/private/var/folders/test/a/X/demo.code_sign_clone"
-        return 0
-    fi
-    "$@"
-}
-
+run_with_timeout() { return 0; }
+safe_sudo_remove() { echo "UNEXPECTED_PARENT_REMOVAL:$1"; return 1; }
+clean_browser_code_sign_clones() { echo "GUARDED_CLONE_CLEANUP"; code_sign_cleaned=1; }
+log_success() { echo "SUCCESS:$1"; }
 clean_deep_system
-cat "$CALL_LOG"
-EOF
-
+SCRIPT
     [ "$status" -eq 0 ]
-    [[ "$output" == *"safe_sudo_remove:/private/var/folders/test/a/X/demo.code_sign_clone:size=unknown"* ]] || return 1
-    [[ "$output" == *"SUCCESS:Browser code signature caches"* ]]
+    [[ "$output" == *"GUARDED_CLONE_CLEANUP"* ]] || return 1
+    [[ "$output" == *"SUCCESS:Browser code signature caches"* ]] || return 1
+    [[ "$output" != *"UNEXPECTED_PARENT_REMOVAL"* ]]
 }
 
-@test "clean_deep_system skips code_sign_clone success when removal fails" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+@test "clean_deep_system does not report retained clones as cleaned" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
-CALL_LOG="$HOME/code_sign_clone_fail_calls.log"
-> "$CALL_LOG"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/system.sh"
-
-sudo() {
-    if [[ "$1" == "test" ]]; then
-        return 1
-    fi
-    if [[ "$1" == "find" ]]; then
-        return 0
-    fi
-    return 0
-}
+sudo() { return 1; }
 safe_sudo_find_delete() { return 0; }
-safe_sudo_remove() {
-    echo "safe_sudo_remove:$1" >> "$CALL_LOG"
-    return 1
-}
-log_success() { echo "SUCCESS:$1" >> "$CALL_LOG"; }
 start_section_spinner() { :; }
 stop_section_spinner() { :; }
 find() { return 0; }
-run_with_timeout() {
-    local _timeout="$1"
-    shift
-    if [[ "${1:-}" == "/usr/bin/find" && "${2:-}" == "/private/var/folders" ]]; then
-        printf '%s\0' "/private/var/folders/test/a/X/demo.code_sign_clone"
-        return 0
-    fi
-    "$@"
-}
-
+run_with_timeout() { return 0; }
+clean_browser_code_sign_clones() { return 0; }
+log_success() { echo "SUCCESS:$1"; }
 clean_deep_system
-cat "$CALL_LOG"
-EOF
-
+SCRIPT
     [ "$status" -eq 0 ]
-    [[ "$output" == *"safe_sudo_remove:/private/var/folders/test/a/X/demo.code_sign_clone"* ]] || return 1
     [[ "$output" != *"SUCCESS:Browser code signature caches"* ]]
-}
-
-@test "clean_deep_system skips EDR code_sign clones (CrowdStrike Falcon tamper)" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
-set -euo pipefail
-CALL_LOG="$HOME/edr_code_sign_calls.log"
-> "$CALL_LOG"
-source "$PROJECT_ROOT/lib/core/common.sh"
-source "$PROJECT_ROOT/lib/clean/system.sh"
-
-sudo() {
-    if [[ "$1" == "test" ]]; then
-        return 1
-    fi
-    if [[ "$1" == "find" ]]; then
-        return 0
-    fi
-    return 0
-}
-safe_sudo_find_delete() { return 0; }
-safe_sudo_remove() {
-    echo "safe_sudo_remove:$1" >> "$CALL_LOG"
-    return 0
-}
-log_success() { echo "SUCCESS:$1" >> "$CALL_LOG"; }
-start_section_spinner() { :; }
-stop_section_spinner() { :; }
-find() { return 0; }
-run_with_timeout() {
-    local _timeout="$1"
-    shift
-    if [[ "${1:-}" == "/usr/bin/find" && "${2:-}" == "/private/var/folders" ]]; then
-        printf '%s\0' \
-            "/private/var/folders/test/a/X/com.crowdstrike.falcon.App.code_sign_clone" \
-            "/private/var/folders/test/a/X/demo.code_sign_clone"
-        return 0
-    fi
-    "$@"
-}
-
-clean_deep_system
-cat "$CALL_LOG"
-EOF
-
-    [ "$status" -eq 0 ]
-    # A normal (browser-style) code-sign clone is still reclaimed.
-    [[ "$output" == *"safe_sudo_remove:/private/var/folders/test/a/X/demo.code_sign_clone"* ]] || return 1
-    # The EDR agent's code-sign clone must never be deleted.
-    [[ "$output" != *"com.crowdstrike"* ]] || return 1
 }
 
 @test "clean_deep_system cleans CleanMyMac-observed rebuildable system caches" {
@@ -2411,13 +2313,12 @@ EOF
     # find's -path is a test, not a prune: without a container-level prune the
     # GPU scan walks the entire T/ temp tree to depth 8 (measured 217k dirs /
     # 19s on a dev machine, against an 8s budget) even though only C/ can
-    # match, so the step times out on every run. Same shape for the X/-only
-    # code-sign scan. Pin both prunes.
+    # match, so the step times out on every run. Signing clones now use
+    # the current user root directly and need no global X/ sweep.
     run grep -cF -- '\( -depth 3 ! -name C \) -prune' "$PROJECT_ROOT/lib/clean/system.sh"
     [ "$status" -eq 0 ] || return 1
     [ "$output" -ge 1 ] || return 1
 
-    run grep -cF -- '\( -depth 3 ! -name X \) -prune' "$PROJECT_ROOT/lib/clean/system.sh"
-    [ "$status" -eq 0 ] || return 1
-    [ "$output" -ge 1 ]
+    run grep -F -- '-name "*.code_sign_clone"' "$PROJECT_ROOT/lib/clean/system.sh"
+    [ "$status" -eq 1 ]
 }

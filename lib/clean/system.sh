@@ -517,49 +517,8 @@ clean_deep_system() {
     fi
     start_section_spinner "Scanning browser code signature caches..."
     local code_sign_cleaned=0
-    local code_sign_scan_file=""
     local code_sign_scan_rc=0
-    if code_sign_scan_file=$(create_temp_file 2> /dev/null); then
-        local code_sign_scan_timeout=""
-        code_sign_scan_timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" \
-            "$system_cleanup_deadline") || code_sign_scan_rc=$?
-        if [[ $code_sign_scan_rc -eq 0 ]]; then
-            # -path is a test, not a prune: without the container-level prune
-            # find still walks every C/ and T/ tree even though only X/ can
-            # match. Depth 3 is the /var/folders/<xx>/<hash>/<container> level.
-            materialize_completed_system_scan "$code_sign_scan_file" \
-                "$code_sign_scan_timeout" /usr/bin/find /private/var/folders \
-                -maxdepth 5 -type d \( -depth 3 ! -name X \) -prune \
-                -o -type d -name "*.code_sign_clone" -path "*/X/*" -print0 || code_sign_scan_rc=$?
-        fi
-        if [[ $code_sign_scan_rc -eq 0 ]]; then
-            while IFS= read -r -d '' cache_dir; do
-                if system_cleanup_budget_reached "$system_cleanup_deadline"; then
-                    code_sign_scan_rc=124
-                    break
-                fi
-                # Never delete an EDR agent's code-signature clone -- same
-                # sensor-tamper risk as its caches below. Browsers are the target.
-                if is_endpoint_security_cache_path "$cache_dir"; then
-                    continue
-                fi
-                local code_sign_remove_rc=0
-                # APFS clones share blocks with the live app and each other.
-                # du measures occupancy, not reclaimable bytes for this family.
-                safe_sudo_remove "$cache_dir" unknown "$system_cleanup_deadline" || code_sign_remove_rc=$?
-                if mole_rc_timeout_or_signal "$code_sign_remove_rc"; then
-                    code_sign_scan_rc=$code_sign_remove_rc
-                    break
-                fi
-                if [[ $code_sign_remove_rc -eq 0 ]]; then
-                    code_sign_cleaned=$((code_sign_cleaned + 1))
-                fi
-            done < "$code_sign_scan_file"
-        fi
-        rm -f -- "$code_sign_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
-    else
-        code_sign_scan_rc=1
-    fi
+    clean_browser_code_sign_clones "$system_cleanup_deadline" || code_sign_scan_rc=$?
     stop_section_spinner
     if [[ $code_sign_scan_rc -ne 0 ]]; then
         if [[ $code_sign_scan_rc -ge 128 ]]; then
