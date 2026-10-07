@@ -76,6 +76,45 @@ setup() {
     [ "$status" -eq 0 ]
 }
 
+@test "stopping sudo keepalive reaps its sleeping child at every delay (#1694)" {
+    for phase in initial refresh retry; do
+        run env PROJECT_ROOT="$PROJECT_ROOT" PHASE="$phase" \
+            TRACE="$BATS_TEST_TMPDIR/keepalive-$phase" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/core/sudo.sh"
+sudo() {
+    echo REFRESH > "$TRACE"
+    [[ "$PHASE" == refresh ]]
+}
+pid=$(_start_sudo_keepalive)
+child=""
+trap '[[ -z "$child" ]] || kill "$child" 2>/dev/null || :; _stop_sudo_keepalive "$pid"' EXIT
+for ((i=0; i<200; i++)); do
+    if [[ "$PHASE" == initial || -f "$TRACE" ]]; then
+        child=$(pgrep -P "$pid" -x sleep || :)
+        [[ -z "$child" ]] || break
+    fi
+    /bin/sleep 0.02
+done
+[[ "$child" =~ ^[0-9]+$ ]] || exit 1
+kill -0 "$child" || exit 1
+_stop_sudo_keepalive "$pid"
+for ((i=0; i<50; i++)); do
+    if ! kill -0 "$child" 2>/dev/null; then
+        echo CHILD_REAPED
+        exit 0
+    fi
+    /bin/sleep 0.02
+done
+echo CHILD_SURVIVED
+exit 1
+EOF
+        [ "$status" -eq 0 ] || { echo "$phase: $output"; return 1; }
+        [[ "$output" == *"CHILD_REAPED"* ]] || return 1
+    done
+}
+
 
 
 @test "stop_sudo_session cleans up keepalive process" {

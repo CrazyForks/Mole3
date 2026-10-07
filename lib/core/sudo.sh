@@ -245,23 +245,33 @@ _start_sudo_keepalive() {
     # Start background keepalive process with all outputs redirected
     # This is critical: command substitution waits for all file descriptors to close
     (
-        # Initial delay to let sudo cache stabilize after password entry
-        # This prevents immediately triggering Touch ID again
-        sleep 2
-
+        # Subshell-only state must survive function-local unwinding at EXIT.
+        child_pid=""
+        local delay=2
+        # A foreground sleep delays shell traps and can outlive the worker.
+        # Wait on an owned child instead, then reap it before this worker exits.
+        trap 'if [[ -n "$child_pid" ]]; then kill "$child_pid" 2>/dev/null || true; wait "$child_pid" 2>/dev/null || true; fi' EXIT
+        trap 'exit 0' HUP INT TERM
         while true; do
-            if ! sudo -n -v 2> /dev/null; then
+            # The initial delay lets the credential cache settle after login.
+            sleep "$delay" &
+            child_pid=$!
+            wait "$child_pid" || true
+            child_pid=""
+            kill -0 "$$" 2> /dev/null || exit
+            sudo -n -v 2> /dev/null &
+            child_pid=$!
+            if wait "$child_pid"; then
+                delay=30
+            else
                 # A failed refresh is harmless and often transient (authd
                 # busy, machine waking). Giving up after a few misses is what
                 # let the timestamp lapse minutes into a long install and
                 # forced a second authentication prompt; `-n` never prompts,
                 # so retrying costs nothing. Exit only with the parent.
-                kill -0 "$$" 2> /dev/null || exit
-                sleep 5
-                continue
+                delay=5
             fi
-            sleep 30
-            kill -0 "$$" 2> /dev/null || exit
+            child_pid=""
         done
     ) > /dev/null 2>&1 &
 
