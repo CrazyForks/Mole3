@@ -548,6 +548,10 @@ project_cache_build_git_index() {
                     if [[ -d "$candidate" && ! -L "$candidate" ]]; then
                         probe_rc=0
                         mole_path_has_git_tracked_files "$candidate" "$deadline" || probe_rc=$?
+                        if [[ $probe_rc -gt 128 ]]; then
+                            rm -rf "$work_dir" # SAFE: exact mktemp-created project cache index scratch directory
+                            return "$probe_rc"
+                        fi
                     fi
                     case "$probe_rc" in
                         0) printf 'T%s\n' "$candidate" >> "$index_file" ;;
@@ -633,8 +637,13 @@ project_cache_git_status() {
 # a scan that cannot finish keeps the folder.
 _project_cache_holds_nested_repo() {
     local dir="$1"
+    local deadline="${2:-}"
     local found="" scan_rc=0
-    found=$(run_with_timeout "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" find -P "$dir" -mindepth 1 -name .git -print -quit 2> /dev/null) || scan_rc=$?
+    local timeout=""
+    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" "$deadline") || scan_rc=$?
+    if [[ $scan_rc -eq 0 ]]; then
+        found=$(run_with_timeout "$timeout" find -P "$dir" -mindepth 1 -name .git -print -quit 2> /dev/null) || scan_rc=$?
+    fi
     [[ $scan_rc -gt 128 ]] && return "$scan_rc"
     local reason=""
     if [[ $scan_rc -ne 0 ]]; then
@@ -653,12 +662,49 @@ project_cache_has_tracked_files() {
     local cache_path="$1"
     local tracked_rc=0
     project_cache_git_status "$cache_path" || tracked_rc=$?
+    [[ $tracked_rc -le 128 ]] || return "$tracked_rc"
     [[ $tracked_rc -eq 1 ]] && return 1
     local reason="tracked by git"
     [[ $tracked_rc -eq 0 ]] || reason="git status unknown"
     debug_log "Keeping project cache, $reason: $cache_path"
     log_operation "clean" "SKIPPED" "$cache_path" "$reason"
     return 0
+}
+
+# Discovery's repository index is only a filter, never deletion authority.
+# Re-read literal Git ancestry and nested repositories after sizing and at
+# safe_remove's final boundary. Files under .next/cache need the same check.
+_project_cache_final_guard() {
+    local path="$1" deadline="${_project_cache_git_deadline:-$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))}"
+    local rc=0 evidence="" physical="" repo=""
+    [[ -e "$path" && ! -L "$path" ]] || return 1
+    _mole_snapshot_path_identity "$path" || return 1
+    local parent="$_MOLE_PATH_SNAPSHOT_PARENT" parent_id="$_MOLE_PATH_SNAPSHOT_PARENT_ID" target_id="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
+    physical="$parent/${path##*/}"
+    if mole_find_git_repo_root "$physical"; then
+        repo="$MOLE_GIT_REPO_ROOT"
+        [[ "$repo" != "$physical" ]] || return 1
+        evidence=$(mole_git_ls_files "$repo" "$deadline" "$parent" -- "${path##*/}") || rc=$?
+        [[ $rc -le 128 ]] || return "$rc"
+        if [[ $rc -ne 0 || -n "$evidence" ]]; then
+            debug_log "Keeping project cache after Git recheck: $path (status $rc)"
+            return 1
+        fi
+    fi
+    if [[ -d "$path" ]]; then
+        rc=0
+        _project_cache_holds_nested_repo "$path" "$deadline" || rc=$?
+        [[ $rc -le 128 ]] || return "$rc"
+        [[ $rc -eq 1 ]] || return 1
+    fi
+    if [[ -n "${_project_cache_outer_guard:-}" ]]; then
+        "$_project_cache_outer_guard" "$path" || return $?
+    fi
+    _mole_path_matches_identity "$path" "$parent" "$parent_id" "$target_id" || return 1
+    _MOLE_SAFE_CLEAN_BOUND_PATH="$path"
+    _MOLE_SAFE_CLEAN_EXPECTED_PARENT="$parent"
+    _MOLE_SAFE_CLEAN_EXPECTED_PARENT_ID="$parent_id"
+    _MOLE_SAFE_CLEAN_EXPECTED_TARGET_ID="$target_id"
 }
 
 clean_project_cache_target() {
@@ -671,16 +717,21 @@ clean_project_cache_target() {
     local target_path=""
     for target_path in "${@:1:$#-1}"; do
         # Files count too: .next/cache hands over each child, directory or not.
-        if [[ -e "$target_path" || -L "$target_path" ]] && project_cache_has_tracked_files "$target_path"; then
-            continue
+        if [[ -e "$target_path" || -L "$target_path" ]]; then
+            local tracked_rc=0
+            project_cache_has_tracked_files "$target_path" || tracked_rc=$?
+            [[ $tracked_rc -le 128 ]] || return "$tracked_rc"
+            [[ $tracked_rc -ne 0 ]] || continue
         fi
         target_paths+=("$target_path")
     done
     [[ ${#target_paths[@]} -gt 0 ]] || return 0
 
+    local _project_cache_outer_guard="${_MOLE_SAFE_REMOVE_FINAL_GUARD:-}"
+    local _MOLE_SAFE_REMOVE_FINAL_GUARD=_project_cache_final_guard
     if declare -f safe_clean > /dev/null 2>&1; then
         local clean_rc=0
-        safe_clean "${target_paths[@]}" "$description" || clean_rc=$?
+        safe_clean_guarded _project_cache_final_guard "${target_paths[@]}" "$description" || clean_rc=$?
         if mole_rc_timeout_or_signal "$clean_rc"; then
             return "$clean_rc"
         fi
@@ -774,7 +825,10 @@ _process_project_cache_matches_indexed() {
                 if [[ -d "$cache_dir" ]]; then
                     # build/ counts as Flutter output only beside a disposable
                     # .dart_tool; a kept one leaves no evidence for it.
-                    project_cache_has_tracked_files "$cache_dir" && continue
+                    local tracked_rc=0
+                    project_cache_has_tracked_files "$cache_dir" || tracked_rc=$?
+                    [[ $tracked_rc -le 128 ]] || return "$tracked_rc"
+                    [[ $tracked_rc -ne 0 ]] || continue
                     clean_project_cache_target "$cache_dir" "Flutter build cache (.dart_tool)" || return $?
                     local build_dir="$(dirname "$cache_dir")/build"
                     if [[ -d "$build_dir" ]]; then
@@ -799,6 +853,8 @@ clean_python_bytecode_cache_group() {
 
     local -a cache_dirs=("$@")
     [[ ${#cache_dirs[@]} -eq 0 ]] && return 0
+    local _project_cache_outer_guard="${_MOLE_SAFE_REMOVE_FINAL_GUARD:-}"
+    local _MOLE_SAFE_REMOVE_FINAL_GUARD=_project_cache_final_guard
 
     local display_root
     display_root=$(basename "$project_root")
@@ -826,7 +882,10 @@ clean_python_bytecode_cache_group() {
             continue
         fi
 
-        project_cache_has_tracked_files "$cache_dir" && continue
+        local tracked_rc=0
+        project_cache_has_tracked_files "$cache_dir" || tracked_rc=$?
+        [[ $tracked_rc -le 128 ]] || return "$tracked_rc"
+        [[ $tracked_rc -ne 0 ]] || continue
 
         local size_kb=""
         local size_rc=0
@@ -835,6 +894,10 @@ clean_python_bytecode_cache_group() {
         [[ $size_rc -eq 0 ]] || return "$size_rc"
         [[ "$size_kb" =~ ^[0-9]+$ ]] || size_kb=0
 
+        local guard_rc=0
+        _project_cache_final_guard "$cache_dir" || guard_rc=$?
+        [[ $guard_rc -le 128 ]] || return "$guard_rc"
+        [[ $guard_rc -eq 0 ]] || continue
         if [[ "$DRY_RUN" == "true" ]]; then
             if declare -f record_dry_run_cleanup_target > /dev/null 2>&1; then
                 record_dry_run_cleanup_target "$cache_dir" "$size_kb" 1 true || continue
@@ -844,9 +907,12 @@ clean_python_bytecode_cache_group() {
             dry_run_paths+=("$cache_dir")
             dry_run_sizes+=("$size_kb")
         else
-            if ! safe_remove "$cache_dir" true "$size_kb"; then
-                continue
+            local remove_rc=0
+            safe_remove "$cache_dir" true "$size_kb" || remove_rc=$?
+            if mole_rc_timeout_or_signal "$remove_rc"; then
+                return "$remove_rc"
             fi
+            [[ $remove_rc -eq 0 ]] || continue
         fi
 
         total_size_kb=$((total_size_kb + size_kb))

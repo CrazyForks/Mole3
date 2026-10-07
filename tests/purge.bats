@@ -4212,6 +4212,7 @@ is_protected_purge_artifact() {
     PURGE_PROTECTION_UNVERIFIED=false
     return 1
 }
+
 : > "$fixture/scanning"
 result=0
 {
@@ -4226,4 +4227,86 @@ if grep -q b-after-cancel "$fixture/probed" 2> /dev/null; then echo LATER_PROBED
 EOF_CANCEL
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == *"STATUS=130"* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge authored probes preserve signals through the final guard and pool" {
+    local failures=0
+    for source in find git; do
+        for code in 124 130 143; do
+            run env HOME="$BATS_TEST_TMPDIR/$source-$code" PROJECT_ROOT="$PROJECT_ROOT" PROBE_SOURCE="$source" PROBE_CODE="$code" /bin/bash <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/repo/build"
+git init -q "$HOME/repo"
+source "$PROJECT_ROOT/lib/clean/project.sh"
+eval "original_$(declare -f run_with_timeout)"
+run_with_timeout() {
+    if [[ "$PROBE_SOURCE" == find && "$2" == /usr/bin/find ]]; then return "$PROBE_CODE"; fi
+    original_run_with_timeout "$@"
+}
+mole_git_ls_files() { return "$PROBE_CODE"; }
+is_safe_configured_purge_artifact() { return 0; }
+for layer in purge_artifact_has_authored_content is_protected_purge_artifact _mole_purge_final_remove_guard; do
+    rc=0
+    "$layer" "$HOME/repo/build" || rc=$?
+    expected="$PROBE_CODE"
+    if [[ "$PROBE_CODE" == 124 ]]; then
+        case "$layer" in
+            purge_artifact_has_authored_content) expected=2 ;;
+            is_protected_purge_artifact) expected=0 ;;
+            *) expected=1 ;;
+        esac
+    fi
+    [[ "$rc" == "$expected" ]] || { echo "$layer: $rc != $expected"; exit 11; }
+done
+rc=0
+printf '%s\n' "$HOME/repo/build" | filter_protected_artifacts "" "$HOME/verified" > "$HOME/output" || rc=$?
+if [[ "$PROBE_CODE" == 124 ]]; then
+    [[ "$rc" == 0 && -s "$HOME/output" && ! -s "$HOME/verified" ]] || exit 12
+else
+    [[ "$rc" == "$PROBE_CODE" && ! -s "$HOME/output" && ! -s "$HOME/verified" ]] || exit 13
+fi
+EOF
+            [ "$status" -eq 0 ] || { echo "$source/$code: $output"; failures=$((failures + 1)); }
+        done
+    done
+    [ "$failures" -eq 0 ]
+}
+
+@test "purge authored cancellation stops later targets at review removal and sink" {
+    local failures=0
+    for phase in review removal sink; do
+        run env HOME="$BATS_TEST_TMPDIR/$phase" PROJECT_ROOT="$PROJECT_ROOT" PHASE="$phase" /bin/bash <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/www/a/node_modules" "$HOME/www/b/node_modules"
+HOME=$(cd "$HOME" && pwd -P)
+mkdir -p "$HOME/.cache/mole"
+touch "$HOME/www/a/package.json" "$HOME/www/b/package.json"
+source "$PROJECT_ROOT/lib/clean/project.sh"
+PURGE_SEARCH_PATHS=("$HOME/www")
+scan_purge_targets() { printf '%s\n' "$HOME/www/"{a,b}/node_modules > "$2"; }
+get_dir_size_kb() { echo 1; }
+is_recently_modified() { _PURGE_ACTIVITY_STATE=old; return 1; }
+purge_artifact_has_authored_content() {
+    [[ "$1" == */a/node_modules ]] || return 1
+    echo call >> "$HOME/probes"
+    count=$(wc -l < "$HOME/probes")
+    case "$PHASE" in
+        review) return 130 ;;
+        removal) [[ "$count" -lt 2 ]] || return 130 ;;
+        sink) [[ "$count" -lt 3 ]] || return 130 ;;
+    esac
+    return 1
+}
+safe_remove() {
+    [[ "$1" != */b/node_modules ]] || echo LATER_SINK >> "$HOME/later"
+    _mole_purge_final_remove_guard "$1"
+}
+rc=0
+clean_project_artifacts || rc=$?
+[[ "$rc" == 130 && "$PURGE_RUN_OUTCOME" == cancelled ]] || { echo "RC=$rc OUTCOME=$PURGE_RUN_OUTCOME"; exit 11; }
+[[ ! -e "$HOME/later" ]] || exit 12
+EOF
+        [ "$status" -eq 0 ] || { echo "$phase: $output"; failures=$((failures + 1)); }
+    done
+    [ "$failures" -eq 0 ]
 }

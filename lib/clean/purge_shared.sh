@@ -205,7 +205,7 @@ mole_git_ls_files() {
 # it. Names do not prove a directory is disposable: build/ can hold tracked
 # source and a cache-named folder a committed fixture. Returns 0 when Git tracks
 # files there, 1 when no repository owns the path or it tracks nothing there,
-# and 2 when the probe timed out or failed.
+# and 2 when the probe timed out or failed. Signal statuses propagate.
 mole_path_has_git_tracked_files() {
     local path="${1%/}"
     local deadline="${2:-}"
@@ -215,7 +215,10 @@ mole_path_has_git_tracked_files() {
     # Git ancestry must follow the actual repository, not the alias spelling.
     path=$(cd "$path" 2> /dev/null && /bin/pwd -P) || return 2
     repo=$(mole_git_repo_root "$path") || return 1
-    evidence=$(mole_git_ls_files "$repo" "$deadline" "$path" -- .) || return 2
+    local probe_rc=0
+    evidence=$(mole_git_ls_files "$repo" "$deadline" "$path" -- .) || probe_rc=$?
+    [[ $probe_rc -le 128 ]] || return "$probe_rc"
+    [[ $probe_rc -eq 0 ]] || return 2
     [[ -n "$evidence" ]] && return 0
     return 1
 }

@@ -172,6 +172,65 @@ _user_cache_deno_delete_guard() {
     return 0
 }
 
+# Log globs must never enumerate through redirected roots. Bind the directories
+# before enumeration and again after sizing and at the last deletion boundary.
+_user_log_delete_guard() {
+    local candidate="$1"
+    [[ ! -L "$_MOLE_USER_LOG_ROOT" ]] || return 1
+    _mole_path_matches_identity "$_MOLE_USER_LOG_ROOT" \
+        "$_MOLE_USER_LOG_PARENT" "$_MOLE_USER_LOG_PARENT_ID" "$_MOLE_USER_LOG_ROOT_ID" || return 1
+    if [[ "${candidate%/*}" == "$_MOLE_USER_LOG_ROOT/DiagnosticReports" ]]; then
+        [[ -n "$_MOLE_USER_REPORTS_ID" && ! -L "$_MOLE_USER_LOG_ROOT/DiagnosticReports" ]] || return 1
+        _mole_path_matches_identity "$_MOLE_USER_LOG_ROOT/DiagnosticReports" \
+            "$_MOLE_USER_REPORTS_PARENT" "$_MOLE_USER_LOG_ROOT_ID" "$_MOLE_USER_REPORTS_ID" || return 1
+    else
+        [[ "${candidate%/*}" == "$_MOLE_USER_LOG_ROOT" ]] || return 1
+    fi
+}
+
+_clean_user_log_directory() {
+    local _MOLE_USER_LOG_ROOT="$1"
+    local label="$2" ancestor="$1"
+    [[ -d "$ancestor" ]] || return 0
+    # HOME may have a canonical system alias; roots below it must be physical.
+    while [[ "$ancestor" != "$HOME" ]]; do
+        [[ "$ancestor" == "$HOME/"* && ! -L "$ancestor" ]] || return 0
+        ancestor="${ancestor%/*}"
+    done
+    _mole_snapshot_path_identity "$_MOLE_USER_LOG_ROOT" || return 0
+    local _MOLE_USER_LOG_PARENT="$_MOLE_PATH_SNAPSHOT_PARENT"
+    local _MOLE_USER_LOG_PARENT_ID="$_MOLE_PATH_SNAPSHOT_PARENT_ID"
+    local _MOLE_USER_LOG_ROOT_ID="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
+    local _MOLE_USER_REPORTS_ID="" _MOLE_USER_REPORTS_PARENT=""
+    local reports="$_MOLE_USER_LOG_ROOT/DiagnosticReports"
+    local -a targets=()
+    local entry
+    for entry in "$_MOLE_USER_LOG_ROOT"/*; do
+        [[ -e "$entry" || -L "$entry" ]] || continue
+        if [[ "$_MOLE_USER_LOG_ROOT" == "$HOME/Library/Logs" && "$entry" == "$reports" ]]; then
+            # Keep the crash-report directory itself (#1689), including a link.
+            if [[ -d "$reports" && ! -L "$reports" ]] && _mole_snapshot_path_identity "$reports"; then
+                _MOLE_USER_REPORTS_ID="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
+                _MOLE_USER_REPORTS_PARENT="$_MOLE_PATH_SNAPSHOT_PARENT"
+                local report
+                for report in "$reports"/*; do
+                    [[ -e "$report" || -L "$report" ]] && targets+=("$report")
+                done
+            fi
+            continue
+        fi
+        targets+=("$entry")
+    done
+    [[ ${#targets[@]} -gt 0 ]] || return 0
+    local _MOLE_SAFE_REMOVE_FINAL_GUARD=_user_log_delete_guard
+    local clean_rc=0
+    safe_clean_guarded _user_log_delete_guard "${targets[@]}" "$label" || clean_rc=$?
+    if mole_rc_timeout_or_signal "$clean_rc"; then
+        return "$clean_rc"
+    fi
+    return 0
+}
+
 clean_user_essentials() {
     start_section_spinner "Scanning caches..."
     # Deno's default root sits inside the otherwise broad user-cache sweep,
@@ -231,15 +290,7 @@ clean_user_essentials() {
     fi
     stop_section_spinner
 
-    # Keep the DiagnosticReports directory itself: macOS cannot recreate it
-    # under the sandbox, so removing it silently disables crash reporting (#1689).
-    local -a user_log_targets=()
-    local log_entry
-    for log_entry in ~/Library/Logs/* ~/Library/Logs/DiagnosticReports/*; do
-        [[ "$log_entry" == "$HOME/Library/Logs/DiagnosticReports" ]] && continue
-        user_log_targets+=("$log_entry")
-    done
-    safe_clean "${user_log_targets[@]}" "User app logs"
+    _clean_user_log_directory "$HOME/Library/Logs" "User app logs" || return $?
 
     if [[ "${MOLE_SKIP_TRASH_CLEANUP:-0}" != "1" ]]; then
         clean_trash
@@ -1010,7 +1061,7 @@ clean_app_caches() {
     safe_clean ~/Library/Caches/com.apple.photoanalysisd "Photo analysis cache" || true
     safe_clean ~/Library/Caches/com.apple.akd "Apple ID cache" || true
     safe_clean ~/Library/Caches/com.apple.WebKit.Networking/* "WebKit network cache" || true
-    safe_clean ~/Library/DiagnosticReports/* "Diagnostic reports" || true
+    _clean_user_log_directory "$HOME/Library/DiagnosticReports" "Diagnostic reports" || return $?
     safe_clean ~/Library/Caches/com.apple.QuickLook.thumbnailcache "QuickLook thumbnails" || true
     safe_clean ~/Library/Caches/Quick\ Look/* "QuickLook cache" || true
     safe_clean ~/Library/Caches/com.apple.iconservices* "Icon services cache" || true

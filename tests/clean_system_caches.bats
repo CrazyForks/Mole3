@@ -583,7 +583,119 @@ EOF
     rm -rf "$HOME/Projects"
 }
 
-@test "clean_project_caches asks Git once per repository" {
+@test "project cache final guard rejects changed Git evidence after sizing" {
+    local failures=0
+    for route in main fallback python preview; do
+        for change in tracked nested unknown signal normal; do
+            run env HOME="$BATS_TEST_TMPDIR/$route-$change" PROJECT_ROOT="$PROJECT_ROOT" ROUTE="$route" CHANGE="$change" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/repo/cache"
+printf 'authored fixture\n' > "$HOME/repo/cache/payload"
+git init -q "$HOME/repo"
+if [[ "$ROUTE" == main ]]; then
+    source "$PROJECT_ROOT/bin/clean.sh"
+else
+    source "$PROJECT_ROOT/lib/core/common.sh"
+    source "$PROJECT_ROOT/lib/clean/caches.sh"
+fi
+DRY_RUN=false
+[[ "$ROUTE" != preview ]] || DRY_RUN=true
+_project_cache_git_index=$'\nC'"$HOME/repo/cache"$'\n'
+eval "original_$(declare -f mole_git_ls_files)"
+mole_git_ls_files() {
+    if [[ -f "$HOME/sized" ]]; then
+        [[ "$CHANGE" != unknown ]] || return 124
+        [[ "$CHANGE" != signal ]] || return 130
+    fi
+    original_mole_git_ls_files "$@"
+}
+get_path_size_kb() {
+    touch "$HOME/sized"
+    case "$CHANGE" in
+        tracked) git -C "$HOME/repo" add -f cache/payload ;;
+        nested) git init -q "$HOME/repo/cache/nested" ;;
+    esac
+    echo 1
+}
+record_dry_run_cleanup_target() { printf '%s\n' "$1" >> "$HOME/preview"; }
+rc=0
+case "$ROUTE" in
+    python|preview) clean_python_bytecode_cache_group "$HOME/repo" "$HOME/repo/cache" || rc=$? ;;
+    *) clean_project_cache_target "$HOME/repo/cache" "fixture cache" || rc=$? ;;
+esac
+[[ -f "$HOME/sized" ]] || exit 10
+if [[ "$CHANGE" == normal ]]; then
+    if [[ "$ROUTE" == preview ]]; then
+        [[ -s "$HOME/preview" ]] || exit 11
+    else
+        [[ ! -e "$HOME/repo/cache" ]] || exit 12
+    fi
+else
+    [[ -f "$HOME/repo/cache/payload" ]] || exit 13
+    [[ ! -e "$HOME/preview" ]] || exit 14
+fi
+if [[ "$CHANGE" == signal ]]; then
+    [[ "$rc" -eq 130 ]] || exit 15
+else
+    [[ "$rc" -eq 0 ]] || exit 16
+fi
+EOF
+            [ "$status" -eq 0 ] || { echo "$route/$change: $output (status $status)"; failures=$((failures + 1)); }
+        done
+    done
+    [ "$failures" -eq 0 ]
+}
+
+@test "project cache final sink rechecks files directories and later cancellation" {
+    for route in main fallback python; do
+        run env HOME="$BATS_TEST_TMPDIR/$route" PROJECT_ROOT="$PROJECT_ROOT" ROUTE="$route" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME/repo/cache" "$HOME/repo/later"
+printf 'fixture' > "$HOME/repo/cache/payload"
+printf 'next cache' > "$HOME/repo/later/payload"
+printf 'standalone' > "$HOME/repo/file"
+git init -q "$HOME/repo"
+if [[ "$ROUTE" == main ]]; then
+    source "$PROJECT_ROOT/bin/clean.sh"
+else
+    source "$PROJECT_ROOT/lib/core/common.sh"
+    source "$PROJECT_ROOT/lib/clean/caches.sh"
+fi
+DRY_RUN=false
+_project_cache_git_index=$'\nC'"$HOME/repo/cache"$'\nC'"$HOME/repo/later"$'\nC'"$HOME/repo/file"$'\n'
+eval "original_$(declare -f safe_remove)"
+safe_remove() {
+    printf '%s\n' "$1" >> "$HOME/sinks"
+    git -C "$HOME/repo" add -f cache/payload file
+    original_safe_remove "$@"
+}
+if [[ "$ROUTE" == python ]]; then
+    clean_python_bytecode_cache_group "$HOME/repo" "$HOME/repo/cache"
+else
+    clean_project_cache_target "$HOME/repo/cache" "$HOME/repo/file" fixture
+fi
+[[ -s "$HOME/sinks" && -f "$HOME/repo/cache/payload" && -f "$HOME/repo/file" ]] || exit 11
+# The first sink is cancelled; the otherwise disposable later cache must stay.
+safe_remove() {
+    printf '%s\n' "$1" >> "$HOME/cancel-sinks"
+    return 130
+}
+git -C "$HOME/repo" rm --cached -q cache/payload file
+rc=0
+if [[ "$ROUTE" == python ]]; then
+    clean_python_bytecode_cache_group "$HOME/repo" "$HOME/repo/cache" "$HOME/repo/later" || rc=$?
+else
+    clean_project_cache_target "$HOME/repo/cache" "$HOME/repo/later" fixture || rc=$?
+fi
+[[ "$rc" -eq 130 ]] || exit 12
+[[ "$(cat "$HOME/cancel-sinks")" == "$HOME/repo/cache" ]] || exit 13
+[[ -f "$HOME/repo/later/payload" ]] || exit 14
+EOF
+        [ "$status" -eq 0 ] || { echo "$route: $output (status $status)"; return 1; }
+    done
+}
+
+@test "clean_project_caches batches Git discovery and rechecks each deletion" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -597,13 +709,14 @@ touch "$repo/svc/pyproject.toml"
 git init -q "$repo"
 git -C "$repo" add -f svc/c/__pycache__/m.pyc
 eval "real_$(declare -f mole_git_ls_files)"
-mole_git_ls_files() { printf 'call\n' >> "$HOME/ls-files.calls"; real_mole_git_ls_files "$@"; }
+mole_git_ls_files() { printf '%s\n' "$3|${*: -1}" >> "$HOME/ls-files.calls"; real_mole_git_ls_files "$@"; }
 DRY_RUN=false
 clean_project_caches
-[[ "$(wc -l < "$HOME/ls-files.calls" | tr -d ' ')" == 1 ]] || { cat "$HOME/ls-files.calls"; exit 11; }
+[[ "$(grep -Fxc "$repo|." "$HOME/ls-files.calls")" == 1 ]] || { cat "$HOME/ls-files.calls"; exit 11; }
 [[ -f "$repo/svc/c/__pycache__/m.pyc" ]] || exit 12
 for pkg in a b d e f; do
     [[ ! -e "$repo/svc/$pkg/__pycache__" ]] || exit 13
+    grep -Fxq "$repo/svc/$pkg|__pycache__" "$HOME/ls-files.calls" || exit 14
 done
 EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
@@ -761,7 +874,7 @@ git init -q "$app"
 eval "real_$(declare -f run_with_timeout)"
 run_with_timeout() {
     # Only the nested-repository probe times out; discovery still runs.
-    if [[ "$2" == find && "$*" == *"-mindepth 1 -name .git -print -quit"* ]]; then
+    if [[ "$2" == find && "$*" == *"/build -mindepth 1 -name .git -print -quit"* ]]; then
         return 124
     fi
     real_run_with_timeout "$@"
@@ -828,6 +941,7 @@ source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/caches.sh"
 run_with_timeout() { shift; "$@"; }
 safe_clean() { echo "$2|$1"; }
+safe_clean_guarded() { shift; safe_clean "$@"; }
 clean_project_caches
 EOF
     [ "$status" -eq 0 ]
@@ -849,6 +963,7 @@ set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/caches.sh"
 safe_clean() { echo "$2|$1"; }
+safe_clean_guarded() { shift; safe_clean "$@"; }
 clean_project_caches
 EOF
     [ "$status" -eq 0 ]
@@ -867,6 +982,7 @@ set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/caches.sh"
 safe_clean() { echo "$2|$1"; }
+safe_clean_guarded() { shift; safe_clean "$@"; }
 clean_project_caches
 EOF
     [ "$status" -eq 0 ]
