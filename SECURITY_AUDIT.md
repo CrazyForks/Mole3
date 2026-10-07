@@ -1,6 +1,6 @@
 # Mole Security Audit
 
-This document describes the security-relevant behavior of the current `main` branch, updated for V1.58.0 on 2026-10-05. It is intended as a public description of Mole's safety boundaries, destructive-operation controls, release integrity signals, and known limitations.
+This document describes the security-relevant behavior of the current `main` branch, updated on 2026-10-07 after V1.58.0. It is intended as a public description of Mole's safety boundaries, destructive-operation controls, release integrity signals, and known limitations.
 
 ## Executive Summary
 
@@ -42,7 +42,7 @@ The highest-risk areas in Mole are:
 
 ## Destructive Operation Boundaries
 
-All destructive shell file operations are routed through guarded helpers in `lib/core/file_ops.sh`.
+Cleanup and app-data removal use guarded helpers in `lib/core/file_ops.sh`. Installation and self-removal also perform narrowly scoped file operations.
 
 Core controls include:
 
@@ -188,6 +188,7 @@ Symlink behavior is intentionally conservative.
 - `safe_find_delete()` and `safe_sudo_find_delete()` refuse to scan symlinked base directories
 - installer discovery avoids treating symlinked installer files as deletion candidates
 - analyzer scanning skips following symlinks to unexpected targets
+- user log and standalone diagnostic-report sweeps refuse symlinked roots or ancestors below HOME, preserve the DiagnosticReports directory, and recheck root identities after sizing and at the deletion sink
 
 Path traversal handling is also explicit:
 
@@ -257,7 +258,10 @@ Mole exposes multiple safety controls before and during destructive actions:
 - operation logs are written to `~/Library/Logs/mole/operations.log` unless disabled with `MO_NO_OPLOG=1`
 - `mole_delete` Trash and permanent deletion attempts are also recorded by the file-operation layer with result status, target path, and error context where available
 - `mo history` (`lib/core/history.sh`) is read-only: it reads `operations.log` and `deletions.log` to surface recent cleanup activity and performs no deletion or out-of-bounds writes
+- operation-log records and deletion-log fields escape control bytes and backslashes before append, including batched records, so filenames cannot forge history entries
 - timeouts bound external commands so stalled discovery or uninstall operations do not silently hang the entire flow
+- Purge preserves interruption statuses through content probes, parallel discovery, review, and deletion; a read timeout remains unknown and keeps the target
+- project-cache cleanup rechecks tracked files and nested repositories after sizing and at the final deletion boundary; the discovery Git index alone never authorizes deletion
 
 Relevant timeout behavior includes:
 
@@ -271,7 +275,7 @@ Relevant timeout behavior includes:
 Optimize tasks are maintenance actions rather than bulk deletion, but they still touch user-visible state, so they are bounded conservatively:
 
 - Optimize never restarts Dock or deletes any `*.db` under `~/Library/Application Support/Dock`. Earlier implementations reset the user's wallpaper or disrupted the desktop session; Dock repair is no longer an automatic maintenance task (#995, #1300).
-- Spotlight orphan rule cleanup operates only in the user domain through `defaults`, runs under a dry-run guard, removes only entries whose app is confirmed no longer installed (`bundle_has_installed_app`), requires a well-formed reverse-DNS bundle ID, and never touches `System.*` or `com.apple.*` rules.
+- Spotlight orphan rule cleanup operates only in the user domain through `defaults`, runs under a dry-run guard, removes only entries whose app is confirmed no longer installed (`bundle_has_installed_app`), requires a well-formed reverse-DNS bundle ID, and never touches `System.*` or `com.apple.*` rules. It parses a complete typed snapshot before app resolution and verifies that snapshot again before writing; malformed, partial, or changed data is retained.
 - Font Cache Rebuild (`atsutil databases -remove`) was removed because clearing the font cache could corrupt font rendering with no reliable benefit.
 
 ## Release Integrity and Continuous Security Signals
@@ -292,6 +296,8 @@ Repository-level signals include:
 - install-time verification of the GitHub Actions build-provenance attestation: `install.sh` runs `gh attestation verify` scoped to the exact `tw93/Mole` repository (with `--deny-self-hosted-runners`) on the downloaded asset when the GitHub CLI is available, and a mismatch is treated as fatal before checksums are read. This moves attestation from a release-side artifact to an install-side check.
 
 These controls do not eliminate all supply-chain risk, but they make release changes easier to review and verify.
+
+Installers serialize custom configuration paths as literal shell data before embedding the launcher assignment. Self-removal recognizes released Mole launcher signatures without executing discovered files, and checks them again after confirmation; an unrelated command named `mo` or `mole` is retained.
 
 ## Testing Coverage
 
