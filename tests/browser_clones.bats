@@ -13,8 +13,10 @@ setup() {
     printf 'fixture executable' >"$BUNDLE/Contents/MacOS/Google Chrome"
     /usr/libexec/PlistBuddy -c 'Add :CFBundleIdentifier string com.google.Chrome' "$BUNDLE/Contents/Info.plist" >/dev/null
     /usr/libexec/PlistBuddy -c 'Add :CFBundleExecutable string Google Chrome' "$BUNDLE/Contents/Info.plist"
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     _mole_browser_clone_root() { printf '%s\n' "$CLONE_ROOT"; }
     # No host browser, lsof, sudo, or deletion is used by these fixtures.
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     run_with_timeout() {
         shift
         case "$1" in
@@ -29,10 +31,12 @@ setup() {
         *) "$@" ;;
         esac
     }
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     system_cleanup_budget_reached() { return 1; }
     CALLS="$HOME/calls"
     : >"$CALLS"
     code_sign_cleaned=0
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     safe_remove() {
         [[ "$2" == true && "$3" == unknown ]] || return 1
         [[ "$5" == "${1%/*}" && -n "$6" && -n "$7" ]] || return 1
@@ -99,6 +103,7 @@ Google Chrome Helper (Renderer)' '/sbin/launchd
 }
 
 @test "browser starting at final removal guard retains the clone" {
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     safe_remove() {
         PROCESS_TABLE='/sbin/launchd
 Google Chrome Helper'
@@ -111,6 +116,7 @@ Google Chrome Helper'
 }
 
 @test "replacing a reviewed clone at final removal guard retains it" {
+    # shellcheck disable=SC2329 # Called indirectly by the sourced cleanup implementation.
     safe_remove() {
         mv "$CLONE" "$CLONE.replaced"
         mkdir -p "$CLONE"

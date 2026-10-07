@@ -17,27 +17,60 @@ setup() {
     source "$PROJECT_ROOT/lib/core/base.sh"
 }
 
-@test "Perl timeout backend completes short probes within a shared scan budget" {
+@test "Perl timeout backend backs off short polls and preserves command status" {
     [[ -x /usr/bin/perl ]] || skip "Perl fallback unavailable"
     run /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 export MO_TIMEOUT_INITIALIZED=1 MO_TIMEOUT_BIN="" MO_TIMEOUT_PERL_BIN=/usr/bin/perl
-source "$PROJECT_ROOT/lib/core/timeouts.sh"
 source "$PROJECT_ROOT/lib/core/timeout.sh"
-SECONDS=0
-deadline=$((SECONDS + 8))
-completed=0
+probe_dir=$(mktemp -d "$TEST_DATA_DIR/poll.XXXXXX")
+# SAFE: exact mktemp-created test fixture, removed after the bounded probe exits.
+trap 'rm -rf "$probe_dir"' EXIT
+cat > "$probe_dir/MolePollProbe.pm" <<'PERL'
+package MolePollProbe;
+use strict;
+use warnings;
+use Time::HiRes ();
+my $real_sleep = \&Time::HiRes::sleep;
+my $polls = 0;
+{
+    no warnings 'redefine';
+    *Time::HiRes::sleep = sub (;@) {
+        open my $log, '>>', "$ENV{MOLE_POLL_FIXTURE}/intervals" or die $!;
+        print {$log} "$_[0]\n";
+        close $log or die $!;
+        # The child cannot exit before six polls, even on a busy runner.
+        if (++$polls == 6) {
+            open my $release, '>', "$ENV{MOLE_POLL_FIXTURE}/release" or die $!;
+            close $release or die $!;
+        }
+        return $real_sleep->(@_);
+    };
+}
+1;
+PERL
+export PERL5LIB="$probe_dir" PERL5OPT=-MMolePollProbe MOLE_POLL_FIXTURE="$probe_dir"
 rc=0
-for ((i=0; i<100; i++)); do
-    remaining=$(_mole_timeout_with_deadline 8 "$deadline") || { rc=$?; break; }
-    run_with_timeout "$remaining" /usr/bin/true < /dev/null || { rc=$?; break; }
-    completed=$((completed + 1))
-done
-printf 'COMPLETED=%s RC=%s\n' "$completed" "$rc"
-[[ "$completed" == 100 && "$rc" == 0 ]] || exit 1
+# Both helper and child have a deadline, so a broken handshake cannot hang.
+run_with_timeout 10 /bin/bash --noprofile --norc -c '
+    deadline=$((SECONDS + 10))
+    while [[ ! -f "$MOLE_POLL_FIXTURE/release" ]]; do
+        [[ $SECONDS -lt $deadline ]] || exit 99
+        sleep 0.01
+    done
+    exit 7
+' < /dev/null || rc=$?
+printf 'RC=%s POLLS=%s\n' "$rc" "$(tr '\n' ',' < "$probe_dir/intervals")"
+[[ $rc -eq 7 ]] || exit 1
+awk '
+    BEGIN { split("0.01 0.02 0.04 0.08 0.1 0.1", expected) }
+    NR <= 6 && $1 != expected[NR] { bad = 1 }
+    $1 <= 0 || $1 > 0.1 { bad = 1 }
+    END { exit (bad || NR < 6) }
+' "$probe_dir/intervals"
 EOF
     [ "$status" -eq 0 ] || { printf '%s\n' "$output"; return 1; }
-    [[ "$output" == *"COMPLETED=100 RC=0"* ]]
+    [[ "$output" == *"RC=7 POLLS=0.01,0.02,0.04,0.08,0.1,0.1,"* ]]
 }
 
 @test "scan workers reap a completed peer before a blocked queue head" {
