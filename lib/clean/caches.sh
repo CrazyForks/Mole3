@@ -754,9 +754,8 @@ clean_project_cache_target() {
         [[ -e "$target_path" ]] || continue
         local remove_rc=0
         safe_remove "$target_path" true || remove_rc=$?
-        if mole_rc_timeout_or_signal "$remove_rc"; then
-            return "$remove_rc"
-        fi
+        # Same policy as the guarded route: a removal timeout is not a stop.
+        [[ $remove_rc -lt 128 ]] || return "$remove_rc"
     done
 }
 
@@ -919,9 +918,9 @@ clean_python_bytecode_cache_group() {
         else
             local remove_rc=0
             safe_remove "$cache_dir" true "$size_kb" || remove_rc=$?
-            if mole_rc_timeout_or_signal "$remove_rc"; then
-                return "$remove_rc"
-            fi
+            # A removal timeout (124) is one failed removal, as in
+            # _safe_clean_impl: only a signal ends the run.
+            [[ $remove_rc -lt 128 ]] || return "$remove_rc"
             [[ $remove_rc -eq 0 ]] || continue
         fi
 

@@ -1026,6 +1026,47 @@ EOF
     done
 }
 
+@test "project cache removal timeouts count one failed removal while a signal still stops the run" {
+    local route rm_rc
+    for route in python fallback; do
+        for rm_rc in 124 130; do
+            run env HOME="$BATS_TEST_TMPDIR/rm-$route-$rm_rc" PROJECT_ROOT="$PROJECT_ROOT" ROUTE="$route" RM_RC="$rm_rc" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+repo="$HOME/repo"
+mkdir -p "$repo/a/__pycache__" "$repo/b/__pycache__"
+touch "$repo/a/__pycache__/m.pyc" "$repo/b/__pycache__/m.pyc"
+DRY_RUN=false
+# The first removal fails with the given status; later ones succeed.
+safe_remove() {
+    printf '%s\n' "$1" >> "$HOME/sinks"
+    if [[ "$(wc -l < "$HOME/sinks")" -eq 1 ]]; then
+        return "$RM_RC"
+    fi
+    /bin/rm -rf "$1"
+}
+rc=0
+if [[ "$ROUTE" == python ]]; then
+    clean_python_bytecode_cache_group "$repo" "$repo/a/__pycache__" "$repo/b/__pycache__" || rc=$?
+else
+    clean_project_cache_target "$repo/a/__pycache__" "$repo/b/__pycache__" fixture || rc=$?
+fi
+if [[ "$RM_RC" == 124 ]]; then
+    [[ "$rc" -eq 0 ]] || exit 11
+    [[ "$(wc -l < "$HOME/sinks")" -eq 2 ]] || exit 12
+    [[ -d "$repo/a/__pycache__" && ! -e "$repo/b/__pycache__" ]] || exit 13
+else
+    [[ "$rc" -eq 130 ]] || exit 14
+    [[ "$(wc -l < "$HOME/sinks")" -eq 1 ]] || exit 15
+    [[ -d "$repo/b/__pycache__" ]] || exit 16
+fi
+EOF
+            [ "$status" -eq 0 ] || { echo "$route/$rm_rc: status $status: $output"; return 1; }
+        done
+    done
+}
+
 @test "clean_project_caches scans configured roots instead of HOME" {
     mkdir -p "$HOME/.config/mole"
     mkdir -p "$HOME/CustomProjects/app/.next/cache"
