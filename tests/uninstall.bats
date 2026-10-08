@@ -5623,45 +5623,42 @@ SCRIPT
     done
 }
 
-@test "batch uninstall reports refused system-pass agents once" {
-    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'SCRIPT'
+@test "batch uninstall reports a refused leftover agent once and still removes its intact sibling" {
+    run env HOME="$BATS_TEST_TMPDIR/home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'SCRIPT'
 set -euo pipefail
+mkdir -p "$HOME"
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/uninstall/batch.sh"
 export MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=trash
 export MOLE_TEST_TRASH_DIR="$HOME/Trash" MOLE_DELETE_LOG="$HOME/deletions.log"
-app="$HOME/Applications/SystemOwned.app"
-agent="$HOME/Library/LaunchAgents/com.thirdparty.system-owned.plist"
-container_stub="$HOME/Library/Containers/com.thirdparty.system-owned"
-# Use a user-owned agent in the system pass so the real ownership gate runs
-# without writing to /Library or requesting privileged removal.
-mkdir -p "$app/Contents/MacOS" "${agent%/*}"
-mkdir -p "$container_stub"
-touch "$container_stub/.com.apple.containermanagerd.metadata.plist"
-touch "$app/Contents/MacOS/SystemOwned"
-cat > "$agent" <<PLIST
-<plist version="1.0"><dict><key>Program</key><string>$app/Contents/MacOS/SystemOwned</string></dict></plist>
+app="$HOME/Applications/AgentOwned.app"
+changed="$HOME/Library/LaunchAgents/com.thirdparty.changed.plist"
+intact="$HOME/Library/LaunchAgents/com.thirdparty.intact.plist"
+mkdir -p "$app/Contents/MacOS" "${changed%/*}"
+touch "$app/Contents/MacOS/AgentOwned"
+for agent in "$changed" "$intact"; do
+    cat > "$agent" <<PLIST
+<plist version="1.0"><dict><key>Program</key><string>$app/Contents/MacOS/AgentOwned</string></dict></plist>
 PLIST
+done
+# The reviewed agent now launches something else when teardown has run.
 stop_launch_services() {
-    [[ "$2" == true ]] || return 99
-    cat > "$agent" <<'PLIST'
+    cat > "$changed" <<'PLIST'
 <plist version="1.0"><dict><key>Program</key><string>/bin/true</string></dict></plist>
 PLIST
-    printf 'SYSTEM_AGENT_CHANGED\n'
+    printf 'AGENT_CHANGED\n'
 }
 unregister_app_bundle() { :; }
 # A refusal recorded before a successful Trash retry must not become a kept row.
 mv() {
-    [[ "$1" == "$app" ]] || return 99
-    _mole_record_uninstall_refusal "$1" access-denied
-    # Existing container-stub refusals remain hidden in real-run summaries.
-    _mole_record_uninstall_refusal "$container_stub" access-denied
-    printf '%s\n' "$1" > "$HOME/recovered-move"
+    if [[ "$1" == "$app" ]]; then
+        _mole_record_uninstall_refusal "$1" access-denied
+        printf '%s\n' "$1" > "$HOME/recovered-move"
+    fi
     command mv "$@"
 }
-# Repeated plan entries must not duplicate the final explanation.
-encoded_system=$(printf '%s\n%s\n' "$agent" "$agent" | base64 | tr -d '\n')
-app_details=("SystemOwned|$app|unknown|0||$encoded_system|false|false|false|||||guard_login|$(_batch_selected_app_identity "$app")|unknown||missing")
+encoded=$(printf '%s\n%s\n' "$changed" "$intact" | base64 | tr -d '\n')
+app_details=("AgentOwned|$app|unknown|0|$encoded||false|false|false|||||guard_login|$(_batch_selected_app_identity "$app")|unknown||missing")
 success_count=0 failed_count=0 brew_apps_removed=0
 failed_items=() success_items=() success_dock_targets=()
 system_extension_warning_apps=() review_only_system_leftovers=()
@@ -5669,17 +5666,18 @@ review_only_system_leftover_keys=() running_at_uninstall_apps=()
 total_size_freed=0 files_cleaned=0 total_items=0
 _batch_execute_removals
 [[ $success_count -eq 1 && $failed_count -eq 0 ]] || exit 1
-[[ ! -e "$app" && -f "$agent" ]] || exit 1
-[[ -d "$container_stub" ]] || exit 1
+[[ ! -e "$app" && -f "$changed" ]] || exit 1
+# Positive control: the intact agent went through the real sink.
+[[ ! -e "$intact" ]] || exit 1
 [[ "$(cat "$HOME/recovered-move")" == "$app" ]] || exit 1
-[[ "$(grep -c $'\townership-unverified\t' "$MOLE_DELETE_LOG")" -eq 2 ]] || { cat "$MOLE_DELETE_LOG"; exit 1; }
+[[ "$(grep -c $'\townership-unverified\t' "$MOLE_DELETE_LOG")" -eq 1 ]] || { cat "$MOLE_DELETE_LOG"; exit 1; }
 SCRIPT
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
-    [[ "$output" == *"SYSTEM_AGENT_CHANGED"* ]] || return 1
-    [[ "$output" == *"Kept (agent ownership unverified; review the plist): ~/Library/LaunchAgents/com.thirdparty.system-owned.plist"* ]] || return 1
-    [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (agent ownership unverified; review the plist):')" -eq 1 ]] || return 1
+    [[ "$output" == *"AGENT_CHANGED"* ]] || return 1
+    [[ "$output" == *"Kept (agent ownership unverified; review the plist): ~/Library/LaunchAgents/com.thirdparty.changed.plist"* ]] || return 1
+    [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (')" -eq 1 ]] || return 1
     [[ "$output" != *"Could not remove"* && "$output" != *"Kept $HOME/Library/LaunchAgents"* ]] || return 1
-    [[ "$output" != *"macOS denied access:"* ]] || return 1
+    [[ "$output" != *"macOS denied access:"* && "$output" != *"com.thirdparty.intact"* ]] || return 1
 }
 
 @test "batch uninstall explains actual refusal and clears it for the next app" {
