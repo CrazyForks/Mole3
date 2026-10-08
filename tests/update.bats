@@ -2272,3 +2272,19 @@ sleep 1
 SCRIPT
  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "run_mole_command keeps its stderr redirect off the wait builtin" {
+	# On bash 3.2 a TERM or HUP trap followed within a fraction of a millisecond
+	# by INT can leave a redirected wait looping at full CPU, so the redirect that
+	# hides the job-status line of a signaled child sits on a group instead.
+	local code waits
+	code=$(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/lib/manage/update.sh")
+	# shellcheck disable=SC2016  # Literal source text, not an expansion.
+	waits=$(printf '%s\n' "$code" | grep -cF 'wait "$command_pid"' || true)
+	# Positive control: exactly one wait must be found, or the checks below pass vacuously.
+	[ "$waits" -eq 1 ] || { echo "expected one wait on command_pid, found $waits"; return 1; }
+	# shellcheck disable=SC2016  # Literal source text, not an expansion.
+	printf '%s\n' "$code" | grep -qF '{ wait "$command_pid"; } 2> /dev/null' || { echo "wait redirect is not on a group"; return 1; }
+	# shellcheck disable=SC2016  # Literal source text, not an expansion.
+	! printf '%s\n' "$code" | grep -qF 'wait "$command_pid" 2>' || { echo "wait builtin carries a redirect"; return 1; }
+}

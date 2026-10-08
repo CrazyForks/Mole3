@@ -214,10 +214,11 @@ for target, message, status in [('nope.sh', b'No such file or directory', 1), ('
                                 ('adir', b'is a directory', 126)]:
     check_notice(unlaunchable + f'run_mole_command "$HOME/{target}"', expected_status=status,
                  required=(message,), forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
-# The interpreter line is only found missing by exec itself, after the notice
-# check started, so the wrapper must report that cause on its own.
+# A #! line naming a missing interpreter is caught before the wrapper spawns
+# anything, so bash names the interpreter ('bad interpreter') instead of the
+# wrapper blaming the script, and no update check starts.
 check_notice(unlaunchable + 'run_mole_command "$HOME/bad-interp.sh"', expected_status=1,
-             required=(b'bad-interp.sh: No such file or directory',))
+             required=(b'bad interpreter',), forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
 print('PASS: an unlaunchable target keeps the diagnostic and status of a plain exec')
 
 # Without /usr/bin/perl the command still runs through the plain exec path and

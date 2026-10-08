@@ -922,16 +922,26 @@ run_mole_command() {
             --json | -json | --json=* | -json=* | --ndjson | --watch | -watch | --watch=* | -watch=* | --help | -h | --version | -V | --list | --list=*) exec "$@" ;;
         esac
     done
-    # Without perl, or with a target bash cannot launch, run the plain exec:
-    # bash then prints its own error and returns its own status, exactly as a
-    # redirected run does, and only the notice is lost.
+    # Without perl, or with a target bash cannot launch (missing, not
+    # executable, or a #! line naming a missing interpreter), run the plain
+    # exec: bash then prints its own error and returns its own status, exactly
+    # as a redirected run does, and only the notice is lost.
     [[ -x /usr/bin/perl && -f "$1" && -x "$1" ]] || exec "$@"
+    local shebang=""
+    { IFS= read -r shebang < "$1"; } 2> /dev/null || true
+    if [[ "$shebang" == '#!'* ]]; then
+        shebang=${shebang#'#!'}
+        shebang=${shebang# }
+        shebang=${shebang%% *}
+        [[ -x "$shebang" ]] || exec "$@"
+    fi
     check_for_updates
     local command_pid interrupted=0 signal_generation=0 observed_generation=0
     # Bash ignores SIGINT in asynchronous jobs. Restore the normal disposition
     # before exec so both terminal Ctrl-C and signals sent to this router work.
-    # An exec that still fails (a bad interpreter line) reports its own cause
-    # and, like the plain exec above, returns status 1.
+    # The checks above leave no known reason for the exec to fail; if one
+    # appears anyway the cause is reported and the status is 1, like the plain
+    # exec.
     /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; warn "$ARGV[0]: $!\n"; exit 1' "$@" <&0 &
     command_pid=$!
     # A terminal Ctrl-C signals the whole foreground group, which holds this
@@ -946,11 +956,13 @@ run_mole_command() {
     # interrupted, retaining the first cancellation status through child cleanup.
     # Its stderr is dropped because bash reports a child killed by a signal
     # (SIGKILL, a crash) with a job-status line that quotes the perl one-liner;
-    # the exit status is unaffected.
+    # the exit status is unaffected. The redirect sits on a group, not on the
+    # wait builtin: on bash 3.2 a TERM or HUP trap followed within a fraction
+    # of a millisecond by INT can leave a redirected wait looping at full CPU.
     while true; do
         observed_generation=$signal_generation
         rc=0
-        wait "$command_pid" 2> /dev/null || rc=$?
+        { wait "$command_pid"; } 2> /dev/null || rc=$?
         [[ "$observed_generation" -eq "$signal_generation" ]] && break
     done
     [[ "$interrupted" -eq 0 ]] || rc=$interrupted
