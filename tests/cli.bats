@@ -294,11 +294,11 @@ EOF
 	[ "$status" -eq 0 ] || return 1
 	[[ "$output" == *"U Update"* ]] || return 1
 
-	# TouchID setup takes precedence: no update shortcut even if one is ready.
+	# TouchID setup and an available update both retain their shortcuts.
 	run /bin/bash --noprofile --norc -c "MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1 HOME=\"\$(mktemp -d)\" source '$PROJECT_ROOT/mole'; _main_menu_controls_line false true"
 	[ "$status" -eq 0 ] || return 1
 	[[ "$output" == *"T TouchID"* ]] || return 1
-	[[ "$output" != *"U Update"* ]] || return 1
+	[[ "$output" == *"U Update"* ]] || return 1
 }
 
 @test "show_main_menu keeps history out of the primary menu" {
@@ -361,7 +361,7 @@ touch -t 200001010000 "$msg_cache"
 source "$PROJECT_ROOT/mole"
 message="$(read_update_message_cache "$msg_cache")"
 [[ -z "$message" ]] || exit 1
-[[ ! -s "$msg_cache" ]] || exit 1
+[[ -s "$msg_cache" ]] || exit 1
 EOF
 
 	[ "$status" -eq 0 ]

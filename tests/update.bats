@@ -1902,3 +1902,172 @@ INNER
 	[[ "$output" == *"stable"* ]] || { echo "got: $output"; return 1; }
 	[[ "$output" != *"nightly"* ]] || { echo "got: $output"; return 1; }
 }
+
+@test "stable fallback resolves a published release redirect instead of main" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+curl() { printf 'https://github.com/tw93/Mole/releases/tag/V9.8.7\n'; }
+[[ "$(get_latest_version)" == 9.8.7 ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "Homebrew notification reads the published formula rather than local metadata" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+curl() { printf '{"versions":{"stable":"9.8.7","head":"HEAD"}}\n'; }
+brew() { echo 'mole: stable 1.0.0'; }
+[[ "$(get_homebrew_latest_version)" == 9.8.7 ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "background update preserves a known notice when lookup is unknown" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+mkdir -p "$HOME/.cache/mole"
+printf 'Update 9.8.7 available\n' > "$HOME/.cache/mole/update_message"
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo ''; }
+get_latest_version() { echo ''; }
+check_for_updates
+sleep 1
+[[ "$(cat "$HOME/.cache/mole/update_message")" == 'Update 9.8.7 available' ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "background update throttles successful probes and notices survive a cached check" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo call >> "$HOME/calls"; echo 9.8.7; }
+check_for_updates
+sleep 1
+check_for_updates
+sleep 1
+[[ "$(wc -l < "$HOME/calls" | tr -d ' ')" == 1 ]] || exit 1
+[[ "$(cat "$HOME/.cache/mole/update_message")" == *9.8.7* ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "main menu refreshes a notice arriving after its first draw" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+export MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
+source "$PROJECT_ROOT/mole"
+mkdir -p "$HOME/.cache/mole"
+hide_cursor() { :; }; show_cursor() { :; }; drain_pending_input() { :; }
+show_main_menu() { echo "visible=${MAIN_MENU_SHOW_UPDATE}"; }
+read_key() {
+ if [[ ! -f "$HOME/first" ]]; then
+  touch "$HOME/first"
+  printf 'Update 9.8.7 available\n' > "$HOME/.cache/mole/update_message"
+  echo DOWN
+ else echo QUIT
+ fi
+}
+interactive_main_menu
+SCRIPT
+ [ "$status" -eq 0 ]
+ [[ "$output" == *visible=false* ]] || return 1
+ [[ "$output" == *visible=true* ]] || return 1
+}
+
+@test "update shortcut remains visible alongside Touch ID setup" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+export MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
+source "$PROJECT_ROOT/mole"
+_main_menu_controls_line false true
+SCRIPT
+ [ "$status" -eq 0 ]
+ [[ "$output" == *'T TouchID'* ]] || return 1
+ [[ "$output" == *'U Update'* ]] || return 1
+}
+
+@test "notification retry expires after an hour and version changes bypass the daily cache" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+CLOCK=100000
+ANSWER=''
+date() { echo "$CLOCK"; }
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo call >> "$HOME/calls"; echo "$ANSWER"; }
+get_latest_version() { echo ''; }
+check_for_updates
+sleep 1
+CLOCK=100100
+check_for_updates
+sleep 1
+[[ "$(wc -l < "$HOME/calls" | tr -d ' ')" == 1 ]] || exit 1
+CLOCK=103601
+ANSWER=9.8.7
+check_for_updates
+sleep 1
+[[ "$(wc -l < "$HOME/calls" | tr -d ' ')" == 2 ]] || exit 1
+[[ "$(cat "$HOME/.cache/mole/update_message")" == *9.8.7* ]] || exit 1
+VERSION=9.8.7
+check_for_updates
+sleep 1
+[[ "$(wc -l < "$HOME/calls" | tr -d ' ')" == 3 ]] || exit 1
+[[ ! -s "$HOME/.cache/mole/update_message" ]] || exit 1
+CLOCK=190002
+ANSWER=9.9.0
+check_for_updates
+sleep 1
+[[ "$(wc -l < "$HOME/calls" | tr -d ' ')" == 4 ]] || exit 1
+[[ "$(cat "$HOME/.cache/mole/update_message")" == *9.9.0* ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "Homebrew background notification works while GitHub is unavailable" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 0; }
+get_latest_version_from_github() { touch "$HOME/wrong-provider"; echo ''; }
+get_homebrew_latest_version() { echo 9.8.7; }
+check_for_updates
+sleep 1
+[[ ! -e "$HOME/wrong-provider" ]] || exit 1
+[[ "$(cat "$HOME/.cache/mole/update_message")" == *9.8.7* ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}
+
+@test "stable discovery rejects unpublished redirects and invalid API versions" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+curl() { echo 'https://raw.githubusercontent.com/tw93/mole/main/mole'; }
+[[ -z "$(get_latest_version)" ]] || exit 1
+curl() { echo '{"tag_name":"V1.60.0-beta.1"}'; }
+[[ -z "$(get_latest_version_from_github)" ]] || exit 1
+curl() { echo '{"tag_name":"V1.59.1"}'; }
+[[ "$(get_latest_version_from_github)" == 1.59.1 ]] || exit 1
+SCRIPT
+ [ "$status" -eq 0 ]
+}

@@ -536,23 +536,30 @@ _update_print_manual_reinstall() {
 # fallback and error message could run. `mo update` exited 1 with no output at
 # all that way. The trailing `|| true` is what keeps the failure recoverable.
 get_latest_version() {
-    curl -fsSL --connect-timeout 2 --max-time 3 -H "Cache-Control: no-cache" \
-        "https://raw.githubusercontent.com/tw93/mole/main/mole" 2> /dev/null |
-        grep '^VERSION=' | head -1 | sed 's/VERSION="\(.*\)"/\1/' || true
+    local location version
+    location=$(curl -fsSLI --connect-timeout 2 --max-time 3 -o /dev/null -w '%{url_effective}' \
+        "https://github.com/tw93/Mole/releases/latest" 2> /dev/null || true)
+    case "$location" in
+        https://github.com/tw93/[Mm]ole/releases/tag/[Vv]*) version="${location##*/}" ;;
+        *) return 0 ;;
+    esac
+    version="${version#[Vv]}"
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$version"
+    return 0
 }
 
 get_latest_version_from_github() {
     local version
     version=$(curl -fsSL --connect-timeout 2 --max-time 3 \
         "https://api.github.com/repos/tw93/mole/releases/latest" 2> /dev/null |
-        grep '"tag_name"' | head -1 | sed -E 's/.*"([^"]+)".*/\1/' || true)
-    version="${version#v}"
-    version="${version#V}"
-    echo "$version"
+        /usr/bin/plutil -extract tag_name raw -o - - 2> /dev/null || true)
+    version="${version#[Vv]}"
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$version"
+    return 0
 }
 
 # Foreground `mo update` version discovery. The single-shot helpers above stay
-# fast because the update-available banner calls them on every command; an
+# fast because background notices must not delay commands; an
 # explicit update is worth a bounded retry instead, since the same proxy reset
 # that breaks the installer download also breaks this request.
 resolve_latest_stable_version() {
@@ -595,29 +602,14 @@ brew_mole_formula_installed() {
 }
 
 get_homebrew_latest_version() {
-    command -v brew > /dev/null 2>&1 || return 1
-
-    local line candidate=""
-
-    # Prefer local tap outdated info to avoid notifying before formula is available.
-    line=$(run_brew_query brew outdated --formula --verbose mole 2> /dev/null | head -1 || true)
-    if [[ "$line" == *"< "* ]]; then
-        candidate="${line##*< }"
-        candidate="${candidate%% *}"
-    fi
-
-    # Fallback for environments where outdated output is unavailable.
-    if [[ -z "$candidate" ]]; then
-        line=$(run_brew_query brew info mole 2> /dev/null | awk 'NR==1 { print; exit }' || true)
-        line="${line#==> }"
-        line="${line#*: }"
-        if [[ "$line" == stable* ]]; then
-            candidate=$(printf '%s\n' "$line" | awk '{print $2}')
-        fi
-    fi
-
-    [[ -n "$candidate" ]] && printf '%s\n' "$candidate"
+    local version
+    version=$(curl -fsSL --connect-timeout 2 --max-time 3 \
+        "https://formulae.brew.sh/api/formula/mole.json" 2> /dev/null |
+        /usr/bin/plutil -extract versions.stable raw -o - - 2> /dev/null || true)
+    [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && printf '%s\n' "$version"
+    return 0
 }
+
 resolve_mole_source_path() {
     # MOLE_ENTRY_SCRIPT is set by the `mole` entrypoint before this file is
     # sourced. Do NOT fall back to BASH_SOURCE[0] first: in here it names this
@@ -839,60 +831,106 @@ read_update_message_cache() {
     if mole_update_message_cache_is_current "$msg_cache"; then
         cat "$msg_cache" 2> /dev/null || echo ""
     else
-        : > "$msg_cache" 2> /dev/null || true
         echo ""
     fi
 }
 
-# Background update notice
-check_for_updates() {
-    local msg_cache="$HOME/.cache/mole/update_message"
-    ensure_user_dir "$(dirname "$msg_cache")"
-    ensure_user_file "$msg_cache"
+# Cache writes are atomic so the menu never reads a partially written notice.
+_mole_write_update_cache() {
+    local path="$1" value="$2" scratch
+    scratch=$(umask 077 && mktemp "${path}.XXXXXX") || return 1
+    if printf '%s' "$value" > "$scratch" && mv -f "$scratch" "$path"; then
+        return 0
+    fi
+    rm -f "$scratch" # SAFE: exact mktemp-created update cache scratch file
+    return 1
+}
 
+# One successful lookup per day; unknown results retry after an hour.
+# Bind the throttle to the install version, channel, commit and entrypoint.
+check_for_updates() {
+    local cache_dir="$HOME/.cache/mole" channel key now saved_key="" checked=0 interval=0
+    ensure_user_dir "$cache_dir" || return 0
+    channel=$(get_install_channel)
+    key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit)" "${MOLE_ENTRY_SCRIPT:-${SCRIPT_DIR:-}}" | cksum | awk '{print $1}')
+    now=$(date +%s)
+    if [[ -f "$cache_dir/version_check" ]]; then
+        read -r saved_key checked interval < "$cache_dir/version_check" || true
+        if [[ "$saved_key" == "$key" && "$checked" =~ ^[0-9]{1,12}$ && "$interval" =~ ^(3600|86400)$ ]] &&
+            ((now >= 10#$checked && now - 10#$checked < interval)); then
+            return 0
+        fi
+        if [[ -n "$saved_key" && "$saved_key" != "$key" ]]; then
+            _mole_write_update_cache "$cache_dir/update_message" "" || return 0
+        fi
+    fi
+    _mole_write_update_cache "$cache_dir/version_check" "$key $now 3600"$'\n' || return 0
     (
         (
-            local channel
-            channel=$(get_install_channel)
-
-            if [[ "$channel" == "nightly" ]]; then
-                # Nightly: compare commit hashes instead of version numbers
-                local installed_commit latest_commit
-                installed_commit=$(get_install_commit)
-                latest_commit=$(get_latest_commit_from_github api-only)
-
-                if [[ -n "$installed_commit" && -n "$latest_commit" && "${installed_commit:0:7}" != "${latest_commit:0:7}" ]]; then
-                    printf "\nNew nightly commit %s available, run %smo update --nightly%s\n\n" "${latest_commit:0:7}" "$GREEN" "$NC" > "$msg_cache"
-                else
-                    echo -n > "$msg_cache"
+            local latest="" installed="${VERSION}" message=""
+            if [[ "$channel" == nightly ]]; then
+                installed=$(get_install_commit)
+                latest=$(get_latest_commit_from_github api-only)
+                [[ -n "$installed" && -n "$latest" ]] || exit 0
+                if [[ "${installed:0:7}" != "${latest:0:7}" ]]; then
+                    message="New nightly commit ${latest:0:7} available, run mo update --nightly"
                 fi
             else
-                local latest
-
-                latest=$(get_latest_version_from_github)
-                if [[ -z "$latest" ]]; then
-                    latest=$(get_latest_version)
-                fi
-
-                if [[ -n "$latest" && "$VERSION" != "$latest" && "$(printf '%s\n' "$VERSION" "$latest" | sort -V | head -1)" == "$VERSION" ]]; then
-                    if is_homebrew_install; then
-                        # For Homebrew, only notify if the brew tap has the new version available locally
-                        local brew_latest
-                        brew_latest=$(get_homebrew_latest_version || true)
-                        if [[ -n "$brew_latest" && "$brew_latest" != "$VERSION" && "$(printf '%s\n' "$VERSION" "$brew_latest" | sort -V | head -1)" == "$VERSION" ]]; then
-                            printf "\nUpdate %s available, run %smo update%s\n\n" "$brew_latest" "$GREEN" "$NC" > "$msg_cache"
-                        else
-                            echo -n > "$msg_cache"
-                        fi
-                    else
-                        printf "\nUpdate %s available, run %smo update%s\n\n" "$latest" "$GREEN" "$NC" > "$msg_cache"
-                    fi
+                if is_homebrew_install; then
+                    latest=$(get_homebrew_latest_version)
                 else
-                    echo -n > "$msg_cache"
+                    latest=$(get_latest_version_from_github)
+                    [[ -n "$latest" ]] || latest=$(get_latest_version)
+                fi
+                [[ "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 0
+                if [[ "$installed" != "$latest" && "$(printf '%s\n' "$installed" "$latest" | sort -V | head -1)" == "$installed" ]]; then
+                    message="Update $latest available, run mo update"
                 fi
             fi
+            _mole_write_update_cache "$cache_dir/update_message" "$message" || exit 0
+            _mole_write_update_cache "$cache_dir/version_check" "$key $now 86400"$'\n' || true
         ) > /dev/null 2>&1 < /dev/null &
     )
+    return 0
+}
+
+# Only human-facing interactive commands get notices. Keep exec semantics for
+# automation, JSON, help and redirected output, and never wait for the network.
+run_mole_command() {
+    local arg rc=0
+    if [[ ! -t 0 || ! -t 1 || ! -t 2 ]]; then
+        exec "$@"
+    fi
+    for arg in "$@"; do
+        case "$arg" in
+            --json | -json | --json=* | -json=* | --ndjson | --watch | -watch | --watch=* | -watch=* | --help | -h | --version | -V | --list | --list=*) exec "$@" ;;
+        esac
+    done
+    check_for_updates
+    local command_pid interrupted=0 signal_generation=0 observed_generation=0
+    # Bash ignores SIGINT in asynchronous jobs. Restore the normal disposition
+    # before exec so both terminal Ctrl-C and signals sent to this router work.
+    /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; exit 127' "$@" <&0 &
+    command_pid=$!
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=129; kill -HUP "$command_pid" 2>/dev/null || true' HUP
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=130; kill -INT "$command_pid" 2>/dev/null || true' INT
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=143; kill -TERM "$command_pid" 2>/dev/null || true' TERM
+    # wait returns early for a trapped signal. Retry only when this wait was
+    # interrupted, retaining the first cancellation status through child cleanup.
+    while true; do
+        observed_generation=$signal_generation
+        rc=0
+        wait "$command_pid" || rc=$?
+        [[ "$observed_generation" -eq "$signal_generation" ]] && break
+    done
+    [[ "$interrupted" -eq 0 ]] || rc=$interrupted
+    trap - HUP INT TERM
+    if [[ "$rc" -lt 128 ]]; then
+        local notice
+        notice=$(read_update_message_cache "$HOME/.cache/mole/update_message")
+        [[ -z "$notice" ]] || printf '\n%s\n' "$notice" >&2
+    fi
+    exit "$rc"
 }
 
 # UI helpers

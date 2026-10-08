@@ -166,8 +166,15 @@ truncate_by_display_width() {
 # Read single keyboard input
 read_key() {
     local key rest read_status
-    IFS= read -r -s -n 1 key
-    read_status=$?
+    if [[ "${1:-}" == "1" ]]; then
+        # Bash 3.2 returns 1 for both EOF and timeout; elapsed shell time
+        # distinguishes an idle tick from immediate EOF. ESC reads stay below.
+        local read_started=$SECONDS
+        if IFS= read -r -s -n 1 -t 1 key; then read_status=0; else read_status=$?; fi
+        if [[ "$read_status" -ne 0 ]] && ((SECONDS > read_started)); then return 1; fi
+    else
+        if IFS= read -r -s -n 1 key; then read_status=0; else read_status=$?; fi
+    fi
     [[ $read_status -ne 0 ]] && {
         echo "QUIT"
         return 0
