@@ -3866,9 +3866,13 @@ EOF
     cp "$PROJECT_ROOT/mole" "$HOME/.local/bin/mole"
     cp "$PROJECT_ROOT/mo" "$HOME/.local/bin/mo"
 
+    # Executable genuine launchers first on PATH: empty or non-executable files
+    # are invisible to command -v, so they could not tell a skipped lookup from
+    # a lookup whose result was ignored.
     fake_global_bin="$(mktemp -d "${BATS_TEST_DIRNAME}/tmp-remove-path.XXXXXX")"
-    touch "$fake_global_bin/mole"
-    touch "$fake_global_bin/mo"
+    cp "$PROJECT_ROOT/mole" "$fake_global_bin/mole"
+    cp "$PROJECT_ROOT/mo" "$fake_global_bin/mo"
+    chmod +x "$fake_global_bin/mole" "$fake_global_bin/mo"
     cat > "$fake_global_bin/brew" << 'EOF'
 #!/bin/bash
 exit 0
@@ -3892,6 +3896,48 @@ EOF
     [[ "$output" != *"$fake_global_bin/mo"* ]] || return 1
     [[ "$output" != *"brew uninstall --force mole"* ]]
 }
+
+@test "remove_mole PATH discovery lists genuine launchers and never foreign commands" {
+    # Outside test mode command -v feeds the preview. A foreign executable named
+    # mo or mole that wins the PATH lookup must be neither listed nor run, and a
+    # genuine launcher in a directory no fallback path covers is the control.
+    local iso="$BATS_TEST_TMPDIR/path-discovery"
+    local foreign="$iso/foreign-bin" genuine="$iso/genuine-bin"
+    local name first_on_path lookup_path
+    mkdir -p "$iso" "$foreign" "$genuine"
+    for name in mo mole; do
+        # shellcheck disable=SC2016 # The fixture script expands its own HOME.
+        printf '%s\n' '#!/bin/bash' 'touch "$HOME/EXECUTED"' > "$foreign/$name"
+        chmod +x "$foreign/$name"
+        cp "$PROJECT_ROOT/$name" "$genuine/$name"
+        chmod +x "$genuine/$name"
+    done
+
+    for first_on_path in foreign genuine; do
+        if [[ "$first_on_path" == foreign ]]; then
+            lookup_path="$foreign:$genuine:/usr/bin:/bin"
+        else
+            lookup_path="$genuine:$foreign:/usr/bin:/bin"
+        fi
+        run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" PATH="$lookup_path" \
+            MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+is_homebrew_install() { return 1; }
+brew_mole_formula_installed() { return 1; }
+remove_mole true
+EOF
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [ ! -e "$iso/EXECUTED" ] || { echo "foreign command ran ($first_on_path first)"; return 1; }
+        [[ "$output" != *"Would remove: $foreign/"* ]] || { echo "foreign listed ($first_on_path first): $output"; return 1; }
+        if [[ "$first_on_path" == genuine ]]; then
+            [[ "$output" == *"Would remove: $genuine/mole"* ]] || { echo "genuine mole not listed: $output"; return 1; }
+            printf '%s\n' "$output" | grep -Eq "Would remove: $genuine/mo([^l]|\$)" || { echo "genuine mo not listed: $output"; return 1; }
+        fi
+    done
+}
+
 @test "match_apps_by_name finds exact match case-insensitively" {
     run /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
