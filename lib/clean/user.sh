@@ -2853,6 +2853,8 @@ _large_prefetch_queue_rows() {
     [[ "${MISE_DATA_DIR:-}" == /* ]] && mise_installs="$MISE_DATA_DIR/installs"
     local fvm_versions="$HOME/fvm/versions"
     [[ "${FVM_CACHE_PATH:-}" == /* ]] && fvm_versions="$FVM_CACHE_PATH/versions"
+    local deno_module_cache=""
+    deno_module_cache=$(mole_deno_cache_root 2> /dev/null) || deno_module_cache=""
     local path
     for path in \
         "$HOME/Library/Developer/Xcode/DerivedData" \
@@ -2870,6 +2872,7 @@ _large_prefetch_queue_rows() {
         "$HOME/.m2/repository" \
         "$HOME/.ivy2/cache" \
         "$HOME/.nuget/packages" \
+        "$deno_module_cache" \
         "$HOME/Library/pnpm/store" \
         "$HOME/.conda/pkgs" \
         "$HOME/anaconda3/pkgs" \

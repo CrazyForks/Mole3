@@ -3641,7 +3641,8 @@ EOF
         "Library/Developer/CoreSimulator/Devices" "Library/Containers/com.docker.docker/Data"
         "Library/Application Support/MobileSync/Backup" ".lmstudio/models"
         "Library/Group Containers/HUAQ24HBR6.dev.orbstack/data" "OrbStack" ".lima"
-        ".m2/repository" ".ivy2/cache" ".nuget/packages" "Library/pnpm/store"
+        ".m2/repository" ".ivy2/cache" ".nuget/packages" "Library/Caches/deno"
+        "Library/pnpm/store"
         ".conda/pkgs" "anaconda3/pkgs" ".gradle/caches" ".android/avd"
         "Library/Android/sdk/system-images" ".cache/huggingface"
         ".local/share/mise/installs/node" "fvm/versions"
@@ -3651,7 +3652,7 @@ EOF
         mkdir -p "$review_home/$row"
     done
     # CI runners export ANDROID_HOME; every row must resolve under the fixture.
-    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
         HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -3661,6 +3662,36 @@ EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     for row in "${queued_rows[@]}"; do
         grep -Fxq -- "$review_home/$row" <<< "$output" || { echo "missing $row"; return 1; }
+    done
+}
+
+@test "large files queue lists every fixed HOME row the report measures" {
+    local review_home="$HOME/large-review-drift"
+    # Rows spelled as a literal $HOME path in the report are the ones a new
+    # row can silently miss; comment lines are skipped so this prose cannot
+    # satisfy the pattern, and an empty match must fail instead of passing.
+    local -a report_rows=()
+    local report_row
+    while IFS= read -r report_row; do
+        report_rows+=("$report_row")
+    done < <(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/lib/clean/user.sh" |
+        grep -oE '_report_large_or_stop "[^"]+" "\$HOME/[^"]+"' |
+        sed -E 's/.*"\$HOME\/([^"]+)"$/\1/')
+    [ "${#report_rows[@]}" -gt 10 ] || { echo "matched ${#report_rows[@]} report rows"; return 1; }
+    for report_row in "${report_rows[@]}"; do
+        mkdir -p "$review_home/$report_row"
+    done
+
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+_large_prefetch_queue_rows
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    for report_row in "${report_rows[@]}"; do
+        grep -Fxq -- "$review_home/$report_row" <<< "$output" || { echo "report row not queued: $report_row"; return 1; }
     done
 }
 
