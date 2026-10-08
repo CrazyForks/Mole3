@@ -919,6 +919,109 @@ EOF
     [ "$validate_calls" -eq 1 ]
 }
 
+@test "clean_trash dry run lists items whose sizing timed out or failed and cancels only on a signal" {
+    # The real run sizes inside safe_remove and still empties an item whose
+    # size probe timed out or failed. The preview must list the same items with
+    # an unknown size and keep later sections running; only a signal cancels.
+    local case_home="$HOME/trash-size-failure"
+    rm -rf "$case_home" # SAFE: reset this test's own fixture under the temporary HOME
+    mkdir -p "$case_home/.Trash/bigdir" "$case_home/.Trash/small"
+    touch "$case_home/.Trash/bigdir/blob" "$case_home/.Trash/small/note"
+
+    run env HOME="$case_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_CURRENT_COMMAND=clean \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+stop_section_spinner() { :; }
+note_activity() { :; }
+debug_log() { :; }
+is_path_whitelisted() { return 1; }
+validate_path_for_deletion() { return 0; }
+get_path_size_kb() {
+    if [[ "$1" == */bigdir || "${SIZE_FAIL_ALL:-0}" == 1 ]]; then
+        return "$SIZE_RC"
+    fi
+    echo 8
+}
+record_dry_run_cleanup_target() {
+    printf '%s:%s:%s\n' "${1##*/}" "$2" "$4" >> "$HOME/recorded"
+}
+safe_remove() {
+    printf '%s\n' "${1##*/}" >> "$HOME/removed"
+    return 0
+}
+
+for scenario in 124:0 1:0 130:1 143:1; do
+    SIZE_RC="${scenario%%:*}"
+    SIZE_FAIL_ALL="${scenario##*:}"
+    MOLE_CLEAN_CANCEL_STATUS=0
+    MOLE_CLEAN_SIZING_TIMEOUTS=0
+    : > "$HOME/recorded"
+    : > "$HOME/removed"
+    DRY_RUN=true
+    rc=0
+    clean_trash > "$HOME/dry.out" || rc=$?
+    rows=$(grep -c 'would empty, 2 items' "$HOME/dry.out" || true)
+    printf 'SCENARIO=%s RC=%s CANCEL=%s PARTIAL=%s ROWS=%s RECORDED=[%s]\n' \
+        "$scenario" "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$MOLE_CLEAN_SIZING_TIMEOUTS" "$rows" \
+        "$(sort "$HOME/recorded" | tr '\n' ',')"
+    if [[ "$rc" -eq 0 ]]; then
+        DRY_RUN=false
+        clean_trash > /dev/null
+        previewed=$(cut -d: -f1 "$HOME/recorded" | sort | tr '\n' ',')
+        removed=$(sort "$HOME/removed" | tr '\n' ',')
+        [[ "$previewed" == "$removed" ]] || exit 1
+        printf 'PARITY=%s\n' "$removed"
+    fi
+done
+EOF
+
+    rm -rf "$case_home" # SAFE: test fixture under the temporary HOME
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=124:0 RC=0 CANCEL=0 PARTIAL=1 ROWS=1 RECORDED=[bigdir:0:false,small:8:true,]"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=1:0 RC=0 CANCEL=0 PARTIAL=1 ROWS=1 RECORDED=[bigdir:0:false,small:8:true,]"* ]] || { echo "$output"; return 1; }
+    [ "$(grep -c '^PARITY=bigdir,small,$' <<< "$output")" -eq 2 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=130:1 RC=130 CANCEL=130 PARTIAL=0 ROWS=0 RECORDED=[]"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=143:1 RC=143 CANCEL=143 PARTIAL=0 ROWS=0 RECORDED=[]"* ]] || { echo "$output"; return 1; }
+}
+
+@test "clean_trash dry run lists an item whose size probe skipped an unreadable child" {
+    # du exits 1 when a child directory is unreadable, and get_path_size_kb
+    # refuses to call that partial number a size. The preview used to return
+    # silently and drop the whole Trash row while the real run emptied it.
+    local case_home="$HOME/trash-unreadable-child"
+    chmod -R u+rwx "$case_home" 2> /dev/null || true
+    rm -rf "$case_home" # SAFE: reset this test's own fixture under the temporary HOME
+    mkdir -p "$case_home/.Trash/locked/inner" "$case_home/.Trash/plain"
+    touch "$case_home/.Trash/locked/inner/secret" "$case_home/.Trash/plain/note"
+    chmod 000 "$case_home/.Trash/locked/inner"
+
+    run env HOME="$case_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_CURRENT_COMMAND=clean \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+DRY_RUN=true
+stop_section_spinner() { :; }
+note_activity() { :; }
+is_path_whitelisted() { return 1; }
+size_rc=0
+get_path_size_kb "$HOME/.Trash/locked" > /dev/null 2>&1 || size_rc=$?
+printf 'PROBE_RC=%s\n' "$size_rc"
+rc=0
+clean_trash || rc=$?
+printf 'RC=%s CANCEL=%s\n' "$rc" "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+
+    chmod -R u+rwx "$case_home"
+    rm -rf "$case_home" # SAFE: test fixture under the temporary HOME
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"PROBE_RC=1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"Trash · would empty, 2 items"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"RC=0 CANCEL=0"* ]] || { echo "$output"; return 1; }
+}
+
 @test "clean_user_essentials keeps Mole runtime logs while cleaning other user logs" {
     mkdir -p "$HOME/Library/Logs/mole"
     mkdir -p "$HOME/Library/Logs/OtherApp"

@@ -67,9 +67,16 @@ clean_trash() {
                 local trash_item_kb
                 local size_rc=0
                 trash_item_kb=$(get_path_size_kb "$trash_item" 2> /dev/null) || size_rc=$?
-                [[ $size_rc -eq 0 ]] || _mole_record_clean_cancellation "$size_rc"
-                [[ $size_rc -eq 0 ]] || return "$size_rc"
-                [[ "$trash_item_kb" =~ ^[0-9]+$ ]] || trash_item_kb=0
+                # The real run empties an item whose sizing timed out or
+                # failed, so the preview lists it with an unknown size instead
+                # of dropping it or cancelling the later sections. A signal
+                # still cancels.
+                mole_item_size_continues "$size_rc" || return $?
+                local trash_size_known=true
+                [[ $size_rc -eq 0 && "$trash_item_kb" =~ ^[0-9]+$ ]] || {
+                    trash_item_kb=0
+                    trash_size_known=false
+                }
                 if (declare -f holds_compiled_model_cache > /dev/null 2>&1 &&
                     holds_compiled_model_cache "$trash_item" 2> /dev/null); then
                     continue
@@ -87,7 +94,7 @@ clean_trash() {
                 [[ $validate_rc -eq 0 ]] || continue
                 if declare -f record_dry_run_cleanup_target > /dev/null 2>&1; then
                     local _MOLE_DRY_RUN_TARGET_PREVALIDATED=true
-                    record_dry_run_cleanup_target "$trash_item" "$trash_item_kb" 1 true || continue
+                    record_dry_run_cleanup_target "$trash_item" "$trash_item_kb" 1 "$trash_size_known" || continue
                 fi
                 preview_count=$((preview_count + 1))
             done < <(command find "$HOME/.Trash" -mindepth 1 -maxdepth 1 -print0 2> /dev/null || true)
