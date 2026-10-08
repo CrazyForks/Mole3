@@ -991,6 +991,35 @@ EOF
 	[[ "${lines[${#lines[@]} - 1]}" == "calls=0" ]]
 }
 
+@test "uninstall mode matches the Apple uninstallable globs before the critical rows" {
+	# With the shipped lists no bundle ID is in both APPLE_UNINSTALLABLE_APPS
+	# and SYSTEM_CRITICAL_BUNDLES, so the first loop's verdict equals the
+	# fall-through and quoting its right-hand side would change nothing
+	# observable. A fixture critical row that overlaps com.apple.dt.* makes the
+	# order visible: the unquoted glob wins and Xcode stays uninstallable,
+	# while a quoted one is an exact string, misses, and lets the critical
+	# row protect it.
+	local fixture="$HOME/protection-order-fixture"
+	mkdir -p "$fixture"
+	cp -R "$PROJECT_ROOT/lib" "$PROJECT_ROOT/bin" "$fixture/"
+	awk '{ print } /^readonly SYSTEM_CRITICAL_BUNDLES=\($/ { print "    \"com.apple.dt.*\""; print "    \"org.example.critical.*\"" }' \
+		"$PROJECT_ROOT/lib/core/app_protection_data.sh" >"$fixture/lib/core/app_protection_data.sh"
+
+	run env HOME="$HOME" FIXTURE="$fixture" MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+source "$FIXTURE/lib/core/common.sh"
+verdict() { if "$@"; then echo "$*=protected"; else echo "$*=open"; fi; }
+MOLE_UNINSTALL_MODE=1 verdict should_protect_path "org.example.critical.Tool"
+MOLE_UNINSTALL_MODE=1 verdict should_protect_path "com.apple.dt.Xcode"
+MOLE_UNINSTALL_MODE=1 verdict should_protect_path "com.apple.finder"
+EOF
+	[ "$status" -eq 0 ] || return 1
+	# Positive controls: the fixture row is live in uninstall mode, and a
+	# critical ID outside the uninstallable list is still protected.
+	[[ "$output" == *"should_protect_path org.example.critical.Tool=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_path com.apple.finder=protected"* ]] || return 1
+	[[ "$output" == *"should_protect_path com.apple.dt.Xcode=open"* ]]
+}
+
 @test "live uninstall inventory treats independent longer bundle IDs as shared owners" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
