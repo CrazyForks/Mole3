@@ -3141,6 +3141,68 @@ EOF
     rm -rf "$module_root"
 }
 
+@test "clean_dev_go skips the Go caches when go env times out and keeps a signal sticky" {
+    # `go env` only resolves the roots. A quick-detect timeout leaves them
+    # unknown with nothing deleted, so it skips the Go caches without
+    # cancelling later cleanup; a signal from either lookup still stops the run.
+    local module_root="$HOME/go-resolver-module"
+    local build_root="$HOME/go-resolver-build"
+    local trace="$HOME/go-resolver.trace"
+    mkdir -p "$module_root" "$build_root"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
+        GO_MODULE_ROOT="$module_root" GO_BUILD_ROOT="$build_root" GO_TRACE="$trace" \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+go() { :; }
+run_with_timeout() {
+    shift
+    if [[ "$1" == "go" && "$2" == "env" ]]; then
+        [[ "$3" == "$RESOLVER_FAIL_KIND" ]] && return "$RESOLVER_FAIL_RC"
+        if [[ "$3" == "GOMODCACHE" ]]; then
+            printf '%s\n' "$GO_MODULE_ROOT"
+        else
+            printf '%s\n' "$GO_BUILD_ROOT"
+        fi
+        return 0
+    fi
+    printf 'CLEAN:%s\n' "$*" >> "$GO_TRACE"
+    return 0
+}
+is_path_whitelisted() { return 1; }
+should_protect_path() { return 1; }
+go_cache_process_state() { return 1; }
+note_activity() { :; }
+later_step() { LATER=ran; }
+
+for scenario in none:0 GOMODCACHE:124 GOCACHE:124 GOMODCACHE:130 GOCACHE:143; do
+    RESOLVER_FAIL_KIND="${scenario%%:*}"
+    RESOLVER_FAIL_RC="${scenario##*:}"
+    MOLE_CLEAN_CANCEL_STATUS=0
+    : > "$GO_TRACE"
+    rc=0
+    _run_developer_cleanup_step clean_dev_go || rc=$?
+    LATER=skipped
+    _run_developer_cleanup_step later_step || true
+    cleans=$(grep -c '^CLEAN:' "$GO_TRACE" || true)
+    printf 'SCENARIO=%s RC=%s CANCEL=%s LATER=%s CLEANS=%s\n' \
+        "$scenario" "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$LATER" "$cleans"
+done
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=none:0 RC=0 CANCEL=0 LATER=ran CLEANS=2"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=GOMODCACHE:124 RC=0 CANCEL=0 LATER=ran CLEANS=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=GOCACHE:124 RC=0 CANCEL=0 LATER=ran CLEANS=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=GOMODCACHE:130 RC=130 CANCEL=130 LATER=skipped CLEANS=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"SCENARIO=GOCACHE:143 RC=143 CANCEL=143 LATER=skipped CLEANS=0"* ]] || { echo "$output"; return 1; }
+    rm -rf "$module_root" "$build_root" "$trace" # SAFE: test fixture paths under the temporary HOME
+}
+
 @test "clean_go_cache_root refuses a path replaced before the owner command" {
     local cache_root="$HOME/go-cache-swap"
     local outside_root="$HOME/go-cache-outside"

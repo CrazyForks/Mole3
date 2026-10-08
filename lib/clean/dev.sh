@@ -1008,8 +1008,8 @@ clean_go_cache_root() {
         return 0
     fi
     if mole_rc_timeout "$command_status"; then
-        # Like every other owner command (clean_tool_cache), a timed-out `go
-        # clean` skips this one cache instead of cancelling unrelated cleanup.
+        # A timed-out `go clean` skips this one cache instead of cancelling
+        # unrelated cleanup, as clean_tool_cache does for its owner commands.
         # Go may already have removed part of the root, so say it stopped.
         echo -e "  ${GRAY}${ICON_WARNING}${NC} ${display_name} · stopped (timed out)"
         note_activity
@@ -1044,12 +1044,20 @@ clean_dev_go() {
     local go_build_cache=""
     local resolver_rc=0
     go_mod_cache=$(mole_go_cache_root GOMODCACHE) || resolver_rc=$?
-    if mole_rc_timeout_or_signal "$resolver_rc"; then
+    # A slow `go env` leaves the roots unknown and nothing was deleted, so it
+    # skips the Go caches only; a signal still stops the run.
+    if mole_rc_timeout "$resolver_rc"; then
+        debug_log "Skipping Go caches: go env GOMODCACHE timed out"
+        return 0
+    elif mole_rc_timeout_or_signal "$resolver_rc"; then
         return "$resolver_rc"
     fi
     resolver_rc=0
     go_build_cache=$(mole_go_cache_root GOCACHE) || resolver_rc=$?
-    if mole_rc_timeout_or_signal "$resolver_rc"; then
+    if mole_rc_timeout "$resolver_rc"; then
+        debug_log "Skipping Go caches: go env GOCACHE timed out"
+        return 0
+    elif mole_rc_timeout_or_signal "$resolver_rc"; then
         return "$resolver_rc"
     fi
 
