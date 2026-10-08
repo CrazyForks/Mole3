@@ -4315,6 +4315,79 @@ EOF_POOLSIG
     [[ "$output" == *"STATUS=130"* ]] || { echo "$output"; return 1; }
 }
 
+@test "purge content probe filter publishes nothing when the sentinel goes away during the last probes" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_LATE'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-late.XXXXXX")
+get_optimal_parallel_jobs() { echo 4; }
+: > "$fixture/scanning"
+# Control: with the sentinel in place the same input is published.
+is_protected_purge_artifact() { PURGE_PROTECTION_UNVERIFIED=false; return 1; }
+result=0
+printf '%s\n' "$fixture/a-only/node_modules" |
+    filter_protected_artifacts "" "$fixture/control-verified" "$fixture/scanning" > "$fixture/control-kept" || result=$?
+printf 'CONTROL=%s:%s\n' "$result" "$(tr '\n' ' ' < "$fixture/control-kept")"
+# The cancel arrives after the last item was read, while its probe runs.
+is_protected_purge_artifact() {
+    PURGE_PROTECTION_UNVERIFIED=false
+    rm -f "$fixture/scanning"
+    return 1
+}
+result=0
+printf '%s\n' "$fixture/a-only/node_modules" |
+    filter_protected_artifacts "" "$fixture/verified" "$fixture/scanning" > "$fixture/kept" || result=$?
+printf 'STATUS=%s\n' "$result"
+[[ ! -s "$fixture/kept" ]] || { echo PUBLISHED; exit 1; }
+[[ ! -e "$fixture/verified" ]] || { echo VERIFIED_RECREATED; exit 1; }
+[[ ! -e "$fixture/verified.probes" ]] || { echo PROBES_LEFT; exit 1; }
+printf 'DONE\n'
+EOF_LATE
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"CONTROL=0:"*"a-only/node_modules"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"STATUS=130"* && "$output" == *"DONE"* ]] || { echo "$output"; return 1; }
+}
+
+@test "scan_purge_targets leaves a verified sidecar only for the caller that names one" {
+    mkdir -p "$HOME/www/test-project/node_modules"
+    touch "$HOME/www/test-project/package.json"
+    local plain="$BATS_TEST_TMPDIR/plain" asked="$BATS_TEST_TMPDIR/asked" failed="$BATS_TEST_TMPDIR/failed"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" PLAIN="$plain" ASKED="$asked" FAILED="$failed" MO_USE_FIND=1 \
+        /bin/bash --noprofile --norc <<'EOF_SIDECAR'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+scan_purge_targets "$HOME/www" "$PLAIN"
+# The filter appends to the sidecar, so a leftover entry would survive a rescan.
+printf '%s\n' "$HOME/stale/node_modules" > "$ASKED.verified"
+scan_purge_targets "$HOME/www" "$ASKED" "$ASKED.verified"
+# A filter that fails after writing its scratch must not leave it behind.
+filter_protected_artifacts() {
+    cat > /dev/null
+    : > "$2"
+    : > "$2.probes"
+    return 130
+}
+rc=0
+scan_purge_targets "$HOME/www" "$FAILED" "$FAILED.verified" || rc=$?
+printf 'FAILED_RC=%s\n' "$rc"
+EOF_SIDECAR
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"FAILED_RC=130"* ]] || { echo "$output"; return 1; }
+    # Control: both completed scans found the candidate.
+    grep -Fxq "$HOME/www/test-project/node_modules" "$plain" || { echo "plain scan found nothing"; return 1; }
+    grep -Fxq "$HOME/www/test-project/node_modules" "$asked" || { echo "named scan found nothing"; return 1; }
+    local leftovers
+    leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^plain\.' || true)"
+    [ -z "$leftovers" ] || { echo "plain scan left: $leftovers"; return 1; }
+    # The caller that named a sidecar gets the verified list, and nothing else.
+    grep -Fxq "$HOME/www/test-project/node_modules" "$asked.verified" || { echo "no verified list"; return 1; }
+    ! grep -Fq "$HOME/stale/node_modules" "$asked.verified" || { echo "stale entry survived the rescan"; return 1; }
+    leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^asked\.' | tr '\n' ' ' || true)"
+    [ "$leftovers" = "asked.verified " ] || { echo "named scan left: $leftovers"; return 1; }
+    leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^failed\.' | tr '\n' ' ' || true)"
+    [ -z "$leftovers" ] || { echo "failed scan left: $leftovers"; return 1; }
+}
+
 @test "purge authored probes preserve signals through the final guard and pool" {
     local failures=0
     for source in find git; do
