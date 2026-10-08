@@ -1016,7 +1016,7 @@ clean_go_cache_root() {
         log_warning_to_file "$display_name timed out after ${MOLE_TIMEOUT_PKG_CLEANUP_SEC}s and was skipped: go clean $clean_flag $physical_root"
         return 0
     fi
-    if mole_rc_timeout_or_signal "$command_status"; then
+    if mole_rc_signal "$command_status"; then
         _mole_record_clean_cancellation "$command_status" "$display_name"
         return "$command_status"
     fi

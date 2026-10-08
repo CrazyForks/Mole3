@@ -3102,6 +3102,59 @@ EOF
     rm -rf "$module_root" "$build_root"
 }
 
+@test "clean_dev_go treats an errno-derived go clean exit as a failure, not an interrupt" {
+    # An owner command can exit above 127 without a signal (npm's 243 is an
+    # errno), which is an ordinary failure: only a status that names a signal
+    # cancels the run. The build cache still runs after the failed module cache.
+    local module_root="$HOME/go-module-errno"
+    local build_root="$HOME/go-build-errno"
+    local trace="$HOME/go-clean-errno.trace"
+    mkdir -p "$module_root" "$build_root"
+    rm -f "$trace"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
+        GO_MODULE_ROOT="$module_root" GO_BUILD_ROOT="$build_root" GO_TRACE="$trace" \
+        /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+go() { :; }
+run_with_timeout() {
+    shift
+    if [[ "$1" == "go" && "$2" == "env" ]]; then
+        if [[ "$3" == "GOMODCACHE" ]]; then
+            printf '%s\n' "$GO_MODULE_ROOT"
+        else
+            printf '%s\n' "$GO_BUILD_ROOT"
+        fi
+        return 0
+    fi
+    printf '%s\n' "$*" >> "$GO_TRACE"
+    [[ "$*" == *"-modcache"* ]] && return 243
+    return 0
+}
+is_path_whitelisted() { return 1; }
+should_protect_path() { return 1; }
+go_cache_process_state() { return 1; }
+note_activity() { :; }
+clean_rc=0
+clean_dev_go || clean_rc=$?
+printf 'rc=%s\n' "$clean_rc"
+printf 'CANCEL=%s\n' "${MOLE_CLEAN_CANCEL_STATUS:-0}"
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"rc=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"CANCEL=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"Go module cache · stopped (owner cleanup failed)"* ]] || { echo "$output"; return 1; }
+    grep -qFx "env GOCACHE=$build_root go clean -cache" "$trace" || return 1
+    rm -f "$trace"
+    rm -rf "$module_root" "$build_root"
+}
+
 @test "clean_dev_go propagates an interrupted owner cleanup" {
     local module_root="$HOME/go-module-cancel"
     mkdir -p "$module_root"
