@@ -3672,6 +3672,7 @@ EOF
     # satisfy the pattern, and an empty match must fail instead of passing.
     local -a report_rows=()
     local report_row
+    # shellcheck disable=SC2016  # The patterns match the literal text $HOME in user.sh.
     while IFS= read -r report_row; do
         report_rows+=("$report_row")
     done < <(grep -v '^[[:space:]]*#' "$PROJECT_ROOT/lib/clean/user.sh" |

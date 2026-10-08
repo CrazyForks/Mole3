@@ -1190,6 +1190,7 @@ EOF
     # 200-app Mac 2.6x slower than V1.58.0; the verdicts must stay identical.
     local shim="$BATS_TEST_TMPDIR/shim"
     mkdir -p "$shim"
+    # shellcheck disable=SC2016  # The shim expands $TR_COUNT_FILE and "$@" when it runs.
     printf '#!/bin/bash\nprintf . >> "$TR_COUNT_FILE"\nexec /usr/bin/tr "$@"\n' > "$shim/tr"
     chmod +x "$shim/tr"
     run env HOME="$BATS_TEST_TMPDIR/home" PATH="$shim:$PATH" \

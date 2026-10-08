@@ -877,6 +877,7 @@ EOF
 
     [ "$status" -eq 0 ] || return 1
     local dead
+    # shellcheck disable=SC2016  # Literal $HOME spellings, as the inventory prints them.
     for dead in \
         '$HOME/.cache/pip/' '$HOME/.cache/yarn/' '$HOME/.gem/cache/' \
         '$HOME/.local/share/containers/cache/' \
@@ -886,7 +887,9 @@ EOF
     done
     # Positive control: the live spellings are present, so the loop above ran
     # against a real inventory rather than an empty one.
+    # shellcheck disable=SC2016  # Literal $HOME spelling, as the inventory prints it.
     [[ "$output" == *'|$HOME/Library/Caches/pip/*|'* ]] || return 1
+    # shellcheck disable=SC2016  # Literal $HOME spelling, as the inventory prints it.
     [[ "$output" == *'|$HOME/.yarn/cache/*|'* ]] || return 1
 }
 
@@ -946,6 +949,7 @@ EOF
     local whitelist_file="$test_home/.config/mole/whitelist"
     rm -rf "$test_home"
     mkdir -p "$(dirname "$whitelist_file")"
+    # shellcheck disable=SC2088  # Saved whitelist files hold the literal ~/ spelling.
     printf '%s\n' '~/.cache/pip/*' '~/.cache/yarn/*' '~/.gem/cache/*' \
         '~/.ccache/*' '~/.ollama/models/*' > "$whitelist_file"
 

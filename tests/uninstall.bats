@@ -3730,6 +3730,7 @@ EOF
         # The launcher still resolves the exact directory, in either locale.
         pinned=$(LC_ALL=C /usr/bin/awk '/^SCRIPT_DIR=/ { print; exit }' "$launcher")
         for loc in en_US.UTF-8 C; do
+            # shellcheck disable=SC2016  # The child shell expands these from its environment.
             run env LC_ALL="$loc" PINNED="$pinned" /bin/bash --noprofile --norc -c 'eval "$PINNED"; printf "%s" "$SCRIPT_DIR"'
             [ "$status" -eq 0 ] || return 1
             [ "$output" == "$config_dir" ] || { echo "pin resolved to '$output' ($name, $loc)"; return 1; }
@@ -3758,6 +3759,7 @@ EOF
             else
                 printf 'SCRIPT_DIR=%s/config\n' "$iso"
             fi
+            # shellcheck disable=SC2016  # The launcher expands $SCRIPT_DIR when it runs.
             printf '%s\n' 'source "$SCRIPT_DIR/lib/core/common.sh"' 'VERSION="1.59.0"'
         } > "$iso/.local/bin/mole"
 

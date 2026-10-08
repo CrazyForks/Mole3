@@ -4377,13 +4377,16 @@ EOF_SIDECAR
     grep -Fxq "$HOME/www/test-project/node_modules" "$plain" || { echo "plain scan found nothing"; return 1; }
     grep -Fxq "$HOME/www/test-project/node_modules" "$asked" || { echo "named scan found nothing"; return 1; }
     local leftovers
+    # shellcheck disable=SC2010  # Scratch directory with mktemp-generated ASCII names.
     leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^plain\.' || true)"
     [ -z "$leftovers" ] || { echo "plain scan left: $leftovers"; return 1; }
     # The caller that named a sidecar gets the verified list, and nothing else.
     grep -Fxq "$HOME/www/test-project/node_modules" "$asked.verified" || { echo "no verified list"; return 1; }
     ! grep -Fq "$HOME/stale/node_modules" "$asked.verified" || { echo "stale entry survived the rescan"; return 1; }
+    # shellcheck disable=SC2010  # Scratch directory with mktemp-generated ASCII names.
     leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^asked\.' | tr '\n' ' ' || true)"
     [ "$leftovers" = "asked.verified " ] || { echo "named scan left: $leftovers"; return 1; }
+    # shellcheck disable=SC2010  # Scratch directory with mktemp-generated ASCII names.
     leftovers="$(ls "$BATS_TEST_TMPDIR" | grep '^failed\.' | tr '\n' ' ' || true)"
     [ -z "$leftovers" ] || { echo "failed scan left: $leftovers"; return 1; }
 }
