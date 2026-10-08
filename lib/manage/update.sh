@@ -826,13 +826,27 @@ mole_update_message_cache_is_current() {
     return 0
 }
 
+# A notice that offers this install's own version, or an older one, is already
+# satisfied. Package managers keep file mtimes across an upgrade, so a notice
+# left behind by the previous release passes the mtime check above and would
+# otherwise tell the user to update to the version they are running.
+mole_update_message_is_stale() {
+    local message="$1" pattern='Update ([0-9]+\.[0-9]+\.[0-9]+) available' offered
+    [[ -n "${VERSION:-}" && "$message" =~ $pattern ]] || return 1
+    offered="${BASH_REMATCH[1]}"
+    [[ "$offered" == "$VERSION" ]] && return 0
+    [[ "$(printf '%s\n' "$VERSION" "$offered" | sort -V | head -1)" != "$VERSION" ]]
+}
+
 read_update_message_cache() {
-    local msg_cache="$1"
+    local msg_cache="$1" message=""
     if mole_update_message_cache_is_current "$msg_cache"; then
-        cat "$msg_cache" 2> /dev/null || echo ""
-    else
-        echo ""
+        message=$(cat "$msg_cache" 2> /dev/null) || message=""
+        if mole_update_message_is_stale "$message"; then
+            message=""
+        fi
     fi
+    printf '%s\n' "$message"
 }
 
 # Cache writes are atomic so the menu never reads a partially written notice.

@@ -2137,3 +2137,42 @@ probe "$TEST_ROOT/bin/mole" "$TEST_ROOT/other-install"
 SCRIPT
  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "a leftover notice for the running version is not shown after an upgrade" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+mkdir -p "$HOME/.cache/mole"
+msg="$HOME/.cache/mole/update_message"
+VERSION=1.59.0
+# V1.58.x wrote the notice with a leading newline and a colored command; a
+# package manager upgrade leaves it in place with its old mtime.
+printf '\nUpdate 1.59.0 available, run %smo update%s\n\n' "$GREEN" "$NC" > "$msg"
+[[ -z "$(read_update_message_cache "$msg")" ]] || exit 1
+printf 'Update 1.58.0 available, run mo update\n' > "$msg"
+[[ -z "$(read_update_message_cache "$msg")" ]] || exit 1
+# Controls: newer releases and nightly notices are still shown, and versions
+# compare numerically rather than as text.
+printf 'Update 1.59.1 available, run mo update\n' > "$msg"
+[[ "$(read_update_message_cache "$msg")" == 'Update 1.59.1 available, run mo update' ]] || exit 1
+printf 'Update 1.100.0 available, run mo update\n' > "$msg"
+[[ "$(read_update_message_cache "$msg")" == *1.100.0* ]] || exit 1
+printf 'New nightly commit abc1234 available, run mo update --nightly\n' > "$msg"
+[[ "$(read_update_message_cache "$msg")" == *abc1234* ]] || exit 1
+# The first check after the upgrade has no version_check yet and its lookup is
+# still in flight, so the stale text must already be hidden when it returns.
+printf 'Update 1.59.0 available, run mo update\n' > "$msg"
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() {
+ for _ in $(seq 1 100); do [[ -e "$HOME/release-lookup" ]] && break; sleep 0.1; done
+ echo 1.59.0
+}
+check_for_updates
+[[ -z "$(read_update_message_cache "$msg")" ]] || exit 1
+touch "$HOME/release-lookup"
+sleep 1
+SCRIPT
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
