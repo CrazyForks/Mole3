@@ -907,6 +907,83 @@ EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
+@test "clean_project_caches gives every recheck its own bound, so real cleaning matches the preview" {
+    local mode cost
+    for cost in walk git; do
+        for mode in real dry; do
+            run env HOME="$BATS_TEST_TMPDIR/bound-$cost-$mode" PROJECT_ROOT="$PROJECT_ROOT" MODE="$mode" COST="$cost" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+repo="$HOME/Projects/mono"
+for n in 01 02 03 04 05 06 07 08 09 10 11 12; do
+    mkdir -p "$repo/svc/p$n/__pycache__"
+    touch "$repo/svc/p$n/__pycache__/m.pyc"
+done
+mkdir -p "$repo/svc/keep/__pycache__"
+touch "$repo/svc/keep/__pycache__/m.pyc" "$repo/svc/pyproject.toml"
+git init -q "$repo"
+git -C "$repo" add -f svc/keep/__pycache__/m.pyc
+DRY_RUN=false
+[[ "$MODE" != dry ]] || DRY_RUN=true
+record_dry_run_cleanup_target() { printf '%s\n' "$1" >> "$HOME/preview"; }
+# Every recheck costs simulated seconds, in its Git half or in its nested
+# repository walk. One 15 s budget for the whole step is spent after a few
+# deletions, and every later candidate was then kept.
+if [[ "$COST" == git ]]; then
+    eval "real_$(declare -f _mole_snapshot_path_identity)"
+    _mole_snapshot_path_identity() { SECONDS=$((SECONDS + 1)); real__mole_snapshot_path_identity "$@"; }
+else
+    eval "real_$(declare -f _project_cache_holds_nested_repo)"
+    _project_cache_holds_nested_repo() { SECONDS=$((SECONDS + 2)); real__project_cache_holds_nested_repo "$@"; }
+fi
+clean_project_caches
+[[ -f "$repo/svc/keep/__pycache__/m.pyc" ]] || exit 11
+handled=0
+for n in 01 02 03 04 05 06 07 08 09 10 11 12; do
+    dir="$repo/svc/p$n/__pycache__"
+    if [[ "$MODE" == dry ]]; then
+        ! grep -Fxq "$dir" "$HOME/preview" || handled=$((handled + 1))
+    else
+        [[ -e "$dir" ]] || handled=$((handled + 1))
+    fi
+done
+[[ "$handled" -eq 12 ]] || { echo "$COST/$MODE handled $handled of 12"; exit 12; }
+EOF
+            [ "$status" -eq 0 ] || { echo "$cost/$mode: status $status: $output"; return 1; }
+        done
+    done
+}
+
+@test "clean_project_caches builds each root's Git index on a fresh budget" {
+    run env HOME="$BATS_TEST_TMPDIR/index-bound" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+for root in Projects Code; do
+    repo="$HOME/$root/app"
+    mkdir -p "$repo/pkg/__pycache__"
+    touch "$repo/pyproject.toml" "$repo/pkg/__pycache__/m.pyc"
+    git init -q "$repo"
+done
+DRY_RUN=false
+# Time spent on the first root must not leave the second one's listing with an
+# expired budget, which kept every one of its caches.
+eval "real_$(declare -f process_project_cache_matches)"
+passes=0
+process_project_cache_matches() {
+    passes=$((passes + 1))
+    [[ $passes -ne 2 ]] || SECONDS=$((SECONDS + 20))
+    real_process_project_cache_matches "$@"
+}
+clean_project_caches
+[[ "$passes" -eq 2 ]] || exit 11
+[[ ! -e "$HOME/Projects/app/pkg/__pycache__" ]] || exit 12
+[[ ! -e "$HOME/Code/app/pkg/__pycache__" ]] || exit 13
+EOF
+    [ "$status" -eq 0 ] || { echo "status $status: $output"; return 1; }
+}
+
 @test "clean_project_caches scans configured roots instead of HOME" {
     mkdir -p "$HOME/.config/mole"
     mkdir -p "$HOME/CustomProjects/app/.next/cache"

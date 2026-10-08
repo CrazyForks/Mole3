@@ -471,8 +471,8 @@ _project_cache_path_is_ascii() {
 }
 
 # Build the index for every candidate a matches file will reach. All Git
-# listings share one deadline; a repository that cannot be listed in time, or
-# whose listing fails, marks its candidates unknown. Signals propagate.
+# listings share the deadline given; a repository that cannot be listed in
+# time, or whose listing fails, marks its candidates unknown. Signals propagate.
 project_cache_build_git_index() {
     local matches_file="$1"
     local index_file="$2"
@@ -637,13 +637,8 @@ project_cache_git_status() {
 # a scan that cannot finish keeps the folder.
 _project_cache_holds_nested_repo() {
     local dir="$1"
-    local deadline="${2:-}"
     local found="" scan_rc=0
-    local timeout=""
-    timeout=$(_mole_timeout_with_deadline "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" "$deadline") || scan_rc=$?
-    if [[ $scan_rc -eq 0 ]]; then
-        found=$(run_with_timeout "$timeout" find -P "$dir" -mindepth 1 -name .git -print -quit 2> /dev/null) || scan_rc=$?
-    fi
+    found=$(run_with_timeout "$MOLE_TIMEOUT_MEDIUM_PROBE_SEC" find -P "$dir" -mindepth 1 -name .git -print -quit 2> /dev/null) || scan_rc=$?
     [[ $scan_rc -gt 128 ]] && return "$scan_rc"
     local reason=""
     if [[ $scan_rc -ne 0 ]]; then
@@ -674,8 +669,12 @@ project_cache_has_tracked_files() {
 # Discovery's repository index is only a filter, never deletion authority.
 # Re-read literal Git ancestry and nested repositories after sizing and at
 # safe_remove's final boundary. Files under .next/cache need the same check.
+#
+# Each probe draws on a bound of its own, never on a budget shared with the
+# other candidates: every deletion asks twice, so a shared one ran out on a few
+# hundred caches and the rest were silently kept.
 _project_cache_final_guard() {
-    local path="$1" deadline="${_project_cache_git_deadline:-$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))}"
+    local path="$1" git_deadline=$((SECONDS + MOLE_TIMEOUT_MEDIUM_PROBE_SEC))
     local rc=0 evidence="" physical="" repo=""
     [[ -e "$path" && ! -L "$path" ]] || return 1
     _mole_snapshot_path_identity "$path" || return 1
@@ -684,7 +683,7 @@ _project_cache_final_guard() {
     if mole_find_git_repo_root "$physical"; then
         repo="$MOLE_GIT_REPO_ROOT"
         [[ "$repo" != "$physical" ]] || return 1
-        evidence=$(mole_git_ls_files "$repo" "$deadline" "$parent" -- "${path##*/}") || rc=$?
+        evidence=$(mole_git_ls_files "$repo" "$git_deadline" "$parent" -- "${path##*/}") || rc=$?
         [[ $rc -le 128 ]] || return "$rc"
         if [[ $rc -ne 0 || -n "$evidence" ]]; then
             debug_log "Keeping project cache after Git recheck: $path (status $rc)"
@@ -693,7 +692,7 @@ _project_cache_final_guard() {
     fi
     if [[ -d "$path" ]]; then
         rc=0
-        _project_cache_holds_nested_repo "$path" "$deadline" || rc=$?
+        _project_cache_holds_nested_repo "$path" || rc=$?
         [[ $rc -le 128 ]] || return "$rc"
         [[ $rc -eq 1 ]] || return 1
     fi
@@ -774,8 +773,10 @@ process_project_cache_matches() {
     local _project_cache_git_index=""
     local index_file="" index_rc=0
     index_file=$(create_temp_file) || return 0
+    # A fresh budget for each root: time spent cleaning an earlier root must not
+    # leave this one's listings with none.
     project_cache_build_git_index "$matches_file" "$index_file" \
-        "${_project_cache_git_deadline:-$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))}" || index_rc=$?
+        "$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))" || index_rc=$?
     if [[ $index_rc -ne 0 ]]; then
         rm -f "$index_file" # SAFE: exact scratch file created by create_temp_file above
         [[ $index_rc -gt 128 ]] && return "$index_rc"
@@ -1105,8 +1106,6 @@ clean_project_caches() {
         fi
     done
 
-    # One Git budget for every root's tracked-file index.
-    local _project_cache_git_deadline=$((SECONDS + MOLE_TIMEOUT_HINT_SCAN_SEC))
     for ((scan_index = 0; scan_index < ${#root_matches_files[@]}; scan_index++)); do
         root_matches_file="${root_matches_files[$scan_index]}"
         local scan_rc="${scan_statuses[$scan_index]:-1}"
