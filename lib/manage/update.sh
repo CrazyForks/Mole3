@@ -971,6 +971,14 @@ run_mole_command() {
     /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; kill "USR1", getppid(); exec {$ARGV[0]} @ARGV; warn "$ARGV[0]: $!\n"; exit 1' "$@" <&0 &
     command_pid=$!
     _mole_forward_pending_signal
+    # Bash 3.2 can discard INT inside a USR1 trap entered from wait. Settle
+    # the launcher's one readiness notification before using that builtin.
+    # A launcher that exits before notifying must still reach status collection.
+    {
+        while [[ "$command_ready" != "true" ]] && kill -0 "$command_pid" 2> /dev/null; do
+            sleep 0.01 || true
+        done
+    } 2> /dev/null
     # wait returns early for a trapped signal. Retry only when this wait was
     # interrupted, retaining the first cancellation status through child cleanup.
     # Its stderr is dropped because bash reports a child killed by a signal

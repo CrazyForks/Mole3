@@ -349,6 +349,21 @@ check_notice(setup + ready_pause + "run_mole_command /bin/bash -c 'echo CHILD_CO
              expected_status=7, required=(b'CHILD_COMPLETED',))
 print('PASS: launcher readiness cannot replace the command exit status')
 
+# Bash 3.2 can discard INT inside a USR1 trap entered from the wait builtin.
+# Keep that handler active with builtins while the real child reports ready.
+ready_handler_window = instrument_router('command_ready=true;',
+                                        'command_ready=true; local ready_deadline=$((SECONDS+1)); while ((SECONDS<ready_deadline)); do :; done;')
+check_notice(setup + ready_handler_window + """echo WRAPPER_PID=$$; run_mole_command /bin/bash -c 'trap "exit 130" INT; echo CHILD_READY; while :; do :; done' """,
+             expected_status=130, wait_marker=b'CHILD_READY', parent_signal=signal.SIGINT,
+             forbidden=(b'Update 9.8.7',))
+print('PASS: INT during launcher readiness reaches the child')
+
+for launcher_exit, expected_status in [('exit 7;', 7), ('kill "KILL", $$;', 137)]:
+    failed_launcher = instrument_router('$SIG{INT}="DEFAULT";', launcher_exit + '$SIG{INT}="DEFAULT";')
+    check_notice(setup + failed_launcher + "run_mole_command /bin/bash -c 'echo CHILD_COMPLETED'",
+                 expected_status=expected_status, forbidden=(b'CHILD_COMPLETED',))
+print('PASS: a launcher that exits before readiness does not block the router')
+
 output = check_notice(counter, expected_status=130, wait_marker=b'CHILD_READY', keys=b'\x03',
                       forbidden=(b'Update 9.8.7',))
 count = re.search(rb'INT_COUNT=(\d+)', output)
