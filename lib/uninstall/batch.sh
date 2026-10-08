@@ -844,19 +844,25 @@ remove_file_list() {
 # differs only in case slip the guard, and the uninstall then wiped the data
 # both apps share.
 #
-# `LC_ALL=C tr` rather than `${var,,}`: this repo still supports bash 3.2.
+# `mole_ascii_lowercase` rather than `${var,,}`: this repo still supports bash
+# 3.2. It folds exactly the bytes `LC_ALL=C tr` did, without the fork that cost
+# a few milliseconds per candidate in the sibling scans.
 uninstall_normalize_bundle_id() {
-    printf '%s' "$1" | LC_ALL=C tr '[:upper:]' '[:lower:]'
+    local normalized
+    mole_ascii_lowercase normalized "$1"
+    printf '%s' "$normalized"
 }
 
 # The scanner claims dot-continuation IDs and channel-stripped app names.
 # Any independent installed bundle matching either form can still own those
 # rows. This is a retention predicate, never permission to claim new data.
+# Runs once per installed app in every sibling scan, so it stays fork-free and
+# takes ids in any case.
 uninstall_bundles_share_remnants() {
     local selected_id="$1" other_id="$2" selected_path="$3" other_path="$4"
     local selected_lower other_lower
-    selected_lower=$(uninstall_normalize_bundle_id "$selected_id")
-    other_lower=$(uninstall_normalize_bundle_id "$other_id")
+    mole_ascii_lowercase selected_lower "$selected_id"
+    mole_ascii_lowercase other_lower "$other_id"
     if [[ "$selected_lower" == "$other_lower" ||
         "$selected_lower" == "$other_lower."* || "$other_lower" == "$selected_lower."* ]]; then
         return 0
@@ -864,10 +870,12 @@ uninstall_bundles_share_remnants() {
     local selected_name="${selected_path##*/}" other_name="${other_path##*/}"
     selected_name="${selected_name%.[aA][pP][pP]}"
     other_name="${other_name%.[aA][pP][pP]}"
-    selected_name=$(uninstall_strip_version_suffix "$selected_name")
-    other_name=$(uninstall_strip_version_suffix "$other_name")
+    _uninstall_strip_version_suffix_into selected_name "$selected_name"
+    _uninstall_strip_version_suffix_into other_name "$other_name"
     [[ ${#selected_name} -ge 2 && ${#other_name} -ge 2 ]] || return 1
-    [[ "$(uninstall_normalize_bundle_id "$selected_name")" == "$(uninstall_normalize_bundle_id "$other_name")" ]]
+    mole_ascii_lowercase selected_name "$selected_name"
+    mole_ascii_lowercase other_name "$other_name"
+    [[ "$selected_name" == "$other_name" ]]
 }
 
 # A preview-time inventory cannot authorize bundle-id teardown: an app may be
@@ -1494,12 +1502,11 @@ uninstall_bundle_id_has_surviving_sibling() {
     local bundle_id_lower
     bundle_id_lower=$(uninstall_normalize_bundle_id "$bundle_id")
 
-    local row other_path other_bundle other_bundle_lower
+    local row other_path other_bundle
     # shellcheck disable=SC2154 # apps_data is provided by bin/uninstall.sh via dynamic scope.
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path _ other_bundle _ _ _ <<< "$row"
-        other_bundle_lower=$(uninstall_normalize_bundle_id "$other_bundle")
-        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle_lower" "$app_path" "$other_path" || continue
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -1532,11 +1539,10 @@ uninstall_surviving_sibling_names() {
     local bundle_id_lower
     bundle_id_lower=$(uninstall_normalize_bundle_id "$bundle_id")
 
-    local row other_path other_name other_bundle other_bundle_lower
+    local row other_path other_name other_bundle
     for row in "${apps_data[@]+"${apps_data[@]}"}"; do
         IFS='|' read -r _ other_path other_name other_bundle _ _ _ <<< "$row"
-        other_bundle_lower=$(uninstall_normalize_bundle_id "$other_bundle")
-        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle_lower" "$app_path" "$other_path" || continue
+        uninstall_bundles_share_remnants "$bundle_id_lower" "$other_bundle" "$app_path" "$other_path" || continue
         [[ "$other_path" == "$app_path" ]] && continue
         [[ -d "$other_path" ]] || continue
 
@@ -1573,14 +1579,22 @@ uninstall_surviving_sibling_names() {
 # ("Zed Nightly" also matches "Zed" paths), so a collision check against the
 # survivor must consider the stripped form as well.
 uninstall_strip_version_suffix() {
-    local name="$1"
+    local stripped
+    _uninstall_strip_version_suffix_into stripped "$1"
+    printf '%s\n' "$stripped"
+}
+
+# Same strip, written into the variable named by $1 so a per-candidate caller
+# pays no command substitution. The match is case-sensitive on purpose, like
+# find_app_files; do not call it under nocasematch.
+_uninstall_strip_version_suffix_into() {
+    local _strip_value="$2"
     local version_suffixes="Nightly|Beta|Alpha|Dev|Canary|Preview|Insider|Edge|Stable|Release|RC|LTS"
     version_suffixes+="|Developer Edition|Technology Preview"
-    if [[ "$name" =~ ^(.+)[[:space:]]+(${version_suffixes})$ ]]; then
-        printf '%s\n' "${BASH_REMATCH[1]}"
-    else
-        printf '%s\n' "$name"
+    if [[ "$_strip_value" =~ ^(.+)[[:space:]]+(${version_suffixes})$ ]]; then
+        _strip_value="${BASH_REMATCH[1]}"
     fi
+    printf -v "$1" '%s' "$_strip_value"
 }
 
 # Internal helpers for batch_uninstall_applications. They read and write

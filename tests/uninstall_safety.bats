@@ -1183,3 +1183,65 @@ remove_file_list "$data" false com.example.Target "$app" || rc=$?
 EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "sibling matching folds case in-process instead of forking per candidate" {
+    # The predicate runs once per installed app in every sibling scan, three
+    # scans per selected app. Two tr forks per id and per name made a
+    # 200-app Mac 2.6x slower than V1.58.0; the verdicts must stay identical.
+    local shim="$BATS_TEST_TMPDIR/shim"
+    mkdir -p "$shim"
+    printf '#!/bin/bash\nprintf . >> "$TR_COUNT_FILE"\nexec /usr/bin/tr "$@"\n' > "$shim/tr"
+    chmod +x "$shim/tr"
+    run env HOME="$BATS_TEST_TMPDIR/home" PATH="$shim:$PATH" \
+        TR_COUNT_FILE="$BATS_TEST_TMPDIR/tr-count" PROJECT_ROOT="$PROJECT_ROOT" \
+        MOLE_TEST_NO_AUTH=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/Selected.app"
+mkdir -p "$selected/Contents"
+apps_data=()
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    app="$HOME/Applications/Vendor$i Tool.app"
+    mkdir -p "$app/Contents"
+    printf '<plist><dict><key>CFBundleIdentifier</key><string>com.Vendor%s.Tool</string></dict></plist>\n' "$i" > "$app/Contents/Info.plist"
+    apps_data+=("$i|$app|Vendor$i Tool|com.Vendor$i.Tool|0|Never|0")
+done
+verdict() { if uninstall_bundles_share_remnants "$2" "$3" "$4" "$5"; then echo "$1=shared"; else echo "$1=open"; fi; }
+: > "$TR_COUNT_FILE"
+verdict dot_continuation_any_case com.Foo.Bar com.foo.bar.PRO /A/Foo.app /A/Other.app
+verdict same_id_any_case com.Foo.Bar COM.FOO.BAR /A/Foo.app /A/Other.app
+verdict channel_name_any_case com.a.x com.b.y "/A/Zed Nightly.app" /A/ZED.app
+verdict suffix_strip_is_case_sensitive com.a.x com.b.y "/A/Zed nightly.app" /A/Zed.app
+verdict unrelated com.a.x com.b.y /A/Alpha.app /A/Beta.app
+verdict one_letter_names com.a.x com.b.y /A/X.app /A/x.app
+rc=0
+uninstall_live_bundle_has_other_install com.example.selected "$selected" || rc=$?
+echo "scan_rc=$rc"
+rc=0
+uninstall_bundle_id_has_surviving_sibling com.Example.Selected "$selected" || rc=$?
+echo "rows_rc=$rc"
+echo "names=[$(uninstall_surviving_sibling_names com.example.selected "$selected")]"
+forks=$(wc -c < "$TR_COUNT_FILE")
+echo "tr_execs=${forks//[[:space:]]/}"
+# Positive control: the same harness still finds a real sibling.
+mkdir -p "$HOME/Applications/Selected Pro.app/Contents"
+printf '<plist><dict><key>CFBundleIdentifier</key><string>com.example.selected.pro</string></dict></plist>\n' > "$HOME/Applications/Selected Pro.app/Contents/Info.plist"
+rc=0
+uninstall_live_bundle_has_other_install com.example.selected "$selected" || rc=$?
+echo "scan_with_sibling_rc=$rc"
+EOF
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"dot_continuation_any_case=shared"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"same_id_any_case=shared"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"channel_name_any_case=shared"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"suffix_strip_is_case_sensitive=open"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"unrelated=open"* && "$output" == *"one_letter_names=open"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"scan_rc=1"* && "$output" == *"rows_rc=1"* && "$output" == *"names=[]"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"scan_with_sibling_rc=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"tr_execs=0"* ]] || { echo "$output"; return 1; }
+}
