@@ -180,6 +180,7 @@ These files are intentionally large. Do not start by splitting them. Keep edits 
 ## Verification
 
 - Shell changes: run `./scripts/check.sh --format`, then the relevant Bats test or `MOLE_TEST_NO_AUTH=1 ./scripts/test.sh`.
+- `check.sh` does not lint `tests/`; the first step of `scripts/test.sh` runs `shellcheck --rcfile .shellcheckrc` over every test script, and CI's Validation job fails there. Run that shellcheck on new or changed test code before committing it, and annotate literal `$HOME`, `~/` or single-quoted shim bodies with `# shellcheck disable=SCxxxx  # reason`.
 - Go changes: run `go test ./...`.
 - Cleanup behavior: verify with dry-run or test mode first.
 - File operation changes: run `MOLE_TEST_NO_AUTH=1 bats tests/file_ops_mole_delete.bats tests/user_file_ops.bats`.
