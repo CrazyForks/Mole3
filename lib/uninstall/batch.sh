@@ -2744,17 +2744,17 @@ _batch_execute_removals() {
             fi
 
             # Include retained ownership refusals from every removal pass once.
-            # Previews still explain every refusal, excluding expected survivors.
+            # A dry run applies the same reason filter as a real run: it never
+            # stops the app, so a live-cache refusal there describes a state
+            # the real run will not be in, and V1.58.0 never listed it.
             local refusal_path refusal_index
             for ((refusal_index = 0; refusal_index < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; refusal_index++)); do
                 refusal_path="${_MOLE_UNINSTALL_REFUSAL_PATHS[$refusal_index]}"
-                if ! is_uninstall_dry_run; then
-                    case "${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}" in
-                        ownership-unverified | app-reappeared | shared-owner | owner-unknown) ;;
-                        *) continue ;;
-                    esac
-                    [[ -e "$refusal_path" || -L "$refusal_path" ]] || continue
-                fi
+                case "${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}" in
+                    ownership-unverified | app-reappeared | shared-owner | owner-unknown) ;;
+                    *) continue ;;
+                esac
+                [[ -e "$refusal_path" || -L "$refusal_path" ]] || continue
                 if [[ ${#leftover_paths[@]} -eq 0 ]] ||
                     ! mole_identity_in_list "$refusal_path" "${leftover_paths[@]}"; then
                     leftover_paths+=("$refusal_path")

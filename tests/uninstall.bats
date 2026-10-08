@@ -5610,6 +5610,16 @@ SCRIPT
         [[ "$output" == *"Kept (agent ownership unverified; review the plist): ~/Library/LaunchAgents/com.thirdparty.owned.plist"* ]] || return 1
         [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (agent ownership unverified; review the plist):')" -eq 1 ]] || return 1
         [[ "$output" != *"Could not remove"* && "$output" != *"Kept $HOME/Library/LaunchAgents"* ]] || return 1
+        # A dry run reports the plan the user confirmed and does not shrink it
+        # for the kept row; a real run subtracts the bytes it retained.
+        local plan_total
+        plan_total=$(printf '%s\n' "$output" | sed -n 's/.*Remove 1 app, \([0-9.]*[KMGT]*B\).*/\1/p')
+        [[ -n "$plan_total" ]] || return 1
+        if [[ "$preview" == 1 ]]; then
+            [[ "$output" == *"would free"*"$plan_total"* ]] || return 1
+        else
+            [[ "$output" == *"freed"* && "$output" != *"freed"*"$plan_total"* ]] || return 1
+        fi
     done
 }
 
@@ -5712,6 +5722,54 @@ SCRIPT
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == *"Kept (app may be active): ~/Library/Caches/com.example.Shared"* ]] || return 1
     [[ "$output" == *"Could not remove: ~/Library/Caches/com.example.Shared"* ]] || return 1
+}
+
+@test "batch uninstall dry run does not list a cache only a live app holds" {
+    # A dry run never stops the app, so the live-cache gate trips on a state
+    # the real run will not be in. V1.58.0 stayed quiet here; the row and the
+    # figure beside it must agree with what the real run does.
+    local preview
+    for preview in 1 0; do
+        run env HOME="$BATS_TEST_TMPDIR/home-$preview" PROJECT_ROOT="$PROJECT_ROOT" \
+            MOLE_DRY_RUN="$preview" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+export MOLE_UNINSTALL_MODE=1 MOLE_DELETE_MODE=trash
+export MOLE_TEST_TRASH_DIR="$HOME/Trash"
+app="$HOME/Applications/Live.app"
+cache="$HOME/Library/Caches/com.example.Live"
+mkdir -p "$app" "$cache"
+printf 'blob\n' > "$cache/blob"
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+_mole_should_refuse_live_user_cache_path() { [[ "$1" == "$cache" ]]; }
+cache_kb=$(du -skcP "$cache" | awk 'END {print $1}')
+encoded=$(printf '%s\n' "$cache" | base64 | tr -d '\n')
+app_details=("Live|$app|unknown|$((1000 + cache_kb))|$encoded||false|false|false|||||guard_login|$(_batch_selected_app_identity "$app")|unknown||missing")
+success_count=0 failed_count=0 brew_apps_removed=0 total_size_freed=0 files_cleaned=0 total_items=0
+failed_items=() success_items=() success_dock_targets=() system_extension_warning_apps=()
+review_only_system_leftovers=() review_only_system_leftover_keys=() running_at_uninstall_apps=()
+_batch_execute_removals
+[[ $success_count -eq 1 && $failed_count -eq 0 && -d "$cache" ]] || exit 1
+if [[ "$MOLE_DRY_RUN" == 1 ]]; then
+    # The preview does not size anything, so the figure is the whole plan.
+    [[ $total_size_freed -eq $((1000 + cache_kb)) ]] || { echo "dry-run figure $total_size_freed"; exit 1; }
+else
+    [[ $total_size_freed -eq 1000 ]] || { echo "real figure $total_size_freed"; exit 1; }
+fi
+printf 'FIGURE_OK\n'
+SCRIPT
+        [ "$status" -eq 0 ] || { echo "preview=$preview: $output"; return 1; }
+        [[ "$output" == *FIGURE_OK* ]] || { echo "preview=$preview: $output"; return 1; }
+        if [[ "$preview" == 1 ]]; then
+            [[ "$output" != *"Kept (app may be active)"* ]] || { echo "$output"; return 1; }
+        else
+            # Positive control: the real run still reports the row.
+            [[ "$output" == *"Kept (app may be active): ~/Library/Caches/com.example.Live"* ]] || { echo "$output"; return 1; }
+        fi
+    done
 }
 
 
