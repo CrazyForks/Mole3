@@ -697,6 +697,12 @@ is_homebrew_install() {
     is_homebrew_mole_path "$mole_path" "$has_brew"
 }
 
+# SCRIPT_DIR is resolved by the launcher before these helpers are loaded.
+# Match the store root, not a coincidental directory named nix/store in HOME.
+is_nix_install() {
+    [[ "${SCRIPT_DIR:-}" == /nix/store/* ]]
+}
+
 get_install_channel() {
     # This install's own receipt wins. install.sh --config can move the config
     # dir, and the launcher records where it went in SCRIPT_DIR, so reading the
@@ -836,6 +842,7 @@ mole_update_message_is_stale() {
 
 read_update_message_cache() {
     local msg_cache="$1" message=""
+    is_nix_install && return 0
     if mole_update_message_cache_is_current "$msg_cache"; then
         message=$(cat "$msg_cache" 2> /dev/null) || message=""
         if mole_update_message_is_stale "$message"; then
@@ -864,6 +871,7 @@ _mole_write_update_cache() {
 # every way of starting one install shares a single lookup and notice.
 check_for_updates() {
     local cache_dir="$HOME/.cache/mole" channel key now saved_key="" checked=0 interval=0
+    is_nix_install && return 0
     ensure_user_dir "$cache_dir" || return 0
     # The receipt probes run in the foreground now, so an unreadable receipt
     # must not print sed's diagnostic before the user's command.
@@ -1013,7 +1021,9 @@ show_version() {
     disk_free=$(get_free_space)
 
     local install_method="Manual"
-    if is_homebrew_install; then
+    if is_nix_install; then
+        install_method="Nix"
+    elif is_homebrew_install; then
         install_method="Homebrew"
     fi
 
@@ -1099,6 +1109,13 @@ update_mole() (
     }
     trap '_update_cleanup; update_interrupted=true; echo ""; exit 130' INT TERM
     trap '_update_cleanup' EXIT
+
+    if is_nix_install; then
+        local review_icon="${ICON_REVIEW:-⊙}"
+        log_error "Mole was installed via Nix. Self-update is disabled."
+        printf '%s To update Mole: nix profile upgrade mole, or update the Mole input in your Nix configuration\n' "$review_icon"
+        exit 1
+    fi
 
     if is_homebrew_install; then
         if [[ "$nightly_update" == "true" ]]; then

@@ -2288,3 +2288,58 @@ SCRIPT
 	# shellcheck disable=SC2016  # Literal source text, not an expansion.
 	! printf '%s\n' "$code" | grep -qF 'wait "$command_pid" 2>' || { echo "wait builtin carries a redirect"; return 1; }
 }
+
+@test "Nix detection uses only the invoked install's resolved store root" {
+    run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/update.sh"
+SCRIPT_DIR=/nix/store/0123456789-mole-1.59.0/share/mole
+is_nix_install || exit 1
+for SCRIPT_DIR in "$HOME/nix/store/mole" /nix/store-backup/mole /opt/homebrew/Cellar/mole/1.59.0 "$PROJECT_ROOT" ''; do
+    if is_nix_install; then exit 1; fi
+done
+SCRIPT
+    [ "$status" -eq 0 ]
+}
+
+@test "Nix update refuses before download or authorization for stable and nightly" {
+    for args in 'false false' 'true false' 'false true'; do
+        run env UPDATE_ARGS="$args" /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+SCRIPT_DIR=/nix/store/0123456789-mole/share/mole
+curl() { touch "$HOME/download-called"; return 97; }
+ensure_sudo_session() { touch "$HOME/auth-called"; return 97; }
+# Deliberate splitting of this fixed pair of boolean fixture arguments.
+update_mole $UPDATE_ARGS
+SCRIPT
+        [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+        [[ "$output" == *'nix profile upgrade mole'* ]] || return 1
+        [ ! -e "$HOME/download-called" ] || return 1
+        [ ! -e "$HOME/auth-called" ] || return 1
+    done
+}
+
+@test "Nix hides update notices without changing another install's shared cache" {
+    run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.59.0
+mkdir -p "$HOME/.cache/mole"
+notice="$HOME/.cache/mole/update_message"
+printf '%s\n' 'Update 9.9.9 available, run mo update' > "$notice"
+SCRIPT_DIR=/nix/store/0123456789-mole/share/mole
+curl() { touch "$HOME/download-called"; return 97; }
+check_for_updates
+[[ -z "$(read_update_message_cache "$notice")" ]] || exit 1
+[[ "$(cat "$notice")" == 'Update 9.9.9 available, run mo update' ]] || exit 1
+[[ ! -e "$HOME/download-called" ]] || exit 1
+[[ ! -e "$HOME/.cache/mole/version_check" ]] || exit 1
+SCRIPT_DIR="$PROJECT_ROOT"
+mole_update_message_cache_is_current() { return 0; }
+[[ "$(read_update_message_cache "$notice")" == 'Update 9.9.9 available, run mo update' ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ]
+}

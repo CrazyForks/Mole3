@@ -50,6 +50,14 @@ _remove_config_dir() {
 # Remove flow (Homebrew + manual + config/cache).
 remove_mole() {
     local dry_run_mode="${1:-false}"
+    # The router loads update.sh before remove.sh; isolated helper tests may not.
+    if declare -f is_nix_install > /dev/null 2>&1 && is_nix_install; then
+        local review_icon="${ICON_REVIEW:-⊙}"
+        log_error "Mole was installed via Nix. Self-removal is disabled."
+        printf '%s To remove Mole: nix profile remove mole or remove from your Nix configuration\n' "$review_icon"
+        exit 1
+    fi
+
     local remove_config_dir
     local test_mode=false
     if [[ "${MOLE_TEST_MODE:-0}" == "1" ]]; then

@@ -6258,3 +6258,22 @@ EOF
         [[ ! -d "$(cat "$fixture/allocated")" && ! -e "$(cat "$fixture/registry")" ]] || return 1
     done
 }
+
+@test "Nix self-removal refuses before discovery in normal and dry-run mode" {
+    for dry_run in false true; do
+        run env DRY_RUN="$dry_run" /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+SCRIPT_DIR=/nix/store/0123456789-mole/share/mole
+_remove_config_dir() { touch "$HOME/discovery-called"; }
+ensure_sudo_session() { touch "$HOME/auth-called"; return 97; }
+remove_mole "$DRY_RUN"
+SCRIPT
+        [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+        [[ "$output" == *'nix profile remove mole'* ]] || return 1
+        [ ! -e "$HOME/discovery-called" ] || return 1
+        [ ! -e "$HOME/auth-called" ] || return 1
+    done
+}
