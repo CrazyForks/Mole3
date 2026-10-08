@@ -3481,6 +3481,25 @@ EOF
     [ "$status" -eq 0 ]
 }
 
+@test "purge protects tracked source under a folder renamed only in case" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+root=$(mktemp -d "$HOME/case-rename.XXXXXX")
+mkdir -p "$root/repo/Svc/app/build" "$root/repo/Svc/other/build"
+printf authored > "$root/repo/Svc/app/build/source.txt"
+printf generated > "$root/repo/Svc/other/build/out.txt"
+git init -q "$root/repo"
+git -C "$root/repo" add Svc/app/build/source.txt
+# A plain mv leaves the index with the old spelling and git status clean.
+mv "$root/repo/Svc" "$root/repo/svc"
+is_protected_purge_artifact "$root/repo/svc/app/build" || exit 11
+# An untracked sibling under the same folder is still disposable.
+if is_protected_purge_artifact "$root/repo/svc/other/build"; then exit 12; fi
+EOF
+    [ "$status" -eq 0 ]
+}
+
 @test "purge keeps and reports a candidate whose content probe could not finish" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash <<'EOF_INNER'
 set -euo pipefail

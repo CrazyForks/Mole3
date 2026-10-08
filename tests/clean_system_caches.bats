@@ -716,7 +716,7 @@ clean_project_caches
 [[ -f "$repo/svc/c/__pycache__/m.pyc" ]] || exit 12
 for pkg in a b d e f; do
     [[ ! -e "$repo/svc/$pkg/__pycache__" ]] || exit 13
-    grep -Fxq "$repo/svc/$pkg|__pycache__" "$HOME/ls-files.calls" || exit 14
+    grep -Fxq "$repo|:(top,literal,icase)svc/$pkg/__pycache__" "$HOME/ls-files.calls" || exit 14
 done
 EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
@@ -1065,6 +1065,53 @@ EOF
             [ "$status" -eq 0 ] || { echo "$route/$rm_rc: status $status: $output"; return 1; }
         done
     done
+}
+
+@test "project cache Git evidence survives a case-only folder rename" {
+    run env HOME="$BATS_TEST_TMPDIR/case" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/caches.sh"
+repo="$HOME/Projects/repo"
+mkdir -p "$repo/Svc/p/__pycache__" "$repo/Svc/q/__pycache__"
+touch "$repo/pyproject.toml" "$repo/Svc/p/__pycache__/m.pyc" "$repo/Svc/q/__pycache__/n.pyc"
+git init -q "$repo"
+git -C "$repo" add -f Svc/p/__pycache__/m.pyc
+# A plain mv leaves the index with the old spelling and git status clean.
+mv "$repo/Svc" "$repo/svc"
+cache="$repo/svc/p/__pycache__"
+
+# Discovery: the listing prefix and the spelling on disk differ only in case.
+printf '%s\t%s\n' "$HOME/Projects" "$cache" > "$HOME/matches"
+project_cache_build_git_index "$HOME/matches" "$HOME/index" "$((SECONDS + 15))"
+grep -Fxq "T$cache" "$HOME/index" || { cat "$HOME/index"; exit 11; }
+
+# The recheck must not trust a stale clear verdict either.
+_project_cache_git_index=$'\nC'"$cache"$'\n'
+rc=0
+_project_cache_final_guard "$cache" || rc=$?
+[[ "$rc" -ne 0 ]] || exit 12
+rc=0
+mole_path_has_git_tracked_files "$cache" || rc=$?
+[[ "$rc" -eq 0 ]] || exit 13
+# An inherited literal-pathspec switch would turn the case-blind spec into plain
+# text that matches nothing, so the query must not honor it.
+rc=0
+GIT_LITERAL_PATHSPECS=1 mole_path_has_git_tracked_files "$cache" || rc=$?
+[[ "$rc" -eq 0 ]] || exit 16
+rc=0
+GIT_LITERAL_PATHSPECS=1 _project_cache_final_guard "$cache" || rc=$?
+[[ "$rc" -ne 0 ]] || exit 17
+_project_cache_git_index=""
+
+# Positive control: the untracked sibling under the same renamed folder is
+# still a cache, so the keep above is evidence and not a blanket refusal.
+DRY_RUN=false
+clean_project_caches
+[[ -f "$cache/m.pyc" ]] || exit 14
+[[ ! -e "$repo/svc/q/__pycache__" ]] || exit 15
+EOF
+    [ "$status" -eq 0 ] || { echo "status $status: $output"; return 1; }
 }
 
 @test "clean_project_caches scans configured roots instead of HOME" {

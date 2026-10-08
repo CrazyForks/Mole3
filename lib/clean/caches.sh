@@ -585,10 +585,15 @@ project_cache_build_git_index() {
             return 0
         fi
         # A candidate is tracked when a listed path equals it or lies below it.
-        tr '\0' '\n' < "$listing_file" | awk -F '\t' '
-            FNR == NR { want[$1] = $2; next }
+        # Case is folded on both sides: the disk may keep a folder's old
+        # spelling after a case-only rename while the index keeps the one Git
+        # saw, and a case-sensitive volume can only over-keep. Two candidates
+        # that differ only in case share a key, and the one that lost it is
+        # absent from the index, which keeps it.
+        tr '\0' '\n' < "$listing_file" | LC_ALL=C awk -F '\t' '
+            FNR == NR { want[tolower($1)] = $2; next }
             {
-                n = split($0, part, "/")
+                n = split(tolower($0), part, "/")
                 prefix = ""
                 for (i = 1; i <= n; i++) {
                     prefix = (i == 1) ? part[1] : prefix "/" part[i]
@@ -687,7 +692,8 @@ _project_cache_final_guard() {
     if mole_find_git_repo_root "$physical"; then
         repo="$MOLE_GIT_REPO_ROOT"
         [[ "$repo" != "$physical" ]] || return 1
-        evidence=$(mole_git_ls_files "$repo" "$git_deadline" "$parent" -- "${path##*/}") || rc=$?
+        mole_git_path_spec "$repo" "$physical"
+        evidence=$(mole_git_ls_files "$repo" "$git_deadline" "$repo" -- "$MOLE_GIT_PATH_SPEC") || rc=$?
         [[ $rc -le 128 ]] || return "$rc"
         if [[ $rc -ne 0 || -n "$evidence" ]]; then
             debug_log "Keeping project cache after Git recheck: $path (status $rc)"
