@@ -944,22 +944,33 @@ run_mole_command() {
         [[ -x "$shebang" ]] || exec "$@"
     fi
     check_for_updates
-    local command_pid interrupted=0 signal_generation=0 observed_generation=0
+    local command_pid="" pending_signal="" command_ready=false interrupted=0 signal_generation=0 observed_generation=0
+    # Install handlers before launch, but forward only after Perl restores the
+    # signal disposition that Bash disables for asynchronous jobs.
+    _mole_forward_pending_signal() {
+        [[ "$command_ready" == "true" && -n "$command_pid" && -n "$pending_signal" ]] || return 0
+        local queued_signal
+        queued_signal="$pending_signal" pending_signal=""
+        kill -"$queued_signal" "$command_pid" 2> /dev/null || true
+    }
+    # Terminal Ctrl-C can reach the child directly and through this forward.
+    # Router-only signals are forwarded once; handlers must tolerate a repeat.
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=129; pending_signal=HUP; _mole_forward_pending_signal' HUP
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=130; pending_signal=INT; _mole_forward_pending_signal' INT
+    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=143; pending_signal=TERM; _mole_forward_pending_signal' TERM
+    trap 'signal_generation=$((signal_generation + 1)); command_ready=true; _mole_forward_pending_signal' USR1
+    if [[ "$interrupted" -ne 0 ]]; then
+        trap - HUP INT TERM USR1
+        exit "$interrupted"
+    fi
     # Bash ignores SIGINT in asynchronous jobs. Restore the normal disposition
     # before exec so both terminal Ctrl-C and signals sent to this router work.
     # The checks above leave no known reason for the exec to fail; if one
     # appears anyway the cause is reported and the status is 1, like the plain
     # exec.
-    /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; warn "$ARGV[0]: $!\n"; exit 1' "$@" <&0 &
+    /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; kill "USR1", getppid(); exec {$ARGV[0]} @ARGV; warn "$ARGV[0]: $!\n"; exit 1' "$@" <&0 &
     command_pid=$!
-    # A terminal Ctrl-C signals the whole foreground group, which holds this
-    # router and the child, and the forward below then signals the child again.
-    # Bash cannot tell that from a kill sent to the router alone, so on a
-    # terminal the child may see INT twice and otherwise once: command INT
-    # handlers must tolerate a repeat. tests/main_menu_pty.py counts both.
-    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=129; kill -HUP "$command_pid" 2>/dev/null || true' HUP
-    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=130; kill -INT "$command_pid" 2>/dev/null || true' INT
-    trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=143; kill -TERM "$command_pid" 2>/dev/null || true' TERM
+    _mole_forward_pending_signal
     # wait returns early for a trapped signal. Retry only when this wait was
     # interrupted, retaining the first cancellation status through child cleanup.
     # Its stderr is dropped because bash reports a child killed by a signal
@@ -974,7 +985,7 @@ run_mole_command() {
         [[ "$observed_generation" -eq "$signal_generation" ]] && break
     done
     [[ "$interrupted" -eq 0 ]] || rc=$interrupted
-    trap - HUP INT TERM
+    trap - HUP INT TERM USR1
     if [[ "$rc" -lt 128 ]]; then
         local notice
         notice=$(read_update_message_cache "$HOME/.cache/mole/update_message")

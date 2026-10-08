@@ -5,6 +5,7 @@ import os
 import pty
 import re
 import select
+import shlex
 import signal
 import subprocess
 import sys
@@ -254,6 +255,57 @@ chmod +x "$HOME/count-child"
 echo WRAPPER_PID=$$
 run_mole_command "$HOME/count-child"
 """
+
+
+def instrument_router(needle, replacement):
+    rewrite = (f"import sys; s=sys.stdin.read(); assert s.count({needle!r}) == 1; "
+               f"print(s.replace({needle!r}, {replacement!r}))")
+    return f'eval "$(declare -f run_mole_command | {shlex.quote(sys.executable)} -c {shlex.quote(rewrite)})"\n'
+
+
+# A child can become ready before the router assigns its PID. Expand that
+# scheduling window with builtins, which neither replace $! nor defer traps
+# like a foreground sleep would. Both tty and router-only INT must survive.
+launch_window = instrument_router('command_pid=$!',
+                                  'local launch_deadline=$((SECONDS + 2)); while ((SECONDS < launch_deadline)); do :; done; command_pid=$!')
+launch_counter = counter[len(setup):].replace("end=$((SECONDS + 2))", "end=$((SECONDS + 4))")
+launch_counter = launch_counter.replace("trap 'n=$((n+1))' INT", "trap 'n=$((n+1))' INT HUP TERM")
+for early_signal in [None, signal.SIGINT, signal.SIGHUP, signal.SIGTERM]:
+    terminal_signal = early_signal is None
+    output = check_notice(setup + launch_window + launch_counter,
+                          expected_status=128 + (early_signal or signal.SIGINT), wait_marker=b'CHILD_READY',
+                          keys=b'\x03' if terminal_signal else b'',
+                          parent_signal=early_signal,
+                          required=(b'INT_COUNT=',), forbidden=(b'Update 9.8.7',))
+    count = re.search(rb'INT_COUNT=(\d+)', output)
+    assert count and int(count.group(1)) in ([1, 2] if terminal_signal else [1]), output
+print('PASS: cancellation survives the child-launch PID assignment window')
+
+# An INT sent before Perl resets Bash's inherited SIG_IGN must be queued
+# until the launcher is ready, not just reflected in the router's exit code.
+before_reset = instrument_router('$SIG{INT}="DEFAULT";',
+                                 '$|=1; print "BEFORE_RESET\\n"; select undef,undef,undef,1; $SIG{INT}="DEFAULT";')
+early_child = """echo WRAPPER_PID=$$; run_mole_command /bin/bash -c 'trap "exit 130" INT; end=$((SECONDS+2)); while ((SECONDS<end)); do :; done; echo CHILD_COMPLETED'"""
+check_notice(setup + before_reset + early_child, expected_status=130,
+             wait_marker=b'BEFORE_RESET', parent_signal=signal.SIGINT,
+             forbidden=(b'CHILD_COMPLETED', b'Update 9.8.7'))
+print('PASS: early INT stops the child after its inherited ignore is reset')
+
+before_fork = instrument_router('if [[ "$interrupted" -ne 0 ]]; then',
+                               'echo PRE_FORK_READY; local launch_deadline=$((SECONDS+2)); while ((SECONDS<launch_deadline)); do :; done; if [[ "$interrupted" -ne 0 ]]; then')
+launch_marker = instrument_router('$SIG{INT}="DEFAULT";',
+                                  '$|=1; print "LAUNCH_ENTER\\n"; $SIG{INT}="DEFAULT";')
+check_notice(setup + before_fork + launch_marker + early_child, expected_status=130,
+             wait_marker=b'PRE_FORK_READY', parent_signal=signal.SIGINT,
+             forbidden=(b'LAUNCH_ENTER', b'CHILD_COMPLETED', b'Update 9.8.7'))
+print('PASS: cancellation before fork skips command launch')
+
+ready_pause = instrument_router('kill "USR1", getppid();',
+                                'kill "USR1", getppid(); select undef,undef,undef,1;')
+check_notice(setup + ready_pause + "run_mole_command /bin/bash -c 'echo CHILD_COMPLETED; exit 7'",
+             expected_status=7, required=(b'CHILD_COMPLETED',))
+print('PASS: launcher readiness cannot replace the command exit status')
+
 output = check_notice(counter, expected_status=130, wait_marker=b'CHILD_READY', keys=b'\x03',
                       forbidden=(b'Update 9.8.7',))
 count = re.search(rb'INT_COUNT=(\d+)', output)
