@@ -131,6 +131,50 @@ assert b"\n\\\n" in b and b"a\\b\\\\c\n" in b, "backslash must stay literal"
     [ "$status" -eq 0 ]
 }
 
+@test "mo history text prints legacy control bytes escaped and keeps JSON content" {
+    local esc=$'\033'
+    {
+        printf '# ========== clean session started at 2026-05-24 10:00:00 ==========\n'
+        printf '[2026-05-24 10:00:01] [clean] REMOVED /tmp/cache one (2KB)\n'
+        printf '# ========== clean session ended at 2026-05-24 10:00:05, 1 items, %s[2J6KB ==========\n' "$esc"
+        printf '[2026-05-24 10:01:00] [cl%s[31mean] REMOVED /tmp/other (1KB)\n' "$esc"
+    } > "$HOME/Library/Logs/mole/operations.log"
+    {
+        printf '2026-05-24T10:00:02+0000\ttrash\t4\tok\t/tmp/Old App.app\n'
+        printf '2026-05-24T10:00:03+0000%s[2J\ttrash\t4\tok\t/tmp/evil%s[31mRED\rend\n' "$esc" "$esc"
+        printf '2026-05-24T10:00:04+0000\tperm%s]0;title\a\t4\tok\t/tmp/mode\n' "$esc"
+    } > "$HOME/Library/Logs/mole/deletions.log"
+
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history
+    [ "$status" -eq 0 ]
+    # Positive controls: the escaped spellings and the clean row are present.
+    [[ "$output" == *'/tmp/evil\x1b[31mRED\rend'* ]] || return 1
+    [[ "$output" == *'2026-05-24T10:00:03+0000\x1b[2J'* ]] || return 1
+    [[ "$output" == *'perm\x1b]0;title\x07'* ]] || return 1
+    [[ "$output" == *'1 items, \x1b[2J6KB'* ]] || return 1
+    [[ "$output" == *'cl\x1b[31mean'* ]] || return 1
+    [[ "$output" == *'/tmp/Old App.app'* ]] || return 1
+    # Only the colored heading may carry an escape byte.
+    printf '%s\n' "$output" | python3 -c '
+import sys
+lines = sys.stdin.buffer.read().split(b"\n")
+bad = [l for l in lines if b"\x1b" in l and b"Mole History" not in l]
+assert not bad, bad
+assert not any(b"\r" in l or b"\x07" in l for l in lines), lines
+'
+
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+paths = {d["path"] for d in data["deletions"]}
+assert "/tmp/evil\x1b[31mRED\rend" in paths, paths
+assert {d["timestamp"] for d in data["deletions"]} >= {"2026-05-24T10:00:03+0000\x1b[2J"}, data["deletions"]
+assert any(s["size"] == "\x1b[2J6KB" for s in data["sessions"]), data["sessions"]
+'
+}
+
 @test "mo history summarizes operation sessions and deletion audit" {
     write_history_logs
 

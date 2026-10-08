@@ -619,6 +619,8 @@ history_render_text() {
     session_count=${#HISTORY_SESSION_COMMANDS[@]}
     deletion_count=${#HISTORY_DELETE_TIMESTAMPS[@]}
 
+    # Logs from V1.58.0 and earlier can still hold raw control bytes. Every
+    # field read from them is printed escaped; --json keeps the stored value.
     printf '\n%sMole History%s\n\n' "$BLUE" "$NC"
 
     if [[ "$session_count" -eq 0 ]]; then
@@ -643,6 +645,10 @@ history_render_text() {
             local other="${HISTORY_SESSION_OTHER[$idx]}"
             local failed_tasks="${HISTORY_SESSION_FAILED_TASKS[$idx]}"
             local count_text
+            _mole_escape_log_value command "$command"
+            _mole_escape_log_value started "$started"
+            _mole_escape_log_value ended "$ended"
+            _mole_escape_log_value size "$size"
             count_text=$(history_join_counts "$removed" "$trashed" "$skipped" "$failed" "$rebuilt" "$other")
             if [[ "$failed_tasks" -gt 0 ]]; then
                 count_text+=", $failed_tasks optimize tasks failed"
@@ -671,6 +677,10 @@ history_render_text() {
             local status="${HISTORY_DELETE_STATUSES[$idx]}"
             local path="${HISTORY_DELETE_PATHS[$idx]}"
             local size_label
+            _mole_escape_log_value timestamp "$timestamp"
+            _mole_escape_log_value mode "$mode"
+            _mole_escape_log_value status "$status"
+            _mole_escape_log_value path "$path"
             size_label=$(history_size_label "$size_kb")
             printf '  %-24s %-9s %-16s %8s  %s\n' "$timestamp" "$mode" "$status" "$size_label" "$path"
             idx=$((idx - 1))
