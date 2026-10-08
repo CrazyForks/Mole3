@@ -614,12 +614,12 @@ mole_filter_nested_paths() {
     return 0
 }
 
-# Wait in the owning shell so Bash 3.2 can reap any completed scan worker.
-# The first argument names a caller variable receiving the completed PID;
-# the return status belongs to that worker, or to an interrupted polling sleep.
 # Lowercase ASCII letters into the variable named by $1, the same bytes
-# `LC_ALL=C tr '[:upper:]' '[:lower:]'` produces, without a subprocess:
-# hot loops call this once per candidate, and each tr cost a fork.
+# `LC_ALL=C tr '[:upper:]' '[:lower:]'` produces in the C and UTF-8 locales,
+# without a subprocess: hot loops call this once per candidate, and each tr
+# cost a fork. Bash 3.2 expansion skips some letters after high bytes in
+# legacy multibyte locales (GBK, SJIS, Big5), so keep callers under the
+# LC_ALL=C that bin/clean.sh exports.
 mole_ascii_lowercase() {
     local _lowercase_value="${2:-}"
     _lowercase_value=${_lowercase_value//A/a}
@@ -683,6 +683,9 @@ _mole_escape_log_value() {
     printf -v "$_output" '%s' "$_value"
 }
 
+# Wait in the owning shell so Bash 3.2 can reap any completed scan worker.
+# The first argument names a caller variable receiving the completed PID;
+# the return status belongs to that worker, or to an interrupted polling sleep.
 mole_wait_for_any_worker() {
     local _wait_output_name="$1"
     shift
