@@ -863,3 +863,128 @@ EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$(grep -c '^OK|' <<< "$output")" == "6" ]] || { echo "$output"; return 1; }
 }
+
+# Rows whose path no cleanup consults must not come back: they invite the
+# reader to conclude Mole would otherwise delete that cache. JetBrains data and
+# Next.js are not on this list because they still change a run (see the
+# Toolbox test below; Next.js is scanned when ~ is listed in purge_paths).
+@test "whitelist inventory has no row for a path no cleanup consults" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/whitelist.sh"
+get_all_cache_items
+EOF
+
+    [ "$status" -eq 0 ] || return 1
+    local dead
+    for dead in \
+        '$HOME/.cache/pip/' '$HOME/.cache/yarn/' '$HOME/.gem/cache/' \
+        '$HOME/.local/share/containers/cache/' \
+        '$HOME/.rustup/toolchains/' '$HOME/.ccache/' '$HOME/.cache/sccache/' \
+        '$HOME/.cache/flutter/' '$HOME/.cache/selenium/' '$HOME/.ollama/'; do
+        [[ "$output" != *"|$dead"* ]] || { echo "dead row: $dead"; return 1; }
+    done
+    # Positive control: the live spellings are present, so the loop above ran
+    # against a real inventory rather than an empty one.
+    [[ "$output" == *'|$HOME/Library/Caches/pip/*|'* ]] || return 1
+    [[ "$output" == *'|$HOME/.yarn/cache/*|'* ]] || return 1
+}
+
+# The Toolbox cleaner only strips whitelist patterns that start at its own apps
+# root, so the broader "JetBrains IDEs data" row still hides old IDE versions.
+# While that holds the row changes a run and stays in the inventory. If the
+# cleaner is changed to bypass broader JetBrains patterns, this row becomes
+# dead: drop it and this test together.
+@test "JetBrains data row hides old Toolbox IDE versions from cleanup" {
+    local test_home="$HOME/rows-jetbrains"
+    local channel="$test_home/Library/Application Support/JetBrains/Toolbox/apps/IDEA/ch-0"
+    rm -rf "$test_home"
+    mkdir -p "$channel/241.1" "$channel/241.2" "$channel/241.3"
+    ln -s 241.3 "$channel/current"
+    touch -t 202401010000 "$channel/241.1"
+    touch -t 202402010000 "$channel/241.2"
+    touch -t 202403010000 "$channel/241.3"
+
+    run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/whitelist.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+note_activity() { :; }
+safe_clean() {
+    if is_path_whitelisted "$1"; then
+        echo "PROTECTED|${1#"$HOME"/}"
+    else
+        echo "EXPOSED|${1#"$HOME"/}"
+    fi
+}
+MOLE_JETBRAINS_TOOLBOX_KEEP=1
+
+WHITELIST_PATTERNS=()
+control=$(clean_dev_jetbrains_toolbox)
+grep -q '^EXPOSED|.*/ch-0/241.1$' <<< "$control" || { echo "NO_CONTROL_TARGET"; exit 1; }
+
+inventory=$(get_all_cache_items)
+pattern=$(awk -F'|' '$1 ~ /^JetBrains IDEs data/ { print $2 }' <<< "$inventory")
+[[ -n "$pattern" ]] || { echo "NO_ROW"; exit 1; }
+pattern="${pattern/\$HOME/$HOME}"
+save_whitelist_patterns clean "${pattern/#$HOME/~}"
+load_mole_whitelist "$HOME"
+clean_dev_jetbrains_toolbox
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"PROTECTED|Library/Application Support/JetBrains/Toolbox/apps/IDEA/ch-0/241.1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" != *"EXPOSED|"* ]]
+}
+
+# Lines saved by an older menu for rows that were respelled or dropped are not
+# rows any more, so the menu keeps them as custom patterns. They must survive
+# a save and keep protecting what they always matched, and the default
+# Ollama protection must keep applying with its row gone.
+@test "saved lines for dropped whitelist rows survive a menu save and keep protecting" {
+    local test_home="$HOME/rows-saved-lines"
+    local whitelist_file="$test_home/.config/mole/whitelist"
+    rm -rf "$test_home"
+    mkdir -p "$(dirname "$whitelist_file")"
+    printf '%s\n' '~/.cache/pip/*' '~/.cache/yarn/*' '~/.gem/cache/*' \
+        '~/.ccache/*' '~/.ollama/models/*' > "$whitelist_file"
+
+    local variant
+    for variant in saved-file default-patterns; do
+        if [[ "$variant" == "default-patterns" ]]; then
+            rm -f "$whitelist_file"
+        fi
+        run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/whitelist.sh"
+paginated_multi_select() {
+    MOLE_SELECTION_RESULT="${MOLE_PRESELECTED_INDICES:-}"
+    return 0
+}
+manage_whitelist clean > /dev/null
+echo "MENU_DONE"
+load_mole_whitelist "$HOME"
+for probe in \
+    "$HOME/.cache/pip/http/a" "$HOME/.cache/yarn/v6/a" "$HOME/.gem/cache/a.gem" \
+    "$HOME/.ccache/0/a.o" "$HOME/.ollama/models/blobs/sha256-a"; do
+    if is_path_whitelisted "$probe"; then
+        printf 'PROTECTED=%s\n' "${probe#"$HOME"/}"
+    else
+        printf 'EXPOSED=%s\n' "${probe#"$HOME"/}"
+    fi
+done
+EOF
+        [ "$status" -eq 0 ] || { echo "$variant: $output"; return 1; }
+        [[ "$output" == *"MENU_DONE"* ]] || { echo "$variant: $output"; return 1; }
+        # The default list only ever carried the Ollama line; the saved file
+        # carried all five.
+        [[ "$output" == *"PROTECTED=.ollama/models/blobs/sha256-a"* ]] || { echo "$variant: $output"; return 1; }
+        if [[ "$variant" == "saved-file" ]]; then
+            [[ "$output" != *"EXPOSED="* ]] || { echo "$variant: $output"; return 1; }
+            local saved
+            for saved in '.cache/pip/*' '.cache/yarn/*' '.gem/cache/*' '.ccache/*' '.ollama/models/*'; do
+                grep -Fq "$saved" "$whitelist_file" || { echo "lost $saved"; cat "$whitelist_file"; return 1; }
+            done
+        fi
+    done
+}
