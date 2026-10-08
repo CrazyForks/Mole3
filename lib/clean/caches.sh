@@ -673,9 +673,13 @@ project_cache_has_tracked_files() {
 # Each probe draws on a bound of its own, never on a budget shared with the
 # other candidates: every deletion asks twice, so a shared one ran out on a few
 # hundred caches and the rest were silently kept.
+#
+# A refusal below concerns this path alone, so it names the path for a guarded
+# batch to skip and go on. Only the outer guard's refusal and a signal stop it.
 _project_cache_final_guard() {
     local path="$1" git_deadline=$((SECONDS + MOLE_TIMEOUT_MEDIUM_PROBE_SEC))
-    local rc=0 evidence="" physical="" repo=""
+    local rc=0 evidence="" physical="" repo="" outer_rc=0
+    _MOLE_SAFE_CLEAN_SKIP_PATH="$path"
     [[ -e "$path" && ! -L "$path" ]] || return 1
     _mole_snapshot_path_identity "$path" || return 1
     local parent="$_MOLE_PATH_SNAPSHOT_PARENT" parent_id="$_MOLE_PATH_SNAPSHOT_PARENT_ID" target_id="$_MOLE_PATH_SNAPSHOT_TARGET_ID"
@@ -697,9 +701,14 @@ _project_cache_final_guard() {
         [[ $rc -eq 1 ]] || return 1
     fi
     if [[ -n "${_project_cache_outer_guard:-}" ]]; then
-        "$_project_cache_outer_guard" "$path" || return $?
+        "$_project_cache_outer_guard" "$path" || outer_rc=$?
+        if [[ $outer_rc -ne 0 ]]; then
+            _MOLE_SAFE_CLEAN_SKIP_PATH=""
+            return "$outer_rc"
+        fi
     fi
     _mole_path_matches_identity "$path" "$parent" "$parent_id" "$target_id" || return 1
+    _MOLE_SAFE_CLEAN_SKIP_PATH=""
     _MOLE_SAFE_CLEAN_BOUND_PATH="$path"
     _MOLE_SAFE_CLEAN_EXPECTED_PARENT="$parent"
     _MOLE_SAFE_CLEAN_EXPECTED_PARENT_ID="$parent_id"

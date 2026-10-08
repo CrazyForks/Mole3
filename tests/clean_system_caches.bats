@@ -984,6 +984,48 @@ EOF
     [ "$status" -eq 0 ] || { echo "status $status: $output"; return 1; }
 }
 
+@test "clean_project_caches skips a refused .next/cache child and still cleans its siblings" {
+    local mode
+    for mode in real dry; do
+        run env HOME="$BATS_TEST_TMPDIR/next-$mode" PROJECT_ROOT="$PROJECT_ROOT" MODE="$mode" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/bin/clean.sh"
+repo="$HOME/Projects/web"
+cache="$repo/.next/cache"
+mkdir -p "$cache/a" "$cache/c" "$cache/d/inner" "$cache/e" "$cache/f" "$HOME/Other"
+touch "$cache/a/x" "$cache/c/x" "$cache/e/x" "$cache/f/x" "$HOME/Other/data"
+# b is a link out of the project and d holds an authored repository: the guard
+# refuses each of them by name, and the children after them are still caches.
+ln -s "$HOME/Other" "$cache/b"
+git init -q "$repo"
+git init -q "$cache/d/inner"
+DRY_RUN=false
+[[ "$MODE" != dry ]] || DRY_RUN=true
+files_cleaned=0
+total_size_cleaned=0
+total_items=0
+record_dry_run_cleanup_target() { printf '%s\n' "$1" >> "$HOME/preview"; }
+rc=0
+clean_project_cache_target "$cache"/* "Next.js build cache" || rc=$?
+[[ "$rc" -eq 0 ]] || exit 11
+[[ -L "$cache/b" && -f "$HOME/Other/data" && -d "$cache/d/inner/.git" ]] || exit 12
+for child in a c e f; do
+    if [[ "$MODE" == dry ]]; then
+        [[ -d "$cache/$child" ]] || exit 13
+        grep -Fxq "$cache/$child" "$HOME/preview" || exit 14
+    else
+        [[ ! -e "$cache/$child" ]] || exit 15
+    fi
+done
+if [[ "$MODE" == dry ]]; then
+    [[ "$(grep -c . "$HOME/preview")" -eq 4 ]] || exit 16
+fi
+EOF
+        [ "$status" -eq 0 ] || { echo "$mode: status $status: $output"; return 1; }
+    done
+}
+
 @test "clean_project_caches scans configured roots instead of HOME" {
     mkdir -p "$HOME/.config/mole"
     mkdir -p "$HOME/CustomProjects/app/.next/cache"
