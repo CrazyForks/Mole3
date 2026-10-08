@@ -772,6 +772,66 @@ EOF
     [[ "$output" == *"timed out"* ]] || { echo "$output"; return 1; }
 }
 
+@test "clean_homebrew stops on an interrupted cleanup after restoring active links" {
+    # Ctrl-C while `brew cleanup` holds the terminal reaches only the child.
+    # A signal stops the run once the active links are back; a plain failure
+    # or a timeout leaves the stamp unset and carries on to the autoremove
+    # preview.
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_CURRENT_COMMAND=clean \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/brew.sh"
+
+TEST_BREW_PREFIX="$HOME/homebrew-interrupt"
+TEST_BREW_CELLAR="$TEST_BREW_PREFIX/Cellar"
+TEST_TRACE="$HOME/homebrew-interrupt.trace"
+mkdir -p "$TEST_BREW_PREFIX/bin" "$TEST_BREW_CELLAR/node/26.4.0/bin" "$HOME/Library/Caches/Homebrew" "$HOME/.cache/mole"
+printf '#!/bin/sh\n' > "$TEST_BREW_CELLAR/node/26.4.0/bin/node"
+
+start_inline_spinner() { :; }
+stop_inline_spinner() { :; }
+note_activity() { :; }
+debug_log() { :; }
+ensure_user_file() { mkdir -p "$(dirname "$1")"; : > "$1"; }
+run_with_timeout() { shift; "$@"; }
+brew() {
+    case "$*" in
+        --prefix) printf '%s\n' "$TEST_BREW_PREFIX" ;;
+        --cellar) printf '%s\n' "$TEST_BREW_CELLAR" ;;
+        "cleanup --prune=30")
+            rm -f "$TEST_BREW_PREFIX/bin/node"
+            return "$BREW_CLEANUP_RC"
+            ;;
+        "autoremove --dry-run") echo autoremove >> "$TEST_TRACE" ;;
+        *) return 0 ;;
+    esac
+}
+
+for BREW_CLEANUP_RC in 130 143 1 124; do
+    rm -f "$HOME/.cache/mole/brew_last_cleanup" "$TEST_TRACE" "$TEST_BREW_PREFIX/bin/node"
+    : > "$TEST_TRACE"
+    ln -s ../Cellar/node/26.4.0/bin/node "$TEST_BREW_PREFIX/bin/node"
+    MOLE_CLEAN_CANCEL_STATUS=0
+    rc=0
+    clean_homebrew > /dev/null || rc=$?
+    restored=no
+    [[ -L "$TEST_BREW_PREFIX/bin/node" ]] && restored=yes
+    stamped=no
+    [[ -e "$HOME/.cache/mole/brew_last_cleanup" ]] && stamped=yes
+    printf 'BREW=%s RC=%s CANCEL=%s RESTORED=%s STAMPED=%s AUTOREMOVE=%s\n' \
+        "$BREW_CLEANUP_RC" "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$restored" "$stamped" \
+        "$(grep -c '^autoremove$' "$TEST_TRACE" || true)"
+done
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"BREW=130 RC=130 CANCEL=130 RESTORED=yes STAMPED=no AUTOREMOVE=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BREW=143 RC=143 CANCEL=143 RESTORED=yes STAMPED=no AUTOREMOVE=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BREW=1 RC=0 CANCEL=0 RESTORED=yes STAMPED=no AUTOREMOVE=1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BREW=124 RC=0 CANCEL=0 RESTORED=yes STAMPED=no AUTOREMOVE=1"* ]] || { echo "$output"; return 1; }
+}
+
 @test "clean_homebrew prevents cleanup from implicitly autoremoving formulae" {
     run /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail

@@ -2168,6 +2168,7 @@ clean_tart_caches() {
         start_section_spinner "Pruning Tart caches..."
     fi
     local prune_succeeded=false
+    local prune_rc=0
     tart_state=0
     mole_pgrep_any -x "tart" || tart_state=$?
     if [[ $tart_state -ne 1 ]]; then
@@ -2181,9 +2182,17 @@ clean_tart_caches() {
         return 0
     elif run_with_timeout "$MOLE_TIMEOUT_PKG_CLEANUP_SEC" tart prune --entries caches --older-than "$MOLE_ORPHAN_AGE_DAYS" > /dev/null 2>&1; then
         prune_succeeded=true
+    else
+        prune_rc=$?
     fi
     if [[ -t 1 ]]; then
         stop_section_spinner
+    fi
+    if mole_rc_signal "$prune_rc"; then
+        # Ctrl-C while tart holds the terminal reaches only the child.
+        debug_log "Tart caches: owner command interrupted (exit $prune_rc)"
+        _mole_record_clean_cancellation "$prune_rc" "Tart caches"
+        return "$prune_rc"
     fi
 
     if [[ "$prune_succeeded" != "true" ]]; then

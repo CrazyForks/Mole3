@@ -1204,6 +1204,59 @@ EOF
     [[ "$output" == *"Orphaned bun cache|$HOME/.bun/install/cache/*"* ]]
 }
 
+@test "clean_dev_npm stops on an interrupted bun cache removal instead of removing it directly" {
+    # Ctrl-C while `bun pm cache rm` holds the terminal reaches only the child.
+    # A signal stops cleanup; a plain failure, a timeout or an errno-derived
+    # status above 127 still falls back to the filesystem.
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_CURRENT_COMMAND=clean \
+        /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+clean_pnpm_stores() { :; }
+clean_corepack_cache() { :; }
+clean_tool_cache() { :; }
+safe_clean() { echo "SAFE_CLEAN:$2"; }
+note_activity() { :; }
+debug_log() { :; }
+run_with_timeout() { shift; "$@"; }
+npm() { return 0; }
+bun() {
+    if [[ "$1" == "--version" ]]; then
+        echo "1.2.0"
+        return 0
+    fi
+    if [[ "$1" == "pm" && "$2" == "cache" && "${3:-}" == "rm" ]]; then
+        return "$BUN_RM_RC"
+    fi
+    if [[ "$1" == "pm" && "$2" == "cache" ]]; then
+        echo "/tmp/mole-bun-cache"
+        return 0
+    fi
+    return 0
+}
+for BUN_RM_RC in 130 143 1 124 243; do
+    MOLE_CLEAN_CANCEL_STATUS=0
+    MOLE_CLEAN_CANCEL_SOURCE=""
+    rc=0
+    clean_dev_npm > "$HOME/bun-case.out" || rc=$?
+    fallback=$(grep -c '^SAFE_CLEAN:Bun cache$' "$HOME/bun-case.out" || true)
+    printf 'BUN=%s RC=%s CANCEL=%s SOURCE=%s FALLBACK=%s\n' \
+        "$BUN_RM_RC" "$rc" "$MOLE_CLEAN_CANCEL_STATUS" "$MOLE_CLEAN_CANCEL_SOURCE" "$fallback"
+done
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"BUN=130 RC=130 CANCEL=130 SOURCE=bun cache FALLBACK=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BUN=143 RC=143 CANCEL=143 SOURCE=bun cache FALLBACK=0"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BUN=1 RC=0 CANCEL=0 SOURCE= FALLBACK=1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BUN=124 RC=0 CANCEL=0 SOURCE= FALLBACK=1"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"BUN=243 RC=0 CANCEL=0 SOURCE= FALLBACK=1"* ]] || { echo "$output"; return 1; }
+    rm -f "$HOME/bun-case.out" # SAFE: test scratch file under the temporary HOME
+}
+
 @test "clean_dev_docker skips daemon-managed cleanup by default" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" DRY_RUN=false /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
