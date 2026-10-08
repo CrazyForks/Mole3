@@ -110,6 +110,8 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Add the same `PATH` export to `~/.zshrc` or your shell profile for new terminals. Mole updates the installation you invoked, so it keeps using this directory. Commands that change system-owned files may still request administrator access.
 
+**Nix**
+
 On macOS, Nix users can install the flake from `main`, which contains unreleased changes:
 
 ```bash
