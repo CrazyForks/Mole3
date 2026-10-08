@@ -95,7 +95,9 @@ def check_notice(script, expected_status=0, wait_marker=None, keys=b'', required
         sent = False
         repeated = False
         try:
-            deadline = time.monotonic() + 10
+            # Only hang detection: a loaded machine can delay sourcing mole and
+            # the one-second child cleanup well past ten seconds.
+            deadline = time.monotonic() + 30
             while b'CASE_EXIT=' not in output:
                 assert time.monotonic() < deadline, ('terminal case timed out', output[-3000:])
                 if select.select([master], [], [], .02)[0]:
@@ -152,12 +154,16 @@ main {command}
     assert output.index(b'COMMAND_DONE') < output.index(b'Update 9.8.7 available'), output
 print('PASS: all seven interactive subcommands retain their status and show the notice after completion')
 
-for flag in ['--json', '-json', '--json=true', '--watch', '-watch', '--help', '--list']:
+for flag in ['--json', '-json', '--json=true', '-json=true', '--ndjson', '--watch', '-watch', '--watch=true',
+             '-watch=true', '--help', '-h', '--version', '-V', '--list', '--list=x']:
     check_notice(setup + f'''run_mole_command /bin/bash -c 'printf "JSON_OUTPUT\\n"' test {flag}''',
                  required=(b'JSON_OUTPUT',), forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
-check_notice(setup + '''run_mole_command /bin/bash -c 'exit 0' > "$HOME/output"''',
-             forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
-print('PASS: machine-readable flags, help, lists and redirected output stay silent')
+# Each of the three standard streams alone is enough to skip the notice. The
+# all-terminal runs above are the positive control for CHECK_CALLED.
+for redirect in ['> "$HOME/output"', '< /dev/null', '2> "$HOME/errors"']:
+    check_notice(setup + f"""run_mole_command /bin/bash -c 'exit 0' {redirect}""",
+                 forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
+print('PASS: machine-readable flags, help, lists and any redirected stream stay silent')
 
 check_notice(setup + '''run_mole_command /bin/bash -c 'trap "exit 130" INT; echo CHILD_READY; while :; do :; done' ''',
              expected_status=130, wait_marker=b'CHILD_READY', keys=b'\x03',
@@ -173,12 +179,15 @@ check_notice(setup + '''run_mole_command /bin/bash -c 'echo READ_READY; IFS= rea
              wait_marker=b'READ_READY', keys=b'hello\n', required=(b'GOT:hello',))
 print('PASS: interactive child keeps terminal stdin')
 
-for repeat in [signal.SIGTERM, signal.SIGINT]:
+# The first signal fixes the status, whichever trap sees it and whichever signal
+# follows; each pair would differ if one trap overwrote an earlier status.
+for first, repeat in [(signal.SIGTERM, signal.SIGTERM), (signal.SIGTERM, signal.SIGINT), (signal.SIGTERM, signal.SIGHUP),
+                      (signal.SIGINT, signal.SIGTERM), (signal.SIGHUP, signal.SIGTERM)]:
     output = check_notice(setup + """
 cat > "$HOME/signal-child" <<'CHILD'
 #!/bin/bash
-cleanup() { trap '' TERM INT; echo CLEANUP_STARTED; sleep 1; echo CLEANUP_DONE; exit 0; }
-trap cleanup TERM
+cleanup() { trap '' TERM INT HUP; echo CLEANUP_STARTED; sleep 1; echo CLEANUP_DONE; exit 0; }
+trap cleanup TERM INT HUP
 echo CHILD_READY
 while :; do :; done
 CHILD
@@ -186,7 +195,7 @@ chmod +x "$HOME/signal-child"
 echo WRAPPER_PID=$$
 run_mole_command "$HOME/signal-child"
 """,
-                          expected_status=143, wait_marker=b'CHILD_READY', parent_signal=signal.SIGTERM,
+                          expected_status=128 + first, wait_marker=b'CHILD_READY', parent_signal=first,
                           repeat_signal=repeat, required=(b'CLEANUP_DONE',), forbidden=(b'Update 9.8.7',))
     assert output.index(b'CLEANUP_DONE') < output.index(b'CASE_EXIT='), output
 print('PASS: repeated signals preserve the first cancellation and wait for child cleanup')

@@ -2176,3 +2176,74 @@ sleep 1
 SCRIPT
  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "nightly background check reports a new commit, clears a current one and keeps the notice when unknown" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+CLOCK=100000
+INSTALLED=aaaaaaa1111111111111111111111111111111aa
+LATEST=bbbbbbb2222222222222222222222222222222bb
+date() { echo "$CLOCK"; }
+get_install_channel() { echo nightly; }
+get_install_commit() { echo "$INSTALLED"; }
+get_latest_commit_from_github() { echo "$LATEST"; }
+msg="$HOME/.cache/mole/update_message"
+# Each step starts more than a day after the previous one so the daily
+# throttle never hides a lookup.
+check_for_updates
+sleep 1
+[[ "$(cat "$msg")" == 'New nightly commit bbbbbbb available, run mo update --nightly' ]] || { echo "new commit: $(cat "$msg")"; exit 1; }
+CLOCK=190000
+LATEST=$INSTALLED
+check_for_updates
+sleep 1
+[[ ! -s "$msg" ]] || { echo "current commit: $(cat "$msg")"; exit 1; }
+CLOCK=280000
+LATEST=ccccccc3333333333333333333333333333333cc
+check_for_updates
+sleep 1
+[[ "$(cat "$msg")" == *ccccccc* ]] || { echo "second commit: $(cat "$msg")"; exit 1; }
+CLOCK=370000
+LATEST=''
+check_for_updates
+sleep 1
+[[ "$(cat "$msg")" == *ccccccc* ]] || { echo "unknown lookup: $(cat "$msg")"; exit 1; }
+SCRIPT
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "a changed install key clears the stored notice even when the lookup is unknown" {
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+CLOCK=200000
+date() { echo "$CLOCK"; }
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo ''; }
+get_latest_version() { echo ''; }
+cache="$HOME/.cache/mole"
+msg="$cache/update_message"
+mkdir -p "$cache"
+printf 'Update 9.8.7 available, run mo update' > "$msg"
+# A throttle record from another install, version or channel: its key differs.
+printf '1 199000 86400\n' > "$cache/version_check"
+check_for_updates
+# Cleared before the lookup runs, and the unknown result cannot bring it back.
+[[ ! -s "$msg" ]] || { echo "notice survived a key change: $(cat "$msg")"; exit 1; }
+sleep 1
+[[ ! -s "$msg" ]] || exit 1
+# Control: with an unchanged key an unknown lookup keeps a known notice.
+printf 'Update 9.8.7 available, run mo update' > "$msg"
+CLOCK=204000
+check_for_updates
+sleep 1
+[[ -s "$msg" ]] || { echo "notice lost without a key change"; exit 1; }
+SCRIPT
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
