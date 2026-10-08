@@ -1339,7 +1339,7 @@ EOF
     [[ "$output" == *"ELAPSED="* ]] || return 1
     elapsed=$(printf '%s\n' "$output" | awk -F= '/ELAPSED=/{print $2}' | tail -1)
     [[ "$elapsed" =~ ^[0-9]+$ ]] || return 1
-    (( elapsed < 5 ))
+    (( elapsed < 5 )) || return 1
     [[ "$output" == *"Project caches · skipped 1 slow/incomplete root scan"* ]] || return 1
 
 	rm -rf "$HOME/.config/mole" "$HOME/SlowProjects" "$fake_bin"

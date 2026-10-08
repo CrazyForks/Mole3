@@ -1039,7 +1039,7 @@ brew() {
 }
 
 clean_homebrew
-[[ ! -e "$TEST_BREW_PREFIX/bin/node" && ! -L "$TEST_BREW_PREFIX/bin/node" ]]
+[[ ! -e "$TEST_BREW_PREFIX/bin/node" && ! -L "$TEST_BREW_PREFIX/bin/node" ]] || exit 1
 [[ -f "$external_target" ]]
 EOF
 

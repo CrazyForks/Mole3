@@ -271,7 +271,7 @@ set -euo pipefail
 source "$PROJECT_ROOT/lib/clean/project.sh"
 result=$(format_purge_display '[cloud] ~/Library/CloudStorage/Provider/company/team/very/deep/project' node_modules 1GB 48)
 printf '%s\n' "$result"
-[[ "$result" == "[cloud] "* ]]
+[[ "$result" == "[cloud] "* ]] || exit 1
 [[ $(get_display_width "$result") -le 48 ]]
 EOF
 
@@ -851,7 +851,7 @@ PURGE_CATEGORY_PROJECT_IDS_ARRAY=("a" "b" "c")
 PURGE_CATEGORY_PROJECT_PATHS_ARRAY=("~/client-a/obelisk" "~/client-b/obelisk" "~/client-c/atlas")
 # Search is case-insensitive and accepts vim navigation letters as query text.
 select_purge_categories "node_modules" "dist" "target" <<< $'/CLIENT-B\n \n' >/dev/null
-[[ "$PURGE_SELECTION_RESULT" == "0,2" ]]
+[[ "$PURGE_SELECTION_RESULT" == "0,2" ]] || exit 1
 # Searching must restore the caller's shell matching mode.
 if shopt -q nocasematch; then exit 1; fi
 PURGE_CATEGORY_PROJECT_PATHS_ARRAY[1]="~/client-b/项目"
@@ -1794,7 +1794,7 @@ run_with_timeout() {
 probe_mode=cancelled
 result=0
 scan_purge_targets "$HOME/probe" "$HOME/scan-result" || result=$?
-[[ $result -eq 130 && ! -e "$HOME/find-trace" && ! -s "$HOME/scan-result" ]]
+[[ $result -eq 130 && ! -e "$HOME/find-trace" && ! -s "$HOME/scan-result" ]] || exit 1
 probe_mode=unreadable
 result=0
 scan_purge_targets "$HOME/probe" "$HOME/scan-result" || result=$?

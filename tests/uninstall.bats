@@ -1190,7 +1190,7 @@ _MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
 uninstall_live_bundle_has_other_install \
     "com.example.live-shared" "$APP_ROOT/Selected.app"
 first_fingerprint="$_MOLE_UNINSTALL_LIVE_SIBLING_FINGERPRINT"
-[[ -n "$first_fingerprint" && ${#_MOLE_UNINSTALL_LIVE_SIBLING_PATHS[@]} -eq 1 ]]
+[[ -n "$first_fingerprint" && ${#_MOLE_UNINSTALL_LIVE_SIBLING_PATHS[@]} -eq 1 ]] || exit 1
 
 mkdir -p "$APP_ROOT/Utilities/AnotherSibling.app/Contents"
 cp "$APP_ROOT/Selected.app/Contents/Info.plist" \
@@ -1628,7 +1628,7 @@ files_cleaned=0
 total_items=0
 
 _batch_execute_removals
-[[ $success_count -eq 0 && $failed_count -eq 1 ]]
+[[ $success_count -eq 0 && $failed_count -eq 1 ]] || exit 1
 [[ "${failed_items[0]}" == *"app installation set changed after preview"* ]] || exit 1
 [[ ! -e "$HOME/teardown-ran" ]]
 EOF
@@ -1691,7 +1691,7 @@ files_cleaned=0
 total_items=0
 
 _batch_execute_removals
-[[ $success_count -eq 0 && $failed_count -eq 1 ]]
+[[ $success_count -eq 0 && $failed_count -eq 1 ]] || exit 1
 [[ "${failed_items[0]}" == *"selected app changed after preview"* ]] || exit 1
 [[ ! -e "$HOME/teardown-ran" ]]
 EOF
@@ -1843,7 +1843,7 @@ files_cleaned=0
 total_items=0
 
 _batch_execute_removals
-[[ $success_count -eq 0 && $failed_count -eq 2 ]]
+[[ $success_count -eq 0 && $failed_count -eq 2 ]] || exit 1
 [[ "${failed_items[0]}" == *"app installation set changed after preview"* ]] || exit 1
 [[ "${failed_items[1]}" == *"selected app changed after preview"* ]] || exit 1
 [[ ! -e "$HOME/teardown-ran" ]]
@@ -1926,8 +1926,8 @@ files_cleaned=0
 total_items=0
 
 _batch_execute_removals
-[[ $success_count -eq 2 && $failed_count -eq 0 ]]
-[[ ! -e "$first" && ! -e "$second" ]]
+[[ $success_count -eq 2 && $failed_count -eq 0 ]] || exit 1
+[[ ! -e "$first" && ! -e "$second" ]] || exit 1
 
 # Dry-run records simulated success but leaves both paths in place. Those
 # still-live paths must remain in the expected fingerprint for the second app.
@@ -1978,7 +1978,7 @@ total_items=0
 dry_execute_rc=0
 _batch_execute_removals || dry_execute_rc=$?
 [[ $dry_execute_rc -eq 0 ]] || exit 1
-[[ $success_count -eq 2 && $failed_count -eq 0 ]]
+[[ $success_count -eq 2 && $failed_count -eq 0 ]] || exit 1
 [[ -e "$first" && -e "$second" ]]
 EOF
 
@@ -4939,7 +4939,7 @@ printf 'RC=%s DETAILS=%s\n' "$rc" "${#app_details[@]}"
 # The note waits for the preview instead of printing over the scan spinner.
 printf 'NOTES=%s\n' "${leftover_notes[*]-}"
 # Plan must exist: one detail row, app-only (no leftover encoding of UNEXPECTED_*)
-[[ $rc -eq 0 && ${#app_details[@]} -eq 1 ]]
+[[ $rc -eq 0 && ${#app_details[@]} -eq 1 ]] || exit 1
 printf 'DETAIL=%s\n' "${app_details[0]}"
 INNER
 
