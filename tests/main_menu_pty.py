@@ -76,6 +76,34 @@ check_exit(b'q')
 check_exit(b'\x03')
 
 
+def instrument_router(needle, replacement):
+    rewrite = (f"import sys; s=sys.stdin.read(); assert s.count({needle!r}) == 1; "
+               f"print(s.replace({needle!r}, {replacement!r}))")
+    return f'eval "$(declare -f run_mole_command | {shlex.quote(sys.executable)} -c {shlex.quote(rewrite)})"\n'
+
+
+def notice_diagnostics(process, home, parent_signal, repeat_signal, keys, wait_marker, sent, repeated):
+    details = {"parent_signal": str(parent_signal), "repeat_signal": str(repeat_signal),
+               "keys": repr(keys), "wait_marker": repr(wait_marker),
+               "sent": sent, "repeated": repeated, "fixture_pgid": process.pid}
+    try:
+        snapshot = subprocess.run(
+            ["/bin/ps", "-axo", "pid=,ppid=,pgid=,state=,pcpu=,time=,comm="],
+            capture_output=True, text=True, timeout=3, check=True)
+        # Read no command arguments and publish only this fixture's process group.
+        rows = [line for line in snapshot.stdout.splitlines()
+                if len(line.split(None, 3)) >= 3 and line.split(None, 3)[2] == str(process.pid)]
+        details["processes"] = "PID PPID PGID STATE PCPU TIME COMM\n" + "\n".join(rows)
+    except (OSError, subprocess.SubprocessError) as error:
+        details["processes"] = type(error).__name__
+    trace = Path(home) / "router.trace"
+    if trace.exists():
+        with trace.open("rb") as stream:
+            stream.seek(max(0, trace.stat().st_size - 16384))
+            details["router_trace"] = stream.read(16384).decode(errors="replace")
+    return details
+
+
 def check_notice(script, expected_status=0, wait_marker=None, keys=b'', required=(), forbidden=(), parent_signal=None, repeat_signal=None):
     with tempfile.TemporaryDirectory(prefix="mole-update-terminal-") as home:
         master, slave = pty.openpty()
@@ -100,7 +128,10 @@ def check_notice(script, expected_status=0, wait_marker=None, keys=b'', required
             # the one-second child cleanup well past ten seconds.
             deadline = time.monotonic() + 30
             while b'CASE_EXIT=' not in output:
-                assert time.monotonic() < deadline, ('terminal case timed out', output[-3000:])
+                if time.monotonic() >= deadline:
+                    diagnostics = notice_diagnostics(process, home, parent_signal, repeat_signal,
+                                                     keys, wait_marker, sent, repeated)
+                    raise AssertionError(('terminal case timed out', diagnostics, output[-3000:]))
                 if select.select([master], [], [], .02)[0]:
                     output += os.read(master, 65536)
                 if wait_marker and wait_marker in output and not sent:
@@ -171,8 +202,26 @@ check_notice(setup + '''run_mole_command /bin/bash -c 'trap "exit 130" INT; echo
              forbidden=(b'Update 9.8.7',))
 print('PASS: Ctrl-C preserves cancellation without printing an update notice')
 
+# Trace only bounded router events, never the child's busy loop or PTY output.
+router_trace = r"""
+_fixture_router_trace_count=0
+_fixture_trace_router() {
+    [[ "$_fixture_router_trace_count" -lt 64 ]] || return 0
+    _fixture_router_trace_count=$((_fixture_router_trace_count + 1))
+    printf 'event=%s ready=%s pid=%s pending=%s generation=%s observed=%s interrupted=%s rc=%s\n' \
+        "$1" "$command_ready" "$command_pid" "$pending_signal" "$signal_generation" \
+        "$observed_generation" "$interrupted" "$rc" >> "$HOME/router.trace"
+}
+"""
+router_trace += instrument_router('[[ "$command_ready" == "true" && -n "$command_pid" && -n "$pending_signal" ]]',
+                                  '_fixture_trace_router before_flush; [[ "$command_ready" == "true" && -n "$command_pid" && -n "$pending_signal" ]]')
+router_trace += instrument_router('observed_generation=$signal_generation;',
+                                  'observed_generation=$signal_generation; _fixture_trace_router before_wait;')
+router_trace += instrument_router('[[ "$observed_generation" -eq "$signal_generation" ]]',
+                                  '_fixture_trace_router after_wait; [[ "$observed_generation" -eq "$signal_generation" ]]')
+
 for sig in [signal.SIGHUP, signal.SIGINT, signal.SIGTERM]:
-    check_notice(setup + '''echo WRAPPER_PID=$$; run_mole_command /bin/bash -c 'trap "exit 130" INT; trap "exit 143" TERM; echo CHILD_READY; while :; do :; done' ''',
+    check_notice(setup + router_trace + '''echo WRAPPER_PID=$$; run_mole_command /bin/bash -c 'trap "exit 130" INT; trap "exit 143" TERM; echo CHILD_READY; while :; do :; done' ''',
                  expected_status=128 + sig, wait_marker=b'CHILD_READY', parent_signal=sig,
                  forbidden=(b'Update 9.8.7',))
 print('PASS: signals sent only to the router are forwarded to its child')
@@ -255,12 +304,6 @@ chmod +x "$HOME/count-child"
 echo WRAPPER_PID=$$
 run_mole_command "$HOME/count-child"
 """
-
-
-def instrument_router(needle, replacement):
-    rewrite = (f"import sys; s=sys.stdin.read(); assert s.count({needle!r}) == 1; "
-               f"print(s.replace({needle!r}, {replacement!r}))")
-    return f'eval "$(declare -f run_mole_command | {shlex.quote(sys.executable)} -c {shlex.quote(rewrite)})"\n'
 
 
 # A child can become ready before the router assigns its PID. Expand that
