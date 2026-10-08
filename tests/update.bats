@@ -2105,6 +2105,31 @@ SCRIPT
  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
+@test "update check stays silent when the install receipt is unreadable" {
+ [ "$(id -u)" -ne 0 ] || skip "root ignores file modes"
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo ''; }
+get_latest_version() { echo ''; }
+SCRIPT_DIR="$HOME/no-install"
+mkdir -p "$HOME/.config/mole"
+printf 'CHANNEL=stable\nCOMMIT_HASH=abc\n' > "$HOME/.config/mole/install_channel"
+chmod 000 "$HOME/.config/mole/install_channel"
+# Control: the receipt probes do print when nothing silences them.
+get_install_channel > /dev/null 2> "$HOME/control" || true
+[[ -s "$HOME/control" ]] || exit 1
+check_for_updates 2> "$HOME/stderr"
+sleep 1
+[[ ! -s "$HOME/stderr" ]] || { cat "$HOME/stderr"; exit 1; }
+SCRIPT
+ chmod 644 "$HOME/.config/mole/install_channel"
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "update throttle is shared by every name that starts one install" {
  mkdir -p "$TEST_ROOT/bin"
  ln -s "$PROJECT_ROOT/mole" "$TEST_ROOT/bin/mole"

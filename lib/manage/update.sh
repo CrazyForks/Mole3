@@ -865,8 +865,10 @@ _mole_write_update_cache() {
 check_for_updates() {
     local cache_dir="$HOME/.cache/mole" channel key now saved_key="" checked=0 interval=0
     ensure_user_dir "$cache_dir" || return 0
-    channel=$(get_install_channel)
-    key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit)" "${SCRIPT_DIR:-}" | cksum | awk '{print $1}')
+    # The receipt probes run in the foreground now, so an unreadable receipt
+    # must not print sed's diagnostic before the user's command.
+    channel=$(get_install_channel 2> /dev/null)
+    key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit 2> /dev/null)" "${SCRIPT_DIR:-}" | cksum | awk '{print $1}')
     now=$(date +%s)
     if [[ -f "$cache_dir/version_check" ]]; then
         { read -r saved_key checked interval < "$cache_dir/version_check"; } 2> /dev/null || true
