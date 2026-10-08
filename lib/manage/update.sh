@@ -920,21 +920,35 @@ run_mole_command() {
             --json | -json | --json=* | -json=* | --ndjson | --watch | -watch | --watch=* | -watch=* | --help | -h | --version | -V | --list | --list=*) exec "$@" ;;
         esac
     done
+    # Without perl, or with a target bash cannot launch, run the plain exec:
+    # bash then prints its own error and returns its own status, exactly as a
+    # redirected run does, and only the notice is lost.
+    [[ -x /usr/bin/perl && -f "$1" && -x "$1" ]] || exec "$@"
     check_for_updates
     local command_pid interrupted=0 signal_generation=0 observed_generation=0
     # Bash ignores SIGINT in asynchronous jobs. Restore the normal disposition
     # before exec so both terminal Ctrl-C and signals sent to this router work.
-    /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; exit 127' "$@" <&0 &
+    # An exec that still fails (a bad interpreter line) reports its own cause
+    # and, like the plain exec above, returns status 1.
+    /usr/bin/perl -e '$SIG{INT}="DEFAULT"; $SIG{QUIT}="DEFAULT"; exec {$ARGV[0]} @ARGV; warn "$ARGV[0]: $!\n"; exit 1' "$@" <&0 &
     command_pid=$!
+    # A terminal Ctrl-C signals the whole foreground group, which holds this
+    # router and the child, and the forward below then signals the child again.
+    # Bash cannot tell that from a kill sent to the router alone, so on a
+    # terminal the child may see INT twice and otherwise once: command INT
+    # handlers must tolerate a repeat. tests/main_menu_pty.py counts both.
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=129; kill -HUP "$command_pid" 2>/dev/null || true' HUP
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=130; kill -INT "$command_pid" 2>/dev/null || true' INT
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=143; kill -TERM "$command_pid" 2>/dev/null || true' TERM
     # wait returns early for a trapped signal. Retry only when this wait was
     # interrupted, retaining the first cancellation status through child cleanup.
+    # Its stderr is dropped because bash reports a child killed by a signal
+    # (SIGKILL, a crash) with a job-status line that quotes the perl one-liner;
+    # the exit status is unaffected.
     while true; do
         observed_generation=$signal_generation
         rc=0
-        wait "$command_pid" || rc=$?
+        wait "$command_pid" 2> /dev/null || rc=$?
         [[ "$observed_generation" -eq "$signal_generation" ]] && break
     done
     [[ "$interrupted" -eq 0 ]] || rc=$interrupted

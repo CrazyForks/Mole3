@@ -190,3 +190,65 @@ run_mole_command "$HOME/signal-child"
                           repeat_signal=repeat, required=(b'CLEANUP_DONE',), forbidden=(b'Update 9.8.7',))
     assert output.index(b'CLEANUP_DONE') < output.index(b'CASE_EXIT='), output
 print('PASS: repeated signals preserve the first cancellation and wait for child cleanup')
+
+# A target bash cannot launch keeps the diagnostic and status that a plain exec
+# gives in the mole environment (the redirected-output path: 1, or 126 for a
+# directory), instead of the perl wrapper's silent 127.
+unlaunchable = setup + '''
+printf '#!/bin/bash\\nexit 0\\n' > "$HOME/plain.sh"
+chmod 644 "$HOME/plain.sh"
+mkdir "$HOME/adir"
+printf '#!/nonexistent/interp\\nexit 0\\n' > "$HOME/bad-interp.sh"
+chmod 755 "$HOME/bad-interp.sh"
+'''
+for target, message, status in [('nope.sh', b'No such file or directory', 1), ('plain.sh', b'Permission denied', 1),
+                                ('adir', b'is a directory', 126)]:
+    check_notice(unlaunchable + f'run_mole_command "$HOME/{target}"', expected_status=status,
+                 required=(message,), forbidden=(b'CHECK_CALLED', b'Update 9.8.7'))
+# The interpreter line is only found missing by exec itself, after the notice
+# check started, so the wrapper must report that cause on its own.
+check_notice(unlaunchable + 'run_mole_command "$HOME/bad-interp.sh"', expected_status=1,
+             required=(b'bad-interp.sh: No such file or directory',))
+print('PASS: an unlaunchable target keeps the diagnostic and status of a plain exec')
+
+# Without /usr/bin/perl the command still runs through the plain exec path and
+# only the notice is lost. The function text is rewritten to point at a missing
+# perl, because the real one cannot be removed for a test.
+check_notice(setup + """
+eval "$(declare -f run_mole_command | sed 's|/usr/bin/perl|/nonexistent/perl|g')"
+run_mole_command /bin/bash -c 'printf "COMMAND_DONE\\\\n"; exit 7'
+""", expected_status=7, required=(b'COMMAND_DONE',), forbidden=(b'nonexistent', b'Update 9.8.7'))
+print('PASS: a missing perl falls back to a plain exec with the command status')
+
+# A child killed by a signal must not surface bash's job-status line, which
+# quotes the internal perl one-liner; the status still reports the signal.
+check_notice(setup + '''run_mole_command /bin/bash -c 'echo CHILD_READY; kill -KILL $$' ''',
+             expected_status=137, required=(b'CHILD_READY',), forbidden=(b'perl', b'Killed', b'Update 9.8.7'))
+print('PASS: a child killed by a signal keeps its status without bash job-status text')
+
+# Delivery counts for INT. A terminal Ctrl-C reaches the child from the tty and
+# again from the router's forward, so one or two deliveries are expected there;
+# a signal sent to the router alone must arrive exactly once. The count child
+# keeps running after a delivery so a late duplicate is still counted.
+counter = setup + """
+cat > "$HOME/count-child" <<'CHILD'
+#!/bin/bash
+n=0
+trap 'n=$((n+1))' INT
+echo CHILD_READY
+end=$((SECONDS + 2))
+while ((SECONDS < end)); do :; done
+echo "INT_COUNT=$n"
+CHILD
+chmod +x "$HOME/count-child"
+echo WRAPPER_PID=$$
+run_mole_command "$HOME/count-child"
+"""
+output = check_notice(counter, expected_status=130, wait_marker=b'CHILD_READY', keys=b'\x03',
+                      forbidden=(b'Update 9.8.7',))
+count = re.search(rb'INT_COUNT=(\d+)', output)
+assert count and int(count.group(1)) in (1, 2), output
+output = check_notice(counter, expected_status=130, wait_marker=b'CHILD_READY', parent_signal=signal.SIGINT,
+                      forbidden=(b'Update 9.8.7',))
+assert b'INT_COUNT=1\r\n' in output, output
+print(f'PASS: INT reaches the child once from the router and at most twice from a terminal Ctrl-C (saw {int(count.group(1))})')
