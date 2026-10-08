@@ -4248,6 +4248,73 @@ EOF_CANCEL
     [[ "$output" == *"STATUS=130"* ]] || { echo "$output"; return 1; }
 }
 
+@test "purge content probes never run more than four at a time and keep input order past the pool" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_WIDE'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-wide.XXXXXX")
+mkdir "$fixture/live"
+# A reported pool size above the cap of four must still run four probes at most.
+get_optimal_parallel_jobs() { echo 8; }
+# Earlier items take longer, so completions arrive in reverse input order.
+# Every fourth item is protected and must be left out of both lists.
+is_protected_purge_artifact() {
+    PURGE_PROTECTION_UNVERIFIED=false
+    local n="${1%/node_modules}" pause
+    n=$((10#${n##*/p}))
+    : > "$fixture/live/$n"
+    ls "$fixture/live" | wc -l | tr -d ' ' >> "$fixture/concurrency"
+    printf -v pause '0.%02d' $((20 - n))
+    sleep "$pause"
+    rm -f "$fixture/live/$n"
+    [[ $((n % 4)) -ne 0 ]] || return 0
+    return 1
+}
+for n in 01 02 03 04 05 06 07 08 09 10 11 12; do
+    printf '%s\n' "$fixture/p$n/node_modules"
+done | filter_protected_artifacts "" "$fixture/verified" > "$fixture/kept"
+printf 'PEAK=%s\n' "$(sort -n "$fixture/concurrency" | tail -1)"
+printf 'KEPT=%s\n' "$(sed 's|.*/\(p[0-9]*\)/node_modules|\1|' "$fixture/kept" | tr '\n' ' ')"
+printf 'VERIFIED=%s\n' "$(sed 's|.*/\(p[0-9]*\)/node_modules|\1|' "$fixture/verified" | tr '\n' ' ')"
+EOF_WIDE
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local peak
+    peak="$(printf '%s\n' "$output" | sed -n 's/^PEAK=//p')"
+    # Four ran together (the pool filled) and never more (the cap held).
+    [[ "$peak" -ge 3 && "$peak" -le 4 ]] || { echo "peak=$peak"; echo "$output"; return 1; }
+    [[ "$output" == *"KEPT=p01 p02 p03 p05 p06 p07 p09 p10 p11 "* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"VERIFIED=p01 p02 p03 p05 p06 p07 p09 p10 p11 "* ]] || { echo "$output"; return 1; }
+}
+
+@test "purge content probe signal inside a full pool stops the filter with nothing published" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF_POOLSIG'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/clean/project.sh"
+fixture=$(mktemp -d "$HOME/probe-poolsig.XXXXXX")
+get_optimal_parallel_jobs() { echo 4; }
+# The first probe is interrupted while three slower ones run and three more
+# items wait for a slot, so the signal arrives through the refill wait.
+is_protected_purge_artifact() {
+    PURGE_PROTECTION_UNVERIFIED=false
+    case "$1" in
+        */q01/node_modules) return 130 ;;
+    esac
+    sleep 0.3
+    return 1
+}
+result=0
+for n in 01 02 03 04 05 06 07; do
+    printf '%s\n' "$fixture/q$n/node_modules"
+done | filter_protected_artifacts "" "$fixture/verified" > "$fixture/kept" || result=$?
+printf 'STATUS=%s\n' "$result"
+[[ ! -s "$fixture/kept" ]] || { echo PUBLISHED; exit 1; }
+[[ ! -s "$fixture/verified" ]] || { echo VERIFIED_PUBLISHED; exit 1; }
+[[ ! -e "$fixture/verified.probes" ]] || { echo PROBES_LEFT; exit 1; }
+EOF_POOLSIG
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"STATUS=130"* ]] || { echo "$output"; return 1; }
+}
+
 @test "purge authored probes preserve signals through the final guard and pool" {
     local failures=0
     for source in find git; do
