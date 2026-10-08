@@ -321,6 +321,46 @@ EOF
 	[[ "$output" != *"history"* ]]
 }
 
+@test "show_main_menu sets the update notice off with a blank line and a green command" {
+	run /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+unset NO_COLOR
+HOME="$(mktemp -d)"
+export HOME MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
+source "$PROJECT_ROOT/mole"
+[[ -n "$GREEN" && -n "$NC" ]] || exit 1
+show_menu_option() { printf '%s' "$2"; }
+line=$'\r\033[2K'
+render() {
+    MAIN_MENU_BANNER=""
+    MAIN_MENU_UPDATE_MESSAGE="$1"
+    MAIN_MENU_SHOW_UPDATE=true
+    show_main_menu 1 true
+}
+tagline="${GREEN}${MOLE_TAGLINE}${NC}"$'\n'
+
+# The real banner is used: command substitution strips its trailing blank line,
+# so the separator has to come from the notice itself.
+out="$(render 'Update 9.8.7 available, run mo update')"
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}Update 9.8.7 available, run ${GREEN}mo update${NC}"$'\n'"${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+out="$(render 'New nightly commit abc1234 available, run mo update --nightly')"
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}New nightly commit abc1234 available, run ${GREEN}mo update --nightly${NC}"$'\n'"${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+
+# Control: without a notice no extra rows appear between banner and options.
+out="$(render '')"
+[[ "$out" == *"${tagline}${line}"$'\n'"${line}Clean"* ]] || { printf '%q\n' "$out"; exit 1; }
+
+# Rendering must not rewrite the stored text: the idle refresh compares it
+# against the plain cache contents on every tick.
+MAIN_MENU_BANNER=""
+MAIN_MENU_UPDATE_MESSAGE='Update 9.8.7 available, run mo update'
+show_main_menu 1 true > /dev/null
+[[ "$MAIN_MENU_UPDATE_MESSAGE" == 'Update 9.8.7 available, run mo update' ]] || exit 1
+EOF
+
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "interactive_main_menu ignores U shortcut when update notice is hidden" {
 	run /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
