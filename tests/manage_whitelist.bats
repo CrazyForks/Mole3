@@ -740,3 +740,126 @@ EOF
     grep -Fxq '~/.gradle/caches/*' "$WHITELIST_PATH" || { cat "$WHITELIST_PATH"; return 1; }
     [[ "$output" == *"PROTECTED=.gradle/caches/build-cache-1/0123456789abcdef0123456789abcdef"* ]] || { echo "$output"; return 1; }
 }
+
+# Each of these rows once named a path its cleaner never deletes, so ticking
+# the row protected nothing while the menu promised it did (same class as
+# #1699). Drive the real cleaners over a fixture HOME seeded at the paths they
+# actually offer, save exactly one row the way the menu does, and require the
+# cleaner-side verdict to be PROTECTED for every target of that cleaner. The
+# unprotected control run proves each cleaner still reaches its seeded path,
+# so a cleaner that moves its delete path turns this red instead of vacuous.
+@test "package-manager whitelist rows protect the paths their cleaners delete" {
+    local test_home="$HOME/rows-delete-paths"
+    rm -rf "$test_home"
+    mkdir -p "$test_home/Library/Caches/pip/http" \
+        "$test_home/.yarn/cache" "$test_home/Library/Caches/Yarn/v6" \
+        "$test_home/.gem/specs" "$test_home/.gem/ruby/3.2.0/cache" \
+        "$test_home/.local/share/containers/storage/tmp"
+    touch "$test_home/Library/Caches/pip/http/a" \
+        "$test_home/.yarn/cache/a.zip" "$test_home/Library/Caches/Yarn/v6/a" \
+        "$test_home/.gem/specs/a" "$test_home/.gem/ruby/3.2.0/cache/a.gem" \
+        "$test_home/.local/share/containers/storage/tmp/a"
+
+    run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/manage/whitelist.sh"
+source "$PROJECT_ROOT/lib/clean/dev.sh"
+
+# The cleaners' own description is the last safe_clean argument; every target
+# before it is what the real glob expansion found under the fixture HOME.
+record() {
+    local verdict=EXPOSED
+    if is_path_whitelisted "$2"; then
+        verdict=PROTECTED
+    fi
+    printf '%s|%s|%s\n' "$verdict" "$1" "${2#"$HOME"/}"
+}
+safe_clean() {
+    local description="${!#}" index
+    for ((index = 1; index < $#; index++)); do
+        record "$description" "${!index}"
+    done
+}
+clean_tool_cache() { record "$1" "$2"; }
+run_with_timeout() { shift; "$@"; }
+pip3() {
+    if [[ "$1" == "cache" ]]; then
+        echo "$HOME/Library/Caches/pip"
+    fi
+    return 0
+}
+npm() { return 0; }
+bun() { return 1; }
+note_activity() { :; }
+start_section_spinner() { :; }
+stop_section_spinner() { :; }
+clean_uv_cache() { :; }
+clean_pyinstaller_bincache() { :; }
+clean_conda_metadata_caches() { :; }
+clean_pnpm_stores() { :; }
+clean_corepack_cache() { :; }
+clean_github_cli_cache() { :; }
+
+run_cleaners() {
+    clean_dev_python
+    clean_dev_npm
+    clean_dev_ruby
+    clean_dev_cloud
+}
+# Capture the inventory first: under pipefail an early awk exit would fail the
+# pipe with SIGPIPE. The Go, gh and Clang rows resolve through tools on the
+# host, which this test does not need.
+mole_go_cache_root() { return 1; }
+mole_github_cli_cache_root() { return 1; }
+mole_darwin_user_cache_root() { return 1; }
+inventory=$(get_all_cache_items)
+pattern_for_row() {
+    awk -F'|' -v name="$1" '$1 == name { print $2 }' <<< "$inventory"
+}
+
+rows=(
+    "pip Python package cache|pip cache"
+    "Yarn package manager cache|Yarn cache"
+    "Yarn v1 package cache|Yarn v1 cache"
+    "RubyGems package cache|gem package cache"
+    "RubyGems spec cache|gem spec cache"
+    "Podman container storage temp|Container storage temp"
+)
+
+WHITELIST_PATTERNS=()
+control=$(run_cleaners)
+failures=0
+for entry in "${rows[@]}"; do
+    row="${entry%%|*}"
+    description="${entry#*|}"
+    if ! grep -q "^EXPOSED|$description|" <<< "$control"; then
+        echo "NO_LIVE_TARGET|$description"
+        failures=$((failures + 1))
+        continue
+    fi
+    row_pattern=$(pattern_for_row "$row")
+    if [[ -z "$row_pattern" ]]; then
+        echo "NO_ROW|$row"
+        failures=$((failures + 1))
+        continue
+    fi
+    row_pattern="${row_pattern/\$HOME/$HOME}"
+    # The menu saves the portable ~ spelling. save_whitelist_patterns reuses
+    # the name "pattern" without declaring it local, so keep this one apart.
+    save_whitelist_patterns clean "${row_pattern/#$HOME/~}"
+    load_mole_whitelist "$HOME"
+    protected=$(run_cleaners)
+    if ! grep -q "^PROTECTED|$description|" <<< "$protected" ||
+        grep -q "^EXPOSED|$description|" <<< "$protected"; then
+        echo "NOT_PROTECTED|$row|$description|$row_pattern"
+        failures=$((failures + 1))
+        continue
+    fi
+    echo "OK|$row|$description"
+done
+[[ "$failures" -eq 0 ]] || exit 1
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$(grep -c '^OK|' <<< "$output")" == "6" ]] || { echo "$output"; return 1; }
+}
