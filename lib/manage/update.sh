@@ -592,10 +592,6 @@ run_brew_detect() {
     run_brew_command "${MOLE_HOMEBREW_DETECT_TIMEOUT:-2}" "$@"
 }
 
-run_brew_query() {
-    run_brew_command "${MOLE_HOMEBREW_QUERY_TIMEOUT:-5}" "$@"
-}
-
 brew_mole_formula_installed() {
     local brew_cmd="${1:-brew}"
     run_brew_detect "$brew_cmd" list mole > /dev/null 2>&1
