@@ -657,16 +657,20 @@ remove_file_list() {
     # Recheck at the leftover boundary, not only at preview or before moving
     # the app. A conflicting owner or incomplete inventory keeps the whole
     # data family; no name-derived row is strong enough to override it.
-    if [[ -n "$app_path" ]] && mole_is_reverse_dns_bundle_id "$bundle_id"; then
-        local owner_rc=0
+    # A replacement at the selected path is a new owner too. That test needs
+    # no inventory, so it also covers plans narrowed to a bundle id that is
+    # unknown or not reverse-DNS; only the sibling scan needs the id.
+    if [[ -n "$app_path" ]]; then
+        local owner_rc=1
         local owner_reappeared=false
         if ! is_uninstall_dry_run && [[ -e "$app_path" || -L "$app_path" ]]; then
-            owner_rc=0 # A replacement at the selected path is a new owner too.
+            owner_rc=0
             owner_reappeared=true
-        else
+        elif mole_is_reverse_dns_bundle_id "$bundle_id"; then
+            owner_rc=0
             uninstall_live_bundle_has_other_install "$bundle_id" "$app_path" || owner_rc=$?
+            [[ $owner_rc -ge 128 ]] && return "$owner_rc"
         fi
-        [[ $owner_rc -ge 128 ]] && return "$owner_rc"
         if [[ $owner_rc -ne 1 ]]; then
             debug_log "Keeping uninstall leftovers: another owner exists or the installation inventory is incomplete"
             local retained_path
