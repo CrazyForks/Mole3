@@ -433,7 +433,10 @@ EOF
 }
 
 @test "optimize scans never delete candidates from partial find output" {
-	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+	local test_home="$HOME/partial-find-output"
+	rm -rf "$test_home"
+	mkdir -p "$test_home"
+	run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/optimize/tasks.sh"
@@ -442,8 +445,10 @@ saved="$HOME/Library/Saved Application State/Partial.savedState"
 shared="$HOME/Library/Application Support/com.apple.sharedfilelist/Partial.sfl3"
 mkdir -p "$saved" "${shared%/*}"
 touch "$shared"
+# Both tasks send safe_remove output to /dev/null, so a printed marker would
+# never reach $output. Record the call in a file the check below reads.
 safe_remove() {
-    printf 'UNEXPECTED_REMOVE:%s\n' "$1"
+    printf '%s\n' "$1" >> "$HOME/unexpected-removals"
     return 0
 }
 run_with_timeout() {
@@ -461,13 +466,16 @@ optimize_task_finish saved_state_cleanup
 optimize_task_start
 opt_shared_file_list_repair
 optimize_task_finish shared_file_list_repair
+[[ ! -e "$HOME/unexpected-removals" ]] || { cat "$HOME/unexpected-removals"; exit 1; }
 EOF
 
 	[ "$status" -eq 0 ] || {
 		echo "$output"
 		return 1
 	}
-	[[ "$output" != *"UNEXPECTED_REMOVE"* ]]
+	# Both scans really ran and failed, so the empty removal log is not vacuous.
+	[[ "$output" == *"Failed to scan old saved states"* ]] || return 1
+	[[ "$output" == *"Failed to scan shared file lists"* ]]
 }
 
 @test "optimize saved-state cleanup propagates deletion interruption" {
