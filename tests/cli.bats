@@ -924,5 +924,5 @@ PY
 @test "interactive terminal contract: menu restore, update notice wrapper and signals (PTY)" {
 	command -v python3 >/dev/null 2>&1 || skip "python3 not available"
 	run python3 "$PROJECT_ROOT/tests/main_menu_pty.py"
-	[ "$status" -eq 0 ]
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
