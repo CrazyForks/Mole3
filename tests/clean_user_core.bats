@@ -3437,17 +3437,35 @@ EOF
 
 @test "large files measures each row once, at most four at a time, and prints them in order" {
     local review_home="$HOME/large-review-pool"
+    # path|label in queue order. Each row gets its own size, so a result read
+    # from a neighbouring row's file prints a wrong size on that row.
     local -a pool_rows=(
-        "Library/Developer/Xcode/DerivedData" "Library/Developer/CoreSimulator/Devices"
-        "Library/Application Support/MobileSync/Backup" "Library/Mail" "Library/Updates"
-        ".lima" ".m2/repository" ".ivy2/cache" ".nuget/packages" "Library/pnpm/store"
-        ".conda/pkgs" ".gradle/caches"
+        "Library/Developer/Xcode/DerivedData|Xcode DerivedData"
+        "Library/Developer/CoreSimulator/Devices|Simulator data"
+        "Library/Application Support/MobileSync/Backup|iOS backups"
+        "Library/Mail|Mail data"
+        "Library/Updates|macOS updates cache"
+        ".lima|Lima data"
+        ".m2/repository|Maven local repository"
+        ".ivy2/cache|Ivy local repository"
+        ".nuget/packages|NuGet packages"
+        "Library/pnpm/store|pnpm store"
+        ".conda/pkgs|Conda packages"
+        ".gradle/caches|Gradle caches"
     )
-    local row
-    for row in "${pool_rows[@]}"; do
+    local entry row index=0
+    mkdir -p "$review_home"
+    : > "$review_home/sizes"
+    for entry in "${pool_rows[@]}"; do
+        row="${entry%%|*}"
         mkdir -p "$review_home/$row"
+        # Row N reads as N.00GB: 976563 KB is just over 1e9 bytes.
+        printf '%s\t%s\n' "$review_home/$row" "$(((index + 2) * 976563))" >> "$review_home/sizes"
+        index=$((index + 1))
     done
-    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    # Developer shells and CI runners export these; the fixture HOME must win.
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
@@ -3467,7 +3485,7 @@ run_with_timeout() {
         ls "$HOME/live" | wc -l | tr -d ' ' >> "$HOME/concurrency"
         sleep 0.3
         command rm -f "$marker"
-        printf '2097152\t%s\n' "${!#}"
+        printf '%s\t%s\n' "$(awk -F'\t' -v p="${!#}" '$1 == p { print $2 }' "$HOME/sizes")" "${!#}"
         return 0
     fi
     "$@"
@@ -3483,21 +3501,35 @@ EOF
     local peak
     peak=$(sort -n "$review_home/concurrency" | tail -1)
     [[ "$peak" -ge 2 && "$peak" -le 4 ]] || { echo "peak=$peak"; return 1; }
+    # Every row prints the size measured for its own folder.
+    local plain
+    plain=$(printf '%s\n' "$output" | sed "s/$(printf '\033')\[[0-9;]*m//g")
+    index=0
+    for entry in "${pool_rows[@]}"; do
+        grep -qF -- "${entry#*|} · $((index + 2)).00GB" <<< "$plain" || { echo "wrong size for ${entry#*|}"; echo "$plain"; return 1; }
+        index=$((index + 1))
+    done
     # Rows keep their report order whatever order the sizes arrive in.
     local order
     order=$(printf '%s\n' "$output" | grep -oE 'Mail data|Xcode DerivedData|Simulator data|iOS backups|Maven local repository|Gradle caches' | tr '\n' ',')
     [[ "$order" == "Mail data,Xcode DerivedData,Simulator data,iOS backups,Maven local repository,Gradle caches," ]] || { echo "order=$order"; return 1; }
 }
 
-@test "large files still reports cheap rows after slow ones use up the shared budget" {
+@test "large files still reports rows after slow ones use up the shared budget" {
     local review_home="$HOME/large-review-budget"
+    # The first four queued rows start the pool; the other four wait behind
+    # them. The budget is 6 s, so the first wave gets 4 to 6 s per row.
     mkdir -p \
         "$review_home/Library/Developer/Xcode/DerivedData" \
         "$review_home/Library/Developer/CoreSimulator/Devices" \
-        "$review_home/Library/Application Support/MobileSync/Backup" \
         "$review_home/Library/Mail" \
+        "$review_home/Library/Mail Downloads" \
+        "$review_home/Library/Updates" \
+        "$review_home/.lima" \
+        "$review_home/.m2/repository" \
         "$review_home/.gradle/caches"
-    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=1 /bin/bash --noprofile --norc << 'EOF'
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=6 /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
@@ -3511,19 +3543,28 @@ run_with_timeout() {
     local seconds="$1"
     shift
     if [[ "$1" == du ]]; then
-        case "${!#}" in
-            */.gradle/caches) printf '2097152\t%s\n' "${!#}"; return 0 ;;
-        esac
-        # The four slow rows outlast the whole shared budget.
-        sleep "$seconds"
-        return 124
+        printf '%s %s %s\n' "$SECONDS" "$seconds" "${!#}" >> "$HOME/du.calls"
+        # A row granted more than the 3 s inline budget hangs for all of it.
+        if [[ "${seconds%%.*}" -gt 3 ]]; then
+            sleep "$seconds"
+            return 124
+        fi
+        printf '2097152\t%s\n' "${!#}"
+        return 0
     fi
     "$@"
 }
 check_large_file_candidates
 EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
-    [[ "$output" == *"Gradle caches"* ]] || { echo "$output"; return 1; }
+    # Positive control: the pool did start and its first wave used up the
+    # shared budget, so those rows were skipped as timed out.
+    [[ "$output" != *"Xcode DerivedData"* && "$output" != *"Simulator data"* &&
+        "$output" != *"Mail data"* && "$output" != *"Mail downloads"* ]] || { echo "$output"; cat "$review_home/du.calls"; return 1; }
+    # Rows still queued when the deadline passed keep their inline budget
+    # instead of inheriting a pool budget, so these four still report.
+    [[ "$output" == *"macOS updates cache"* && "$output" == *"Lima data"* &&
+        "$output" == *"Maven local repository"* && "$output" == *"Gradle caches"* ]] || { echo "$output"; cat "$review_home/du.calls"; return 1; }
 }
 
 @test "large files leaves a row the pool cannot fully budget to the inline probe" {
@@ -3534,7 +3575,8 @@ EOF
         "$review_home/Library/Application Support/MobileSync/Backup" \
         "$review_home/Library/Mail" \
         "$review_home/Library/Mail Downloads"
-    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=4 /bin/bash --noprofile --norc << 'EOF'
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TIMEOUT_HINT_SCAN_SEC=4 /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
@@ -3571,7 +3613,8 @@ EOF
     local review_home="$HOME/large-review-worktrees"
     # A queued row makes the size pool and the background search both run.
     mkdir -p "$review_home/www/app/.claude/worktrees/one" "$review_home/.gradle/caches"
-    run env HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+    run env -u ANDROID_AVD_HOME -u ANDROID_HOME -u ANDROID_SDK_ROOT -u DENO_DIR -u FVM_CACHE_PATH -u HF_HOME -u MISE_DATA_DIR \
+        HOME="$review_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
