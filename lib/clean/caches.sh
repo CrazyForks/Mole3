@@ -838,8 +838,11 @@ _process_project_cache_matches_indexed() {
                 current_python_root=""
                 current_python_dirs=()
                 if [[ -d "$cache_dir" ]]; then
-                    # build/ counts as Flutter output only beside a disposable
-                    # .dart_tool; a kept one leaves no evidence for it.
+                    # build/ counts as Flutter output only beside a .dart_tool,
+                    # so one that Git tracks or cannot answer for leaves it
+                    # alone. A .dart_tool kept for another reason (a whitelist
+                    # entry, a nested repository) says nothing about build/,
+                    # which passes its own checks below.
                     local tracked_rc=0
                     project_cache_has_tracked_files "$cache_dir" || tracked_rc=$?
                     [[ $tracked_rc -le 128 ]] || return "$tracked_rc"
