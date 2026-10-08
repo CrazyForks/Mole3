@@ -119,13 +119,15 @@ EOF
 }
 
 @test "DNS flush is skipped in both optimize tasks while a VPN is active" {
+	# run_with_timeout execs a binary, so a shell-function mdutil is never
+	# reached and the real Spotlight probe would decide failed vs skipped.
+	mole_test_fake_command mdutil 'echo "Indexing enabled."'
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=1 MOLE_OPTIMIZE_SUDO_AVAILABLE=true MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/optimize/tasks.sh"
 unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE
 sudo() { echo "UNEXPECTED_SUDO:$*"; return 0; }
-mdutil() { echo "Indexing enabled."; }
 
 execute_optimization system_maintenance
 execute_optimization network_optimization
@@ -143,11 +145,11 @@ EOF
 }
 
 @test "dry-run previews the VPN skip instead of a DNS flush" {
+	mole_test_fake_command mdutil 'echo "Indexing enabled."'
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=1 MOLE_DRY_RUN=1 /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/optimize/tasks.sh"
-mdutil() { echo "Indexing enabled."; }
 
 execute_optimization system_maintenance
 execute_optimization network_optimization
@@ -161,13 +163,13 @@ EOF
 }
 
 @test "DNS flush runs once without a VPN and the second task reports it unchanged" {
+	mole_test_fake_command mdutil 'echo "Indexing enabled."'
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=0 MOLE_OPTIMIZE_SUDO_AVAILABLE=true MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/optimize/tasks.sh"
 unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE
 sudo() { echo "SUDO:$*"; return 0; }
-mdutil() { echo "Indexing enabled."; }
 
 execute_optimization system_maintenance
 execute_optimization network_optimization
@@ -185,6 +187,7 @@ EOF
 }
 
 @test "DNS flush fails closed when the VPN state cannot be determined" {
+	mole_test_fake_command mdutil 'echo "Indexing enabled."'
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_OPTIMIZE_SUDO_AVAILABLE=true MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -192,7 +195,6 @@ source "$PROJECT_ROOT/lib/optimize/tasks.sh"
 unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE MOLE_ASSUME_VPN_ACTIVE
 has_active_vpn_interface() { return 2; }
 sudo() { echo "UNEXPECTED_SUDO:$*"; return 0; }
-mdutil() { echo "Indexing enabled."; }
 
 execute_optimization system_maintenance
 execute_optimization network_optimization
