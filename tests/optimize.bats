@@ -183,6 +183,7 @@ EOF
 	[[ "$(grep -c 'SUDO:dscacheutil -flushcache' <<< "$output")" == "1" ]] || return 1
 	[[ "$output" == *"DNS cache flushed"* ]] || return 1
 	[[ "$output" == *"DNS cache already refreshed"* ]] || return 1
+	[[ "$output" != *"Failed to refresh DNS cache"* ]] || return 1
 	[[ "$output" != *"restarted"* ]]
 }
 
@@ -205,6 +206,28 @@ EOF
 	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
 	[[ "$(grep -c 'Failed to inspect active VPN state' <<< "$output")" == "2" ]] || return 1
 	[[ "$output" != *"UNEXPECTED_SUDO"* ]]
+}
+
+@test "a failed DNS flush is named by both optimize tasks that attempt it" {
+	mole_test_fake_command mdutil 'echo "Indexing enabled."'
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_ASSUME_VPN_ACTIVE=0 MOLE_OPTIMIZE_SUDO_AVAILABLE=true MOLE_DRY_RUN=0 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/optimize/tasks.sh"
+unset MOLE_TEST_NO_AUTH MOLE_TEST_MODE
+sudo() { echo "SUDO_FAILED:$*"; return 1; }
+
+execute_optimization system_maintenance
+execute_optimization network_optimization
+[[ "$(optimize_outcome_count failed)" == "2" ]] || exit 1
+[[ "$(optimize_outcome_count applied)" == "0" ]] || exit 1
+EOF
+
+	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
+	# system_maintenance used to count the failure without saying why.
+	[[ "$(grep -c 'Failed to refresh DNS cache' <<< "$output")" == "2" ]] || { echo "$output"; return 1; }
+	[[ "$output" == *"Spotlight index verified"* ]] || return 1
+	[[ "$output" != *"DNS cache flushed"* ]]
 }
 
 @test "fix_broken_preferences repairs only non-Apple preference plists" {
