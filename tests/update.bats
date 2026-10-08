@@ -2104,3 +2104,36 @@ sleep 1
 SCRIPT
  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "update throttle is shared by every name that starts one install" {
+ mkdir -p "$TEST_ROOT/bin"
+ ln -s "$PROJECT_ROOT/mole" "$TEST_ROOT/bin/mole"
+ ln -s "$PROJECT_ROOT/mole" "$TEST_ROOT/bin/mo-alias"
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+probe() {
+ /bin/bash --noprofile --norc -c '
+export MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
+source "$1"
+[[ -z "${2:-}" ]] || SCRIPT_DIR="$2"
+VERSION=1.0.0
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo call >> "$HOME/calls"; echo 9.8.7; }
+check_for_updates
+sleep 1
+' _ "$@"
+}
+calls() { wc -l < "$HOME/calls" | tr -d ' '; }
+probe "$TEST_ROOT/bin/mole"
+[[ "$(calls)" == 1 ]] || exit 1
+# The same install under another name reuses the daily result and its notice.
+probe "$TEST_ROOT/bin/mo-alias"
+[[ "$(calls)" == 1 ]] || { echo "lookups after switching names: $(calls)"; exit 1; }
+[[ "$(cat "$HOME/.cache/mole/update_message")" == *9.8.7* ]] || exit 1
+# Control: a different install directory still looks up on its own.
+probe "$TEST_ROOT/bin/mole" "$TEST_ROOT/other-install"
+[[ "$(calls)" == 2 ]] || { echo "lookups for another install: $(calls)"; exit 1; }
+SCRIPT
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

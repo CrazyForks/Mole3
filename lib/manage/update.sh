@@ -849,12 +849,14 @@ _mole_write_update_cache() {
 }
 
 # One successful lookup per day; unknown results retry after an hour.
-# Bind the throttle to the install version, channel, commit and entrypoint.
+# Bind the throttle to the install version, channel, commit and install
+# directory. The invoked name (mo, mole, a symlink) is not part of the key, so
+# every way of starting one install shares a single lookup and notice.
 check_for_updates() {
     local cache_dir="$HOME/.cache/mole" channel key now saved_key="" checked=0 interval=0
     ensure_user_dir "$cache_dir" || return 0
     channel=$(get_install_channel)
-    key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit)" "${MOLE_ENTRY_SCRIPT:-${SCRIPT_DIR:-}}" | cksum | awk '{print $1}')
+    key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit)" "${SCRIPT_DIR:-}" | cksum | awk '{print $1}')
     now=$(date +%s)
     if [[ -f "$cache_dir/version_check" ]]; then
         { read -r saved_key checked interval < "$cache_dir/version_check"; } 2> /dev/null || true
