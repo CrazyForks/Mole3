@@ -77,12 +77,13 @@ append_log_lines() {
 }
 
 # Escape operation records and deletion-log fields at their write boundaries.
-# Control bytes must never create audit records or terminal controls.
+# Control bytes must never create audit records or terminal controls, so each
+# one is written as \n, \r, \t or \xHH. Backslashes stay literal: a name with
+# one reads back exactly as it is on disk, as it did before this escaping.
 # Only the logged copy changes, never the action path.
 _mole_escape_log_value() {
     local _output="$1" _value="$2" _escaped="" _char _code _index
     local LC_ALL=C
-    _value="${_value//\\/\\\\}"
     if [[ "$_value" =~ [[:cntrl:]] ]]; then
         for ((_index = 0; _index < ${#_value}; _index++)); do
             _char="${_value:_index:1}"

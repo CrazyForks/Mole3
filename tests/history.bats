@@ -59,6 +59,78 @@ assert s["actions"]["failed"] == 0, s
     [ "$status" -eq 0 ]
 }
 
+@test "audit logs keep backslash names verbatim while control bytes stay escaped" {
+    local log_dir="$HOME/Library/Logs/mole"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 MOLE_DELETE_LOG="$log_dir/deletions.log" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+mkdir -p "$HOME/work"
+for name in 'back\slash.txt' 'lit\n-backslash-n.txt' 'tail\'; do
+    : > "$HOME/work/$name"
+    mole_delete "$HOME/work/$name" || exit 1
+    [[ ! -e "$HOME/work/$name" ]] || exit 1
+done
+kept="$HOME/work/ctl"$'\t'"x"
+: > "$kept"
+if mole_delete "$kept"; then exit 1; fi
+[[ -f "$kept" ]] || exit 1
+log_operation_session_start clean
+log_operation clean SKIPPED 'lit\name' 'back\slash'
+log_operation clean SKIPPED $'real\nname' $'tab\there'
+log_operation_session_end clean 2 0
+EOF
+    [ "$status" -eq 0 ]
+
+    # A literal backslash survives into the record; a real newline stays one record.
+    run python3 -c '
+import pathlib, sys
+b = pathlib.Path(sys.argv[1]).read_bytes()
+assert b"SKIPPED lit\\name (back\\slash)\n" in b, b
+assert b"SKIPPED real\\nname (tab\\there)\n" in b, b
+lines = [l for l in b.split(b"\n") if l]
+assert len(lines) == 7, lines
+assert all(l.startswith((b"[", b"# ==========")) for l in lines), lines
+assert not any(c < 32 and c != 10 or c == 127 for c in b), b
+' "$log_dir/operations.log"
+    [ "$status" -eq 0 ]
+
+    run env HOME="$HOME" MOLE_DELETE_LOG="$log_dir/deletions.log" "$PROJECT_ROOT/mole" history --json
+    [ "$status" -eq 0 ]
+    printf '%s\n' "$output" | WORK_DIR="$HOME/work" python3 -c '
+import json, os, sys
+work = os.environ["WORK_DIR"]
+rows = {d["path"]: d["status"] for d in json.load(sys.stdin)["deletions"]}
+for name in ("back\\slash.txt", "lit\\n-backslash-n.txt", "tail\\"):
+    assert rows.get(work + "/" + name) == "ok", (name, rows)
+assert rows.get(work + "/ctl\\tx") == "rejected", rows
+'
+}
+
+@test "operation log escaping leaves no control byte for any byte value" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+for ((code = 1; code < 256; code++)); do
+    printf -v octal '\\%03o' "$code"
+    printf -v ch "$octal"
+    append_log_line "$OPERATIONS_LOG_FILE" "${ch}"
+    append_log_line "$OPERATIONS_LOG_FILE" "a${ch}b${ch}${ch}c"
+    append_log_lines "$OPERATIONS_LOG_FILE" "x${ch}y" "${ch}"
+done
+EOF
+    [ "$status" -eq 0 ]
+    run python3 -c '
+import pathlib, sys
+b = pathlib.Path(sys.argv[1]).read_bytes()
+assert b.count(b"\n") == 255 * 4, b.count(b"\n")
+assert not any(c < 32 and c != 10 or c == 127 for c in b)
+assert b"a\\x1bb\\x1b\\x1bc\n" in b and b"a\\nb\\n\\nc\n" in b and b"a\\tb\\t\\tc\n" in b
+assert b"\n\\x7f\n" in b and b"\n\\x01\n" in b
+assert b"\n\\\n" in b and b"a\\b\\\\c\n" in b, "backslash must stay literal"
+' "$HOME/Library/Logs/mole/operations.log"
+    [ "$status" -eq 0 ]
+}
+
 @test "mo history summarizes operation sessions and deletion audit" {
     write_history_logs
 
