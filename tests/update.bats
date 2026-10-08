@@ -2071,3 +2071,36 @@ curl() { echo '{"tag_name":"V1.59.1"}'; }
 SCRIPT
  [ "$status" -eq 0 ]
 }
+
+@test "update check stays silent when the cache cannot be written or read" {
+ [ "$(id -u)" -ne 0 ] || skip "root ignores directory and file modes"
+ run /bin/bash <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/update.sh"
+VERSION=1.0.0
+get_install_channel() { echo stable; }
+is_homebrew_install() { return 1; }
+get_latest_version_from_github() { echo ''; }
+get_latest_version() { echo ''; }
+cache="$HOME/.cache/mole"
+mkdir -p "$cache"
+
+# Read-only cache directory: the atomic write cannot create its scratch file.
+chmod 555 "$cache"
+mktemp "$cache/probe.XXXXXX" 2> "$HOME/control-dir" && exit 1
+[[ -s "$HOME/control-dir" ]] || exit 1
+check_for_updates 2> "$HOME/stderr-dir"
+chmod 755 "$cache"
+
+# Unreadable throttle file: the read redirection fails.
+printf 'x 1 86400\n' > "$cache/version_check"
+chmod 000 "$cache/version_check"
+{ read -r a b c < "$cache/version_check"; } 2> "$HOME/control-file" && exit 1
+[[ -s "$HOME/control-file" ]] || exit 1
+check_for_updates 2> "$HOME/stderr-file"
+sleep 1
+[[ ! -s "$HOME/stderr-dir" && ! -s "$HOME/stderr-file" ]] || { cat "$HOME/stderr-dir" "$HOME/stderr-file"; exit 1; }
+SCRIPT
+ [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

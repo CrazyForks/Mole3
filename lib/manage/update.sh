@@ -838,8 +838,10 @@ read_update_message_cache() {
 # Cache writes are atomic so the menu never reads a partially written notice.
 _mole_write_update_cache() {
     local path="$1" value="$2" scratch
-    scratch=$(umask 077 && mktemp "${path}.XXXXXX") || return 1
-    if printf '%s' "$value" > "$scratch" && mv -f "$scratch" "$path"; then
+    # An unwritable cache must stay as quiet as the lookup, so every probe here
+    # keeps its diagnostics off the terminal.
+    scratch=$(umask 077 && mktemp "${path}.XXXXXX" 2> /dev/null) || return 1
+    if printf '%s' "$value" > "$scratch" 2> /dev/null && mv -f "$scratch" "$path" 2> /dev/null; then
         return 0
     fi
     rm -f "$scratch" # SAFE: exact mktemp-created update cache scratch file
@@ -855,7 +857,7 @@ check_for_updates() {
     key=$(printf '%s\n' "$VERSION" "$channel" "$(get_install_commit)" "${MOLE_ENTRY_SCRIPT:-${SCRIPT_DIR:-}}" | cksum | awk '{print $1}')
     now=$(date +%s)
     if [[ -f "$cache_dir/version_check" ]]; then
-        read -r saved_key checked interval < "$cache_dir/version_check" || true
+        { read -r saved_key checked interval < "$cache_dir/version_check"; } 2> /dev/null || true
         if [[ "$saved_key" == "$key" && "$checked" =~ ^[0-9]{1,12}$ && "$interval" =~ ^(3600|86400)$ ]] &&
             ((now >= 10#$checked && now - 10#$checked < interval)); then
             return 0
