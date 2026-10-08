@@ -611,6 +611,97 @@ assert sessions[2]["actions"]["trashed"] == 1, sessions[2]
 '
 }
 
+@test "mo history closes parked marker-less sessions at the next marker and keeps marked ones" {
+    # installer and uninstall write no start marker, so a start marker for
+    # another command ends both even while installer waits behind uninstall.
+    cat > "$HOME/Library/Logs/mole/operations.log" <<'EOF'
+[2026-10-08 10:00:01] [installer] REMOVED /tmp/a (1KB)
+[2026-10-08 10:00:02] [uninstall] REMOVED /tmp/b (1KB)
+# ========== clean session started at 2026-10-08 10:00:03 ==========
+[2026-10-08 10:00:04] [clean] REMOVED /tmp/c (1KB)
+[2026-10-08 10:00:05] [installer] REMOVED /tmp/d (1KB)
+# ========== clean session ended at 2026-10-08 10:00:06, 1 items, 1KB ==========
+EOF
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [ "$status" -eq 0 ] || return 1
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+installers = [s for s in sessions if s["command"] == "installer"]
+assert len(installers) == 2, sessions
+assert all(s["actions"]["removed"] == 1 for s in installers), installers
+assert [s["command"] for s in sessions] == ["installer", "uninstall", "clean", "installer"][::-1], sessions
+'
+
+    # A parked session that a start marker opened keeps waiting for its own
+    # actions and end marker.
+    cat > "$HOME/Library/Logs/mole/operations.log" <<'EOF'
+# ========== purge session started at 2026-10-08 10:00:01 ==========
+[2026-10-08 10:00:02] [purge] REMOVED /tmp/a (1KB)
+[2026-10-08 10:00:03] [uninstall] REMOVED /tmp/b (1KB)
+# ========== clean session started at 2026-10-08 10:00:04 ==========
+[2026-10-08 10:00:05] [purge] REMOVED /tmp/c (1KB)
+# ========== clean session ended at 2026-10-08 10:00:06, 0 items, 0B ==========
+# ========== purge session ended at 2026-10-08 10:00:07, 2 items, 2KB ==========
+EOF
+    run env HOME="$HOME" "$PROJECT_ROOT/mole" history --json
+    [ "$status" -eq 0 ] || return 1
+    printf '%s\n' "$output" | python3 -c '
+import json, sys
+sessions = json.load(sys.stdin)["sessions"]
+purges = [s for s in sessions if s["command"] == "purge"]
+assert len(purges) == 1, sessions
+assert purges[0]["actions"]["removed"] == 2 and purges[0]["ended_at"] == "2026-10-08 10:00:07", purges
+'
+}
+
+@test "mo history load time does not grow with runs that never wrote an end marker" {
+    # Compare against the same number of finished runs so the bound holds on
+    # any host: finished runs never wait, interrupted ones used to be rescanned
+    # for every new run and took several times longer.
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" python3 - <<'PY'
+import os
+import subprocess
+import time
+
+home = os.environ["HOME"]
+root = os.environ["PROJECT_ROOT"]
+log = os.path.join(home, "Library/Logs/mole/operations.log")
+
+
+def write_log(ended):
+    lines = []
+    for i in range(400):
+        rid = "20261008%06d-1-%d-%d" % (i, i, i)
+        lines.append("# ========== clean run=%s session started at 2026-10-08 10:00:00 ==========" % rid)
+        for j in range(10):
+            lines.append("[2026-10-08 10:00:00] [clean run=%s] REMOVED /tmp/cache-%d-%d (1KB)" % (rid, i, j))
+        if ended:
+            lines.append("# ========== clean run=%s session ended at 2026-10-08 10:00:01, 10 items, 1KB ==========" % rid)
+    with open(log, "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def load_seconds(ended):
+    write_log(ended)
+    best = None
+    for _ in range(2):
+        start = time.perf_counter()
+        subprocess.run([root + "/mole", "history", "--json"], env=dict(os.environ, HOME=home),
+                       stdout=subprocess.DEVNULL, check=True)
+        elapsed = time.perf_counter() - start
+        best = elapsed if best is None else min(best, elapsed)
+    return best
+
+
+finished = load_seconds(True)
+interrupted = load_seconds(False)
+print("finished=%.2fs interrupted=%.2fs" % (finished, interrupted))
+assert interrupted < 2.0 * finished, (finished, interrupted)
+PY
+    [ "$status" -eq 0 ]
+}
+
 @test "mo history does not create logs when none exist" {
     rm -rf "$HOME/Library"
 
