@@ -429,6 +429,49 @@ EOF
 	[[ "$output" == *"UPDATE_CALLED"* ]]
 }
 
+@test "interactive_main_menu quits on EOF but keeps running through idle ticks" {
+	# The body runs from a file: Bash 3.2 misreads a script fed on stdin once a
+	# function returns from inside a loop here, replaying the tail of a comment.
+	cat > "$BATS_TEST_TMPDIR/menu-eof.sh" <<'EOF'
+set -euo pipefail
+HOME="$(mktemp -d)"
+export HOME PROJECT_ROOT MOLE_TEST_MODE=1 MOLE_SKIP_MAIN=1
+script='source "$PROJECT_ROOT/mole"; show_main_menu() { :; }; hide_cursor() { :; }; show_cursor() { :; }; drain_pending_input() { :; }; interactive_main_menu'
+
+# Wait up to eight seconds for the background menu; a menu that is still alive
+# is killed and reported so a spinning loop cannot hang the suite.
+wait_for_menu() {
+    local pid="$1" _
+    for _ in $(seq 1 80); do
+        kill -0 "$pid" 2> /dev/null || return 0
+        sleep 0.1
+    done
+    kill -KILL "$pid" 2> /dev/null || true
+    wait "$pid" 2> /dev/null || true
+    return 1
+}
+
+# read_key tells an idle one-second tick from EOF only by elapsed time, and the
+# two need opposite handling: EOF must quit, a tick must keep the menu alive.
+/bin/bash --noprofile --norc -c "$script" < /dev/null > /dev/null 2>&1 &
+pid=$!
+wait_for_menu "$pid" || { echo "menu kept running after EOF"; exit 1; }
+wait "$pid" || { echo "menu exited non-zero on EOF"; exit 1; }
+
+# Control: stdin that stays open and idle for three seconds is not EOF, so the
+# menu must still be there after two idle ticks and quit once the pipe closes.
+/bin/bash --noprofile --norc -c "$script" < <(sleep 3) > /dev/null 2>&1 &
+pid=$!
+sleep 2
+kill -0 "$pid" 2> /dev/null || { echo "menu quit during an idle tick"; exit 1; }
+wait_for_menu "$pid" || { echo "menu kept running after the idle pipe closed"; exit 1; }
+wait "$pid" || { echo "menu exited non-zero after the idle pipe closed"; exit 1; }
+EOF
+
+	run env PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc "$BATS_TEST_TMPDIR/menu-eof.sh"
+	[ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
 @test "interactive_main_menu drains numeric shortcut Enter before launching uninstall" {
 	run /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
