@@ -931,6 +931,7 @@ _privileged_helper_bundle_id_from_binary() {
 # Clean orphaned system-level services (LaunchDaemons, LaunchAgents, PrivilegedHelperTools)
 # These are left behind when apps are uninstalled but their system services remain
 clean_orphaned_system_services() {
+    [[ "${SYSTEM_CLEAN:-true}" == "true" ]] || return 0
     # Requires sudo
     if [[ "${MOLE_TEST_MODE:-0}" == "1" || "${MOLE_TEST_NO_AUTH:-0}" == "1" ]]; then
         return 0

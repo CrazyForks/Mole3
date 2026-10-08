@@ -2140,3 +2140,81 @@ EOF
         return 1
     }
 }
+
+@test "Space skips later privileged cleanup even when credentials become cached" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+fixture=$(mktemp -d "$HOME/sudo-choice.XXXXXX")
+export MOLE_XCODE_DOCUMENTATION_CACHE_DIR="$fixture/docs"
+export MOLE_XCODE_SYSTEM_CORESIMULATOR_CACHE_DIR="$fixture/simulator"
+mkdir -p "$MOLE_XCODE_DOCUMENTATION_CACHE_DIR/DeveloperDocumentation.index" "$MOLE_XCODE_DOCUMENTATION_CACHE_DIR/DeveloperDocumentation-old.index" "$MOLE_XCODE_SYSTEM_CORESIMULATOR_CACHE_DIR/entry"
+is_path_whitelisted() { return 1; }
+should_protect_path() { return 1; }
+holds_compiled_model_cache() { return 1; }
+_xcode_xctest_devices_process_running() { return 1; }
+_coresimulator_cache_process_running() { return 1; }
+_coresimulator_booted_device_state() { return 1; }
+note_activity() { :; }
+get_path_size_kb() { echo 1; }
+_sim_runtime_size_kb() { echo 1; }
+has_sudo_session() { return 1; }
+ensure_sudo_session() { echo auth >> "$fixture/privileged"; return 1; }
+safe_sudo_remove() { echo remove >> "$fixture/privileged"; }
+_mole_bounded_sudo() { echo probe >> "$fixture/privileged"; return 1; }
+read_key() { echo SPACE; }
+prompt_for_system_clean
+# No authorization prompts after the explicit choice.
+clean_xcode_documentation_cache
+clean_xcode_system_coresimulator_caches
+# A credential refreshed elsewhere is not consent for this cleanup.
+has_sudo_session() { return 0; }
+clean_xcode_documentation_cache
+clean_xcode_system_coresimulator_caches
+MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=0 clean_orphaned_system_services
+[[ ! -e "$fixture/privileged" ]] || { cat "$fixture/privileged"; exit 1; }
+[[ -d "$MOLE_XCODE_SYSTEM_CORESIMULATOR_CACHE_DIR/entry" ]] || exit 1
+# Positive control: allowing system cleanup reaches the same real functions.
+SYSTEM_CLEAN=true
+has_sudo_session() { return 1; }
+clean_xcode_documentation_cache
+clean_xcode_system_coresimulator_caches
+MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=0 clean_orphaned_system_services
+[[ "$(cat "$fixture/privileged")" == $'auth\nauth\nprobe' ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "skipping system cleanup keeps browser removal and simulator sizing unprivileged" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+fixture=$(mktemp -d "$HOME/user-only.XXXXXX")
+export MOLE_CHROME_APP_PATHS="$fixture/Google Chrome.app"
+versions="$MOLE_CHROME_APP_PATHS/Contents/Frameworks/Google Chrome Framework.framework/Versions"
+mkdir -p "$versions/128.0.0.0" "$versions/129.0.0.0"
+ln -s 129.0.0.0 "$versions/Current"
+touch -t 202401010000 "$versions/128.0.0.0"
+touch -t 202402010000 "$versions/129.0.0.0"
+pgrep() { return 1; }
+is_path_whitelisted() { return 1; }
+should_protect_path() { return 1; }
+has_sudo_session() { return 0; }
+get_path_size_kb() { echo 1; }
+note_activity() { :; }
+safe_remove() { echo user >> "$fixture/actions"; }
+safe_sudo_remove() { echo privileged >> "$fixture/actions"; }
+run_with_timeout() { printf '%s\n' "$*" >> "$fixture/probes"; echo '1 fixture'; }
+SYSTEM_CLEAN=false
+clean_chrome_old_versions
+_sim_runtime_size_kb "$fixture" > /dev/null
+[[ "$(cat "$fixture/actions")" == user ]] || exit 1
+[[ "$(cat "$fixture/probes")" != *sudo* ]] || exit 1
+SYSTEM_CLEAN=true
+clean_chrome_old_versions
+_sim_runtime_size_kb "$fixture" > /dev/null
+[[ "$(cat "$fixture/actions")" == $'user\nprivileged' ]] || exit 1
+[[ "$(cat "$fixture/probes")" == *'sudo -n du'* ]] || exit 1
+SCRIPT
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

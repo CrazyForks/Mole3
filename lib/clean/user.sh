@@ -647,7 +647,7 @@ _clean_chromium_old_versions() {
             fi
 
             local removed=false
-            if has_sudo_session; then
+            if [[ "${SYSTEM_CLEAN:-true}" == "true" ]] && has_sudo_session; then
                 safe_sudo_remove "$dir" "$size_kb" > /dev/null 2>&1 && removed=true
             else
                 safe_remove "$dir" true "$size_kb" > /dev/null 2>&1 && removed=true

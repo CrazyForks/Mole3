@@ -1382,6 +1382,8 @@ check_android_ndk() {
 }
 
 clean_xcode_documentation_cache() {
+    # Honor the command-wide choice before scanning or requesting credentials.
+    [[ "${SYSTEM_CLEAN:-true}" == "true" ]] || return 0
     local doc_cache_root="${MOLE_XCODE_DOCUMENTATION_CACHE_DIR:-/Library/Developer/Xcode/DocumentationCache}"
     [[ -d "$doc_cache_root" ]] || return 0
 
@@ -1863,6 +1865,8 @@ clean_xcode_xctest_devices() {
 }
 
 clean_xcode_system_coresimulator_caches() {
+    # Honor the command-wide choice before scanning or requesting credentials.
+    [[ "${SYSTEM_CLEAN:-true}" == "true" ]] || return 0
     local cache_root="${MOLE_XCODE_SYSTEM_CORESIMULATOR_CACHE_DIR:-/Library/Developer/CoreSimulator/Caches}"
     [[ -d "$cache_root" ]] || return 0
 
@@ -2353,7 +2357,7 @@ clean_xcode_device_support() {
 _sim_runtime_size_kb() {
     local target_path="$1"
     local size_kb=0
-    if has_sudo_session; then
+    if [[ "${SYSTEM_CLEAN:-true}" == "true" ]] && has_sudo_session; then
         size_kb=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" sudo -n du -skP "$target_path" 2> /dev/null | command awk 'NR==1 {print $1; exit}' || echo "0")
     else
         size_kb=$(run_with_timeout "$MOLE_TIMEOUT_DISK_VERIFY_SEC" du -skP "$target_path" 2> /dev/null | command awk 'NR==1 {print $1; exit}' || echo "0")
