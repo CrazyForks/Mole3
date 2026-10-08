@@ -130,6 +130,17 @@ Google Chrome Helper (Renderer)' '/sbin/launchd
     [ "$status" -ne 0 ]
 }
 
+@test "browser clone snapshot refuses a clone nested below the clone directory" {
+    local nested="${CLONE%/*}/nest/${CLONE##*/}"
+    mkdir -p "${nested%/*}"
+    cp -R "$CLONE" "$nested"
+    run _mole_browser_clone_snapshot "$nested"
+    [ "$status" -ne 0 ]
+    # Positive control: the same clone at the allowed depth is accepted.
+    run _mole_browser_clone_snapshot "$CLONE"
+    [ "$status" -eq 0 ]
+}
+
 @test "browser clone snapshot refuses a bundle that is not named for its vendor app" {
     mv "$BUNDLE" "$CLONE/Other.app"
     run _mole_browser_clone_snapshot "$CLONE"
