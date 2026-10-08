@@ -1245,3 +1245,90 @@ EOF
     [[ "$output" == *"scan_with_sibling_rc=0"* ]] || { echo "$output"; return 1; }
     [[ "$output" == *"tr_execs=0"* ]] || { echo "$output"; return 1; }
 }
+
+@test "a retained leftover family names its cause once instead of per path" {
+    # After the app is already in the Trash the user cannot select it again,
+    # so the summary has to say why the data stayed. Three causes can retain a
+    # family: a live sibling, an inventory that could not prove absence, and a
+    # replacement at the selected path. Each gets its own label, once.
+    local scenario label
+    for scenario in shared unknown reappeared single; do
+        run env HOME="$BATS_TEST_TMPDIR/home-$scenario" PROJECT_ROOT="$PROJECT_ROOT" \
+            SCENARIO="$scenario" MOLE_TEST_NO_AUTH=1 MOLE_UNINSTALL_MODE=1 \
+            MOLE_DELETE_MODE=trash /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mkdir -p "$HOME"
+source "$PROJECT_ROOT/lib/uninstall/batch.sh"
+run_with_timeout() { shift; "$@"; }
+pkg_receipt_nonstandard_app_paths() { :; }
+_MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/Applications")
+_MOLE_UNINSTALL_LIVE_VOLUMES_ROOT="$HOME/no-volumes"
+selected="$HOME/Applications/IntelliJ IDEA.app"
+other="$HOME/Applications/Community.app"
+support="$HOME/Library/Application Support/IntelliJ"
+cache="$HOME/Library/Caches/com.jetbrains.intellij"
+prefs="$HOME/Library/Preferences/com.jetbrains.intellij.plist"
+mkdir -p "$selected/Contents" "$support" "$cache" "${prefs%/*}"
+printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij</string></dict></plist>' > "$selected/Contents/Info.plist"
+printf 'state\n' > "$support/state"
+printf 'cache\n' > "$cache/blob"
+printf 'prefs\n' > "$prefs"
+if [[ "$SCENARIO" == single ]]; then
+    planned=("$support")
+else
+    planned=("$support" "$cache" "$prefs")
+fi
+# Retained bytes are subtracted from the plan, so size the plan up front.
+retained_kb=$(du -skcP "${planned[@]}" | awk 'END {print $1}')
+encoded=$(printf '%s\n' "${planned[@]}" | base64 | tr -d '\n')
+fields=(IDEA "$selected" com.jetbrains.intellij "$((1000 + retained_kb))" "$encoded" '' false false false '' '' '' '' none x com.jetbrains.intellij '' x)
+IFS='|' detail="${fields[*]}"; unset IFS
+app_details=("$detail")
+_batch_selected_app_plan_matches() { return 0; }
+stop_launch_services() { :; }
+unregister_app_bundle() { :; }
+remove_login_item() { :; }
+force_kill_app() { :; }
+stop_inline_spinner() { :; }
+defaults() { printf 'defaults:%s\n' "$*" >> "$HOME/forbidden"; }
+bootout_login_item_helpers() { printf 'helpers\n' >> "$HOME/forbidden"; }
+mole_delete() {
+    if [[ "$1" == "$selected" ]]; then
+        mv "$selected" "$HOME/removed-fixture.app"
+        case "$SCENARIO" in
+            shared | single)
+                mkdir -p "$other/Contents"
+                printf '%s\n' '<plist><dict><key>CFBundleIdentifier</key><string>com.jetbrains.intellij.ce</string></dict></plist>' > "$other/Contents/Info.plist"
+                ;;
+            unknown)
+                ln -s "$HOME/Applications" "$HOME/unknown-root"
+                _MOLE_UNINSTALL_LIVE_APP_ROOTS=("$HOME/unknown-root")
+                ;;
+            reappeared) mkdir -p "$selected/Contents" ;;
+        esac
+        return 0
+    fi
+    printf 'sink:%s\n' "$1" >> "$HOME/forbidden"
+}
+success_count=0 failed_count=0 brew_apps_removed=0 total_size_freed=0 files_cleaned=0 total_items=0
+failed_items=() success_items=() success_dock_targets=() system_extension_warning_apps=()
+review_only_system_leftovers=() review_only_system_leftover_keys=() running_at_uninstall_apps=()
+_batch_execute_removals
+[[ $success_count -eq 1 && $failed_count -eq 0 ]] || exit 1
+[[ ! -e "$HOME/forbidden" ]] || { cat "$HOME/forbidden"; exit 1; }
+[[ -f "$support/state" ]] || exit 1
+printf 'FREED_KB=%s\n' "$total_size_freed"
+EOF
+        [ "$status" -eq 0 ] || { echo "$scenario: $output"; return 1; }
+        case "$scenario" in
+            shared) label='Kept (shared with another installed app): 3 paths' ;;
+            unknown) label='Kept (other copies of the app could not be checked): 3 paths' ;;
+            reappeared) label='Kept (selected app path exists again; select the app again): 3 paths' ;;
+            single) label='Kept (shared with another installed app): ~/Library/Application Support/IntelliJ' ;;
+        esac
+        [[ "$output" == *"$label"* ]] || { echo "$scenario: $output"; return 1; }
+        [[ "$(printf '%s\n' "$output" | grep -cF 'Kept (')" -eq 1 ]] || { echo "$scenario: $output"; return 1; }
+        [[ "$output" != *"protected by Mole"* && "$output" != *"Could not remove"* ]] || { echo "$scenario: $output"; return 1; }
+        [[ "$output" == *"FREED_KB=1000"* ]] || { echo "$scenario: $output"; return 1; }
+    done
+}

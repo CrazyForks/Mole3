@@ -660,26 +660,34 @@ remove_file_list() {
     # A replacement at the selected path is a new owner too. That test needs
     # no inventory, so it also covers plans narrowed to a bundle id that is
     # unknown or not reverse-DNS; only the sibling scan needs the id.
+    # The cause is recorded per retained path so the summary can name it:
+    # app-reappeared, shared-owner (a live sibling), or owner-unknown (the
+    # inventory could not prove absence).
     if [[ -n "$app_path" ]]; then
         local owner_rc=1
-        local owner_reappeared=false
+        local owner_reason=""
         if ! is_uninstall_dry_run && [[ -e "$app_path" || -L "$app_path" ]]; then
             owner_rc=0
-            owner_reappeared=true
+            owner_reason="app-reappeared"
         elif mole_is_reverse_dns_bundle_id "$bundle_id"; then
             owner_rc=0
             uninstall_live_bundle_has_other_install "$bundle_id" "$app_path" || owner_rc=$?
             [[ $owner_rc -ge 128 ]] && return "$owner_rc"
+            if [[ $owner_rc -eq 0 ]]; then
+                owner_reason="shared-owner"
+            elif [[ $owner_rc -ne 1 ]]; then
+                owner_reason="owner-unknown"
+            fi
         fi
-        if [[ $owner_rc -ne 1 ]]; then
-            debug_log "Keeping uninstall leftovers: another owner exists or the installation inventory is incomplete"
+        if [[ -n "$owner_reason" ]]; then
+            debug_log "Keeping uninstall leftovers: $owner_reason"
             local retained_path
             while IFS= read -r retained_path; do
                 [[ -n "$retained_path" ]] || continue
-                if [[ "$owner_reappeared" == true ]]; then
+                if [[ "$owner_reason" == "app-reappeared" ]]; then
                     _mole_report_unverified_delete "$retained_path" "$mode" unknown "$MOLE_ERR_APP_REAPPEARED"
                 else
-                    _mole_record_uninstall_refusal "$retained_path" protected
+                    _mole_record_uninstall_refusal "$retained_path" "$owner_reason"
                 fi
             done <<< "$file_list"
             printf '0\n'
@@ -2742,7 +2750,7 @@ _batch_execute_removals() {
                 refusal_path="${_MOLE_UNINSTALL_REFUSAL_PATHS[$refusal_index]}"
                 if ! is_uninstall_dry_run; then
                     case "${_MOLE_UNINSTALL_REFUSAL_REASONS[$refusal_index]}" in
-                        ownership-unverified | app-reappeared) ;;
+                        ownership-unverified | app-reappeared | shared-owner | owner-unknown) ;;
                         *) continue ;;
                     esac
                     [[ -e "$refusal_path" || -L "$refusal_path" ]] || continue
@@ -2755,6 +2763,9 @@ _batch_execute_removals() {
 
             # Warn about files that could not be removed and exclude them from freed total.
             if [[ ${#leftover_paths[@]} -gt 0 ]]; then
+                # A retained family shares one cause, so name it once instead
+                # of repeating it for every path of the family.
+                local family_kept_count=0 family_kept_label="" family_kept_first=""
                 for _lpath in "${leftover_paths[@]}"; do
                     local kept_reason=""
                     for ((refusal_index = 0; refusal_index < ${#_MOLE_UNINSTALL_REFUSAL_PATHS[@]}; refusal_index++)); do
@@ -2769,9 +2780,26 @@ _batch_execute_removals() {
                         access-denied) kept_label="macOS denied access" ;;
                         ownership-unverified) kept_label="Kept (agent ownership unverified; review the plist)" ;;
                         app-reappeared) kept_label="Kept (selected app path exists again; select the app again)" ;;
+                        shared-owner) kept_label="Kept (shared with another installed app)" ;;
+                        owner-unknown) kept_label="Kept (other copies of the app could not be checked)" ;;
+                    esac
+                    case "$kept_reason" in
+                        app-reappeared | shared-owner | owner-unknown)
+                            if [[ $family_kept_count -eq 0 || "$family_kept_label" == "$kept_label" ]]; then
+                                [[ $family_kept_count -gt 0 ]] || family_kept_first="$_lpath"
+                                family_kept_label="$kept_label"
+                                family_kept_count=$((family_kept_count + 1))
+                                continue
+                            fi
+                            ;;
                     esac
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} $kept_label: ${_lpath/#$HOME/$tilde_display}"
                 done
+                if [[ $family_kept_count -eq 1 ]]; then
+                    echo -e "  ${YELLOW}${ICON_WARNING}${NC} $family_kept_label: ${family_kept_first/#$HOME/$tilde_display}"
+                elif [[ $family_kept_count -gt 1 ]]; then
+                    echo -e "  ${YELLOW}${ICON_WARNING}${NC} $family_kept_label: $family_kept_count paths"
+                fi
                 total_kb=$((total_kb - leftover_kb))
                 ((total_kb < 0)) && total_kb=0
             fi
