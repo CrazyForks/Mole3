@@ -11,9 +11,12 @@ readonly MOLE_MANAGE_REMOVE_LOADED=1
 
 # Read the shipped launcher signatures, never execute a discovered command.
 # Both main headers and common.sh locations are used by released Mole builds.
+# Read bytes, not characters: a non-ASCII config path pinned by a UTF-8 printf
+# %q is a raw lead byte plus \NNN escapes, and a UTF-8 awk rejects that record,
+# which would hide an installed launcher from removal.
 _remove_is_mole_launcher() {
     [[ -f "$1" ]] || return 1
-    /usr/bin/awk '
+    LC_ALL=C /usr/bin/awk '
         NR == 1 { bash = ($0 == "#!/bin/bash") }
         $0 == "# Mole - Main CLI entrypoint." || $0 == "# Mole - Main Entry Point" { main = 1 }
         /^VERSION=/ { version = 1 }

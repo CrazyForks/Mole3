@@ -3676,6 +3676,97 @@ EOF
     grep -q 'unrelated replacement' "$iso/.local/bin/mo"
 }
 
+# Dry-run remove_mole against a fixture HOME in the UTF-8 locale a macOS
+# Terminal gives users. Leaves the result in $status and $output.
+remove_dry_run_utf8() {
+    run env HOME="$1" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_MODE=1 MOLE_TEST_NO_AUTH=1 \
+        LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/manage/remove.sh"
+remove_mole true
+EOF
+}
+
+@test "remove_mole lists a launcher installed under a non-ASCII config path (UTF-8 locale)" {
+    # U+4E09 and U+00C9 carry UTF-8 continuation bytes in 0x80-0x9F, which bash
+    # 3.2 printf %q writes in a UTF-8 locale as a raw lead byte plus a \NNN
+    # escape. The pinned line was then invalid UTF-8 and awk refused the whole
+    # launcher, so remove kept mole and still reported success. The ASCII case
+    # is the control.
+    local name iso config_dir launcher pinned loc
+    for name in ascii utf8; do
+        iso="$BATS_TEST_TMPDIR/pin-$name"
+        mkdir -p "$iso/source" "$iso/.local/bin"
+        cp "$PROJECT_ROOT/mole" "$PROJECT_ROOT/mo" "$iso/source/"
+        if [[ "$name" == utf8 ]]; then
+            config_dir="$iso/三/É"
+        else
+            config_dir="$iso/config"
+        fi
+        mkdir -p "$config_dir"
+
+        run env HOME="$iso" PROJECT_ROOT="$PROJECT_ROOT" PIN_CONFIG="$config_dir" \
+            LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+mole_source_installer
+SOURCE_DIR="$HOME/source"
+INSTALL_DIR="$HOME/.local/bin"
+CONFIG_DIR="$PIN_CONFIG"
+mkdir -p "$CONFIG_DIR/bin" "$CONFIG_DIR/lib"
+resolve_source_dir() { :; }
+needs_sudo() { return 1; }
+maybe_sudo() { "$@"; }
+download_binary() { return 0; }
+install_files
+EOF
+        [ "$status" -eq 0 ] || { echo "install failed ($name): $output"; return 1; }
+
+        launcher="$iso/.local/bin/mole"
+        [ "$(LC_ALL=C grep -c '^SCRIPT_DIR=' "$launcher")" -eq 1 ] || return 1
+        # The pinned line stays pure ASCII, so no locale can misread it.
+        LC_ALL=C /usr/bin/awk '/^SCRIPT_DIR=/ { if ($0 ~ /[^ -~]/) bad = 1 } END { exit bad }' "$launcher" ||
+            { echo "pinned line is not ASCII ($name)"; return 1; }
+        # The launcher still resolves the exact directory, in either locale.
+        pinned=$(LC_ALL=C /usr/bin/awk '/^SCRIPT_DIR=/ { print; exit }' "$launcher")
+        for loc in en_US.UTF-8 C; do
+            run env LC_ALL="$loc" PINNED="$pinned" /bin/bash --noprofile --norc -c 'eval "$PINNED"; printf "%s" "$SCRIPT_DIR"'
+            [ "$status" -eq 0 ] || return 1
+            [ "$output" == "$config_dir" ] || { echo "pin resolved to '$output' ($name, $loc)"; return 1; }
+        done
+
+        remove_dry_run_utf8 "$iso"
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"Would remove: $iso/.local/bin/mole"* ]] || { echo "mole not listed ($name): $output"; return 1; }
+        [[ "$output" == *"Would remove: $iso/.local/bin/mo"* ]] || return 1
+    done
+}
+
+@test "remove_mole recognizes a launcher already pinned with invalid UTF-8 (UTF-8 locale)" {
+    # Launchers pinned by a UTF-8 printf %q keep this hybrid on disk until their
+    # next update, so recognition cannot depend on the installer fix. The plain
+    # pin is the control.
+    local name iso
+    for name in plain hybrid; do
+        iso="$BATS_TEST_TMPDIR/hybrid-$name"
+        mkdir -p "$iso/.local/bin"
+        {
+            printf '%s\n' '#!/bin/bash' '# Mole - Main CLI entrypoint.'
+            if [[ "$name" == hybrid ]]; then
+                # shellcheck disable=SC2016 # The pinned line is data, not an expansion.
+                printf 'SCRIPT_DIR=$'\''%s/\344\270\\211'\''\n' "$iso"
+            else
+                printf 'SCRIPT_DIR=%s/config\n' "$iso"
+            fi
+            printf '%s\n' 'source "$SCRIPT_DIR/lib/core/common.sh"' 'VERSION="1.59.0"'
+        } > "$iso/.local/bin/mole"
+
+        remove_dry_run_utf8 "$iso"
+        [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+        [[ "$output" == *"Would remove: $iso/.local/bin/mole"* ]] || { echo "mole not listed ($name): $output"; return 1; }
+    done
+}
+
 @test "remove_mole preserves custom config and unrelated default settings (#1589)" {
     local iso="$HOME/custom-remove"
     mkdir -p "$iso/.local/bin" "$iso/.local/lib/core" "$iso/.local/lib/python3"
