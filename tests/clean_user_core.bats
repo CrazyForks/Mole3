@@ -202,7 +202,7 @@ EOF
         "$test_home/Library/Caches/deno/origin-data" \
         "$test_home/Library/Caches/ordinary-app/junk"
 
-    run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
+    run env -u DENO_DIR HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
 source "$PROJECT_ROOT/lib/clean/user.sh"
@@ -343,7 +343,7 @@ clean_user_essentials
 EOF
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 
-    run env HOME="$linked_home" PROJECT_ROOT="$PROJECT_ROOT" \
+    run env -u DENO_DIR HOME="$linked_home" PROJECT_ROOT="$PROJECT_ROOT" \
         /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/lib/core/common.sh"
@@ -447,7 +447,7 @@ EOF
     printf 'app\n' > "$test_home/Library/Caches/ordinary-app/a.txt"
     ln -s "$test_home/Library/Caches/deno-old" "$test_home/Library/Caches/deno"
 
-    run env HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
+    run env -u DENO_DIR HOME="$test_home" PROJECT_ROOT="$PROJECT_ROOT" MOLE_TEST_NO_AUTH=1 \
         /bin/bash --noprofile --norc <<'EOF'
 set -euo pipefail
 source "$PROJECT_ROOT/bin/clean.sh"
