@@ -1797,9 +1797,9 @@ perform_cleanup() {
             # cannot remove a record whose app is already gone: on macOS 15 and
             # later it fails with -10814 for every such path, which is exactly
             # the set this would have targeted, so the step could only ever
-            # report failures. `mo optimize` already offers the supported
-            # repair (`lsregister -gc` plus a domain rescan) as an explicit,
-            # user-triggered task.
+            # report failures. `mo optimize` no longer rebuilds LaunchServices
+            # either: the rebuild made a running VPN extension read as
+            # reinstalled, so no command offers this repair.
             _run_cleanup_step clean_orphaned_container_stubs || return $?
             _run_cleanup_step show_user_launch_agent_hint_notice || return $?
             end_section
