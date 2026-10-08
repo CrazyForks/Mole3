@@ -208,6 +208,8 @@ BATS
 TEST "assertions that can still fail" {
     [[ -f "$trace" ]] || return 1
     (( count++ ))
+    (( bits <<= 1 ))
+    (( bits >>= 1 ))
     (( elapsed < 5 )) || return 1
     run env HOME="$HOME" /bin/bash --noprofile --norc <<'EOF'
 stub() {

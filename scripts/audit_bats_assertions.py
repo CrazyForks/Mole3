@@ -30,8 +30,9 @@ HEREDOC = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
 FUNCTION_START = re.compile(r"^(?:function\s+)?[A-Za-z_][A-Za-z0-9_:.-]*\s*\(\)\s*\{")
 SHELL_COMMAND = re.compile(r"(?:^|[\s/=(])(?:ba)?sh(?:\s|$)")
 CONTINUATION = ("\\", "|", "&&")
-# A comparison, not a shift (`<<`, `>>`): `(( n++ ))` and `(( n += 1 ))` only compute.
-ARITHMETIC_COMPARISON = re.compile(r"==|!=|<=|>=|(?<![<>])[<>](?![<>=])")
+# A comparison, not a shift (`<<`, `>>`, `<<=`, `>>=`): `(( n++ ))`, `(( n += 1 ))`
+# and `(( n <<= 1 ))` only compute.
+ARITHMETIC_COMPARISON = re.compile(r"==|!=|(?<![<>])<=|(?<![<>])>=|(?<![<>])[<>](?![<>=])")
 
 
 def is_bare_assertion(statement: str) -> bool:
