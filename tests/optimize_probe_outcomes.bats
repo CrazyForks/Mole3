@@ -290,13 +290,14 @@ _login_item_app_exists() {
 
 execute_optimization login_items_audit
 [[ "$(cat "$HOME/audit.trace")" == $'inventory\nresolver:Confirmed Missing\nresolver:Unknown Item' ]] || { cat "$HOME/audit.trace"; exit 1; }
-printf 'FAILED=%s ATTENTION=%s\n' \
-    "$(optimize_outcome_count failed)" "$(optimize_outcome_count attention)"
+printf 'FAILED=%s ATTENTION=%s UNAVAILABLE=%s\n' \
+    "$(optimize_outcome_count failed)" "$(optimize_outcome_count attention)" \
+    "$(optimize_outcome_count unavailable)"
 EOF
 
 	[[ "$status" -eq 0 ]] || { echo "$output"; return 1; }
 	[[ "$output" == *"Login items audit incomplete"* ]] || { echo "$output"; return 1; }
-	[[ "$output" == *"FAILED=1 ATTENTION=0"* ]] || { echo "$output"; return 1; }
+	[[ "$output" == *"FAILED=0 ATTENTION=0 UNAVAILABLE=1"* ]] || { echo "$output"; return 1; }
 	[[ "$output" != *"Broken login item"* ]] || { echo "$output"; return 1; }
 }
 
