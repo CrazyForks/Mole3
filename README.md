@@ -20,11 +20,12 @@
 
 ## Features
 
-- **All-in-one CLI toolkit**: Combines CleanMyMac, AppCleaner, DaisyDisk, and iStat Menus style workflows in a **single terminal binary**
-- **Deep cleaning**: Removes caches, logs, leftovers, and orphaned app data to **reclaim gigabytes of space**
-- **Smart uninstaller**: Removes apps plus launch agents, preferences, and **hidden remnants**
-- **Disk insights**: Visualizes usage, finds large files, **rebuilds caches**, and refreshes system services
-- **Live monitoring**: Shows real-time CPU, GPU, memory, disk, and network stats
+- **All-in-one CLI toolkit**: Combines CleanMyMac, AppCleaner, DaisyDisk, and iStat Menus workflows into a fast terminal binary
+- **Deep clean**: Removes caches, logs, leftovers, and orphaned app data to reclaim disk space
+- **Smart uninstaller**: Removes apps together with LaunchAgents, preferences, and leftovers
+- **Disk analyzer**: Visualizes disk usage with an interactive TUI, finds large files, and navigates directories
+- **System maintenance**: Flushes DNS, refreshes QuickLook/icons, and optimizes system databases
+- **Live monitoring**: Shows real-time CPU, memory, disk I/O, network traffic, and process stats
 
 ## Quick Start
 
@@ -86,7 +87,7 @@ mo analyze /Volumes          # Analyze external drives only
 mo analyze /private/tmp      # Review user-owned temporary directories
 ```
 
-Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`. Before adding custom paths, open the menu and press Enter to save the selections, then append one path per line. An existing file replaces the optional defaults; built-in safety protections still apply.
+Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`. You can also edit this file directly by adding one path per line. Custom paths supplement or override optional defaults, while built-in safety protections always apply.
 
 <details>
 <summary><strong>Other install options</strong></summary>
@@ -178,7 +179,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Uninstall
 
-`mo uninstall` removes an installed app together with related files that Mole can tie back to that app. It keeps shared data when another installed copy still uses it. Use `mo uninstall --dry-run` to review the plan. If the app is already gone, use `mo clean` to look for leftovers.
+`mo uninstall` removes an installed app along with its preferences, caches, and launch items. It preserves shared files if another installed copy still relies on them. Use `mo uninstall --dry-run` to preview what will be removed. If the app has already been deleted, run `mo clean` to find orphaned leftovers.
 
 ```text
 $ mo uninstall
@@ -204,7 +205,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### Optimize
 
-`mo optimize` runs bounded maintenance for supported Finder, network, database, and macOS services. Tasks that are unnecessary, unsafe at the moment, or unavailable are skipped with a reason. Use `mo optimize --dry-run` to preview the pass and `mo optimize --whitelist` to exclude tasks or path patterns.
+`mo optimize` runs safe maintenance for Finder, network, database, and macOS services. Tasks that are unnecessary, currently in use, or unavailable are skipped with an explanation. Use `mo optimize --dry-run` to preview actions and `mo optimize --whitelist` to exclude specific tasks or paths.
 
 ```text
 $ mo optimize
@@ -243,9 +244,9 @@ Path patterns work too, so you can keep a long-lived mounted disk image around, 
 
 `mo analyze` opens a terminal disk explorer. It supports arrow keys and Vim navigation, filtering, multi-selection, Finder preview, and confirmed moves to Trash. External drives are skipped from the default overview; inspect them with `mo analyze /Volumes` or a specific mount path. Use `mo analyze /private/tmp` to review user-owned temporary files without turning them into automatic cleanup targets.
 
-A size ending in `+` contains measured bytes from a partial scan; `unknown` means the size could not be measured. Results cut short by temporary failures such as timeouts do not replace complete cached measurements, and a later refresh can recover the missing data. Folders macOS will not let the terminal read stay partial until access changes. The terminal list keeps the 30 largest entries, so an unreadable entry may fall outside that list; the total still indicates a partial scan. Directory JSON output includes all scanned entries.
+A size ending in `+` indicates a partial scan; `unknown` means the size could not be calculated. Results interrupted by temporary timeouts do not overwrite complete cached measurements, so a later scan can fill in the missing data. Folders that the terminal lacks permission to read remain marked as partial. The terminal view shows the 30 largest entries; JSON output includes all scanned entries.
 
-`mo analyze --json /path` includes `scan_status` on the result and each entry: `complete`, `partial`, or `unavailable`. Numeric sizes contain measured bytes; a zero with `unavailable` does not mean an empty directory. Partial scans still exit successfully, so automation should inspect `scan_status`. Completeness applies within Mole's existing scan exclusions and does not promise an atomic filesystem snapshot.
+`mo analyze --json /path` includes `scan_status` (`complete`, `partial`, or `unavailable`) on each entry. Numeric sizes reflect measured bytes; a zero with `unavailable` does not mean an empty directory. Partial scans still exit 0, so automated workflows should check `scan_status`. Scans reflect filesystem state at runtime, subject to Mole's default exclusions.
 
 ```text
 $ mo analyze
@@ -264,7 +265,7 @@ Select a location to explore:
 
 `mo status` is a read-only dashboard for hardware, system pressure, disk activity, network traffic, power, and processes.
 
-When the IPv4 default route uses a tunnel, network graphs use that interface’s rates to avoid counting the same traffic again on its physical carrier. JSON retains per-interface rates, including the routed tunnel; idle non-default tunnels stay hidden.
+When the default IPv4 route uses a VPN or tunnel, network graphs track that interface to avoid counting the same traffic twice against the physical adapter. JSON output retains per-interface rates, while idle non-default tunnels stay hidden.
 
 ```text
 $ mo status
@@ -333,17 +334,9 @@ $ mo status --json
 }
 ```
 
-Zombie diagnostics are read-only and do not affect the health score or terminate processes. Before
-Mole has a successful process sample, `process_collected_at`, `process_stale`, `zombie_count`, and
-`zombie_parents_complete` are omitted and `zombie_parents` is `null`. Later fast/watch snapshots
-reuse the latest successful sample with its original `process_collected_at` and set
-`process_stale: true`; a live process sample sets it to `false`. A count of `0` means Mole measured
-no zombies. Parent summaries contain at most three known owners;
-`zombie_parents_complete: false` means attribution was unavailable, incomplete, or truncated.
+Zombie diagnostics are read-only; they do not terminate processes or affect the health score. Before Mole gathers its initial process sample, fields like `zombie_count` and `process_collected_at` are omitted, and `zombie_parents` is `null`. Subsequent watch snapshots reuse the latest successful sample with `process_stale: true`, resetting to `false` when fresh data arrives. A count of `0` means no zombies were detected. Parent summaries include up to three known owners (`zombie_parents_complete: false` indicates partial or truncated attribution).
 
-If one collector fails, `mo status --json` still prints the metrics that were collected, reports the
-failure on stderr, and exits successfully, the same way `--watch` keeps streaming. It exits 1
-when none of CPU, memory, disk, or process metrics are available, or when JSON output fails.
+If an individual collector encounters an error, `mo status --json` prints all available metrics, logs the error to stderr, and exits 0 (matching `--watch` streaming behavior). It exits with code 1 only if all major metric categories fail or JSON serialization errors.
 
 Status also supports read-only alerts for processes that stay above a CPU threshold. Use `--proc-cpu-threshold`, `--proc-cpu-window`, or `--proc-cpu-alerts=false` to tune or disable them.
 
@@ -396,7 +389,7 @@ When custom paths are configured, Mole scans only those directories. Otherwise, 
 
 ### Installer
 
-`mo installer` finds DMG, PKG, MPKG, ISO, XIP, and installer ZIP files in Downloads, Desktop, Homebrew caches, iCloud, Mail, Telegram, and other supported locations. Each item shows its size and source before removal. Use `mo installer --dry-run` to preview the plan. Discovery has a cumulative time limit. If a scan or metadata probe fails or times out, Mole discards the list and exits without selecting files; corrupt and unreadable ZIP archives are skipped. Symlinked scan roots are supported, but symlinks beneath them are not followed. Selected files are checked again against their confirmed identity at the deletion boundary.
+`mo installer` finds DMG, PKG, MPKG, ISO, XIP, and installer ZIP files in Downloads, Desktop, Homebrew caches, iCloud, Mail, Telegram, and other common directories. Each item shows its size and location before removal. Use `mo installer --dry-run` to preview what will be removed. Scans have a cumulative timeout; if a scan or metadata probe fails or times out, Mole discards the results rather than acting on partial data. Symlinked scan roots are supported, but nested symlinks are not followed. Selected files are re-verified right before deletion to ensure they have not changed.
 
 <details>
 <summary><strong>Installer example output</strong></summary>
@@ -461,7 +454,7 @@ Real feedback from users who shared Mole on X.
 
 - Getting [Mole for Mac](https://mole.fit) is the most direct way to support Mole's development.
 - If Mole helped you, give it a star, [share it](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.), or open an issue or PR.
-- I have two cats, TangYuan and Coke. If you think Mole delights your life, you can feed them <a href="https://cats.tw93.fun?name=Mole" target="_blank">canned food 🥩</a>.
+- I have two cats, TangYuan and Coke. If Mole makes your life a little easier, feel free to treat them to <a href="https://cats.tw93.fun?name=Mole" target="_blank">canned food 🥩</a>.
 
 <details>
 <summary>These lovely people already did 🐱</summary>
@@ -471,6 +464,6 @@ Real feedback from users who shared Mole on X.
 
 ## License
 
-Mole is open source under GPL-3.0; see [LICENSE](LICENSE). A version you modify and share stays under the same license. If you fork Mole into another product, please give it a different name and credit Mole as the source.
+Mole is open source under GPL-3.0; see [LICENSE](LICENSE). Any modified version you share must remain under the same license. If you fork Mole, please use a distinct name and credit Mole as the upstream source.
 
-[Mole for Mac](https://mole.fit) is a separate proprietary app. Mole is here for the long run.
+[Mole for Mac](https://mole.fit) is a separate native companion app.

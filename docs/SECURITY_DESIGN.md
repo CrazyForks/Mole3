@@ -1,8 +1,8 @@
 # Mole Security Design
 
-This document describes the safety mechanisms that prevent mole from
+This document describes the safety mechanisms that prevent Mole from
 destroying data it shouldn't. It is written for reviewers, contributors,
-and anyone evaluating mole for production use.
+and anyone interested in how Mole safeguards user data.
 
 The corresponding implementation lives in `lib/core/file_ops.sh`,
 `lib/core/app_protection.sh`, and `lib/core/app_protection_data.sh`. Path

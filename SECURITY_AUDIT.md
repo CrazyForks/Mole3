@@ -14,13 +14,13 @@ The project is designed around safety-first defaults:
 - symlink handling is conservative
 - preview, confirmation, timeout, and operation logging are used to make destructive behavior more visible and auditable
 
-Mole prioritizes bounded cleanup over aggressive cleanup. When uncertainty exists, the tool should refuse, skip, or require stronger confirmation instead of widening deletion scope.
+Mole prioritizes safety over aggressive deletion. When in doubt, the tool skips, refuses, or requires explicit confirmation rather than widening deletion scope.
 
-The project continues to strengthen:
+Key areas of ongoing security focus:
 
-- release integrity and public security signals
-- targeted regression coverage for high-risk paths
-- clearer documentation for privilege boundaries and known limitations
+- Release integrity and public verification signals
+- Targeted regression coverage for high-risk paths
+- Clear documentation of privilege boundaries and known limitations
 
 ## Threat Surface
 
@@ -358,6 +358,6 @@ Key coverage areas include:
 - Release artifacts include checksums and attestations, but downstream package-manager trust also depends on external distribution infrastructure.
 - Operation and deletion logs write control bytes as `\n`, `\r`, `\t` or `\xHH` and leave backslashes literal, so a filename holding a backslash followed by `n` reads the same as one holding a newline. Every call still appends one record, so nothing can be forged; only that one shape is ambiguous.
 - `mo history --json` escapes strings byte by byte under `LC_ALL=C` (`history_json_escape`) for portable behavior on bash 3.2. Printable multibyte bytes are emitted verbatim, so the emitted JSON stays valid UTF-8, but the escaper does not perform Unicode-aware codepoint iteration. This is a known display-layer detail, not a correctness issue.
-- Planned follow-up work includes stronger destructive-command threat modeling, more regression coverage for high-risk paths, and continued hardening of release integrity and disclosure workflow.
+- Ongoing priorities include expanded regression coverage for destructive paths, continuous fuzzing of path validation, and further verification of release integrity.
 
 For reporting procedures and supported versions, see [SECURITY.md](SECURITY.md).

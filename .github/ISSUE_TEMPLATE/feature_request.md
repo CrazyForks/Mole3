@@ -12,22 +12,22 @@ Run `mo update` to install the latest stable version, then check `mo --version`.
 
 - [ ] I updated to the latest stable version and checked that this feature is still missing.
 
-## Feature description
+## Description
 
-A clear and concise description of the feature you'd like to see. We suggest using English for better global understanding.
+What feature would you like to see? English is preferred so more contributors can help discuss.
 
-## Use case
+## Problem or Use Case
 
-Describe the problem this feature would solve or the benefit it would provide.
+What problem does this solve, or what workflow would it improve?
 
-## Proposed solution
+## Proposed Solution
 
-How do you envision this feature working?
+How should this work in Mole? (Commands, flags, or expected behavior)
 
-## Alternatives considered
+## Alternatives Considered
 
-Have you considered any alternative solutions or workarounds?
+Any workarounds or other tools you currently use?
 
-## Additional context
+## Additional Context
 
-Add any other context, mockups, or examples about the feature request here.
+Mockups, screenshots, or extra context (optional).

@@ -131,8 +131,8 @@ Format: `[MODULE_NAME] message` output to stderr.
 ## Requirements
 
 - macOS 12 or newer, works on Intel and Apple Silicon
-- Default macOS Bash 3.2+ plus administrator privileges for cleanup tasks
-- Install Command Line Tools with `xcode-select --install` for curl, tar, and related utilities
+- Default macOS Bash 3.2+; administrator privileges are required for system-level cleanup tasks
+- Command Line Tools (`xcode-select --install`) for curl, tar, and standard utilities
 - Go 1.26+ is required to build the `mo status` or `mo analyze` TUI binaries locally.
 
 ## Go Components
@@ -168,10 +168,10 @@ For releases, GitHub Actions builds architecture-specific binaries automatically
 
 **Guidelines:**
 
-- Keep files focused on single responsibility
-- Extract constants instead of magic numbers
+- Keep files focused on a single responsibility
+- Use named constants instead of magic numbers
 - Use context for timeout control on external commands
-- Add comments explaining **why** something is done, not just **what** is being done.
+- Add comments explaining the **why** behind non-obvious logic, not just what the code does
 
 ## Pull Requests
 
@@ -185,6 +185,6 @@ CI will verify formatting, linting, and tests.
 
 ## Licensing
 
-Mole is GPL-3.0, and that is the licence your contribution carries. There is no CLA. You keep your copyright and I get only what the licence gives me, which means I cannot put your code under a different one.
+Mole is licensed under GPL-3.0, and contributions carry the same license. There is no CLA: you retain your copyright, and your code cannot be re-licensed under a different proprietary license.
 
-I also sell a closed-source Mac app at [mole.fit](https://mole.fit). It is a separate codebase rather than a build of this one, and neither program calls the other. What the two share is what anyone can observe about macOS: where a cache lives, what an app leaves behind. If you would rather not contribute alongside a paid product, that is a fair call, and I would rather you made it now than later.
+There is also a separate closed-source Mac app at [mole.fit](https://mole.fit). It is an independent codebase and neither program calls or depends on the other; what they share is common domain knowledge about macOS cleanup locations and conventions. If you prefer not to contribute alongside a commercial companion app, we completely understand and respect that choice.
