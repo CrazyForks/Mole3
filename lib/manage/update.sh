@@ -953,8 +953,8 @@ run_mole_command() {
         queued_signal="$pending_signal" pending_signal=""
         kill -"$queued_signal" "$command_pid" 2> /dev/null || true
     }
-    # Terminal Ctrl-C can reach the child directly and through this forward.
-    # Router-only signals are forwarded once; handlers must tolerate a repeat.
+    # Terminal Ctrl-C and nested shell traps can deliver a signal repeatedly.
+    # Child handlers must tolerate repeats while completing their cleanup.
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=129; pending_signal=HUP; _mole_forward_pending_signal' HUP
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=130; pending_signal=INT; _mole_forward_pending_signal' INT
     trap 'signal_generation=$((signal_generation + 1)); [[ "$interrupted" -ne 0 ]] || interrupted=143; pending_signal=TERM; _mole_forward_pending_signal' TERM
