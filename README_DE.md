@@ -2,7 +2,7 @@
 
 <div align="center">
   <h1>Mole</h1>
-  <p><em>🐹 Halte deinen Mac sauber, leicht und so schnell wie am ersten Tag. Schnelles Open-Source-CLI, plus native Mac-App.</em></p>
+  <p><em>🐹 Tiefenreinigung, App-Deinstallation, Systemoptimierung, Festplattenanalyse und Statusüberwachung für Mac — schnelles Open-Source-CLI, plus native App</em></p>
 </div>
 
 <p align="center">
@@ -18,7 +18,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole Bereinigungsergebnisse" width="1000" />
 </p>
 
-> 💡 Bevorzugst du eine native App? Entdecke [Mole for Mac](https://mole.fit/): sichere Bestätigung vor dem Löschen, Tiefenreinigung von Systemdaten, Bereinigung von KI-Werkzeugen, handverlesene Restdateien-Entfernung für über 800 Apps, Systemoptimierung mit einem Klick und mehrdimensionale Festplattenanalyse. Enthält außerdem eine klare Systemüberwachung, Lüftersteuerung und Wachhalte-Funktionen.
+> 💡 Bevorzugst du eine native App? Entdecke [Mole for Mac](https://mole.fit/): sichere Bestätigung vor dem Löschen, Tiefenreinigung von Systemdaten, Bereinigung von KI-Werkzeugen, geprüfte Restdateien-Entfernung für über 800 Apps, Systemoptimierung mit einem Klick und mehrdimensionale Festplattenanalyse. Enthält außerdem Systemüberwachung, Lüftersteuerung und Wachhalte-Funktionen.
 
 ## Funktionen
 

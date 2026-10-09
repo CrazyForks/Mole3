@@ -2,7 +2,7 @@
 
 <div align="center">
   <h1>Mole</h1>
-  <p><em>🐹 Gardez votre Mac propre, léger et réactif comme au premier jour. Un outil CLI open source rapide, doublé d'une app Mac native.</em></p>
+  <p><em>🐹 Nettoyage en profondeur, désinstallation d'apps, optimisation, analyse de disque et surveillance pour Mac — CLI open source rapide, doublé d'une app native</em></p>
 </div>
 
 <p align="center">
@@ -18,7 +18,7 @@
   <img src="./docs/img/big-mole.png" alt="Résultats du nettoyage avec Mole" width="1000" />
 </p>
 
-> 💡 Vous préférez une interface graphique ? Découvrez [Mole for Mac](https://mole.fit/) : confirmation visuelle avant suppression, nettoyage approfondi des données système, maintenance des outils d'IA, nettoyage ciblé des résidus pour plus de 800 applications, optimisations système en un clic et exploration multidimensionnelle du disque. Inclut également une surveillance claire du système, le contrôle des ventilateurs et des outils de maintien de l'éveil.
+> 💡 Vous préférez une interface graphique ? Découvrez [Mole for Mac](https://mole.fit/) : confirmation visuelle avant suppression, nettoyage approfondi des données système, maintenance des outils d'IA, nettoyage ciblé des résidus pour plus de 800 applications, optimisations système en un clic et exploration multidimensionnelle du disque. Inclut également la surveillance du système, le contrôle des ventilateurs et le maintien de l'éveil.
 
 ## Fonctionnalités
 

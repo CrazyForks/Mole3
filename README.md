@@ -2,7 +2,7 @@
 
 <div align="center">
   <h1>Mole</h1>
-  <p><em>🐹 Keep your Mac clean, light, and running like new. Fast open-source CLI, plus a native Mac app.</em></p>
+  <p><em>🐹 Deep clean, uninstall apps, optimize, analyze disk, and monitor your Mac — fast open-source CLI, plus a native app</em></p>
 </div>
 
 <p align="center">
@@ -18,7 +18,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole cleanup results" width="1000" />
 </p>
 
-> 💡 Prefer a native app? Check out [Mole for Mac](https://mole.fit/): it brings review-before-delete safety, deep system data cleanup, AI tool maintenance, handcrafted leftovers cleanup for over 800 apps, one-tap system optimizations, and multi-dimensional disk drill-downs. It also includes clean system health monitors, fan controls, and keep-awake utilities.
+> 💡 Prefer a native app? Check out [Mole for Mac](https://mole.fit/): it brings review-before-delete safety, deep system data cleanup, AI tool maintenance, tested leftovers cleanup for over 800 apps, one-tap system optimizations, and multi-dimensional disk drill-downs. It also includes system health monitors, fan controls, and keep-awake utilities.
 
 ## Features
 
@@ -127,7 +127,7 @@ For a declarative installation, add `github:tw93/mole/main` as a flake input and
 
 </details>
 
-Prefer a walkthrough? Watch the [Mole tutorial video](https://www.youtube.com/watch?v=UEe9-w4CcQ0) by PAPAYA 電腦教室.
+Watch the [Mole tutorial video](https://www.youtube.com/watch?v=UEe9-w4CcQ0) by PAPAYA 電腦教室.
 
 ## Safety
 
