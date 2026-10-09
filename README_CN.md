@@ -14,7 +14,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole 清理效果" width="1000" />
 </p>
 
-> 💡 喜欢图形界面？可尝试原生应用 [Mole for Mac](https://mole.fit/)：支持清理前逐项确认、系统数据深入清理、AI 工具维护与清理、实测 800 多款软件卸载残留、多项系统一键优化、多维下钻分析磁盘空间，并提供系统状态监控、风扇控制与屏幕常亮等功能。
+> 💡 喜欢图形界面？可尝试原生应用 [Mole for Mac](https://mole.fit/)：支持清理前逐项确认、系统数据深入清理、AI 工具维护与清理、实测 800 多款软件卸载残留、多项系统维护优化、逐层分析磁盘空间，并提供系统状态监控、风扇控制与屏幕常亮等功能。
 
 ## 功能
 
@@ -22,7 +22,7 @@
 - **深度清理**：安全清除系统缓存、应用日志与卸载残留，释放磁盘空间
 - **应用卸载**：完整移除应用程序，同步清理配置文件与自启动项
 - **磁盘分析**：终端交互式可视化，清晰浏览目录层级，定位占用空间的大文件
-- **系统优化**：刷新系统服务、重整缓存并优化核心数据库
+- **系统优化**：刷新系统服务与缓存，优化核心数据库
 - **实时监控**：在终端看板中实时查看 CPU、内存、磁盘读写、网络流量与电池状态
 
 ## 快速开始
@@ -130,12 +130,12 @@ nix profile remove mole
 Mole 内置多层安全机制：严格校验路径有效性，默认保护系统关键目录与用户敏感数据，操作前主动确认；无法确认安全的文件自动跳过。
 
 - `clean`、`uninstall`、`purge`、`installer` 与 `remove` 会执行文件清理，建议先用 `--dry-run` 预览，需要时加上 `--debug`
-- 日常运行 **无需 `sudo`**，仅在触及系统级清理时按需请求管理员权限
+- 日常运行 **无需 `sudo`**，仅在涉及系统清理时按需请求管理员权限
 - `mo analyze` 中的删除操作在确认后默认放入 macOS 废纸篓，可随时放回
-- 清理操作均记录在 `~/Library/Logs/mole/operations.log` 中，可通过 `mo history` 查看，或设置 `MO_NO_OPLOG=1` 禁用
+- 清理操作记录在 `~/Library/Logs/mole/operations.log` 中，可通过 `mo history` 查看，或设置 `MO_NO_OPLOG=1` 禁用
 - 可通过 `mo clean --whitelist` 保护指定缓存，或使用 `mo optimize --whitelist` 排除维护项
 
-更多安全边界与机制说明请参阅 [SECURITY.md](SECURITY.md) 与 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
+更多安全机制与详细设计请参考 [SECURITY.md](SECURITY.md) 与 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
 
 ## 功能说明
 
@@ -143,7 +143,7 @@ Mole 内置多层安全机制：严格校验路径有效性，默认保护系统
 
 ### 深度清理（Clean）
 
-`mo clean` 扫描并清理安全的缓存、日志、临时文件、开发者工具缓存与已卸载应用残留。可先用 `mo clean --dry-run` 预览清理路径，或用 `mo clean --whitelist` 保护特定目录。
+`mo clean` 扫描并清理系统与应用缓存、日志、临时文件、开发工具缓存以及已卸载应用残留。可先用 `mo clean --dry-run` 预览清理路径，或用 `mo clean --whitelist` 保护特定目录。
 
 ```text
 $ mo clean
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 应用卸载（Uninstall）
 
-`mo uninstall` 完整移除已安装应用，并同步清理关联的偏好设置、缓存与自启动项；若有其他同款软件共用数据则自动保留。可先用 `mo uninstall --dry-run` 预览卸载计划；若应用此前已被手动删除，直接运行 `mo clean` 即可扫描残留。
+`mo uninstall` 完整移除已安装应用，并同步清理关联的偏好设置、缓存与自启动项；若有其他应用共用数据则自动保留。可先用 `mo uninstall --dry-run` 预览卸载计划；若应用此前已被手动删除，直接运行 `mo clean` 即可扫描残留。
 
 ```text
 $ mo uninstall
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 系统优化（Optimize）
 
-`mo optimize` 对 Finder、网络、系统数据库与 macOS 服务执行安全的维护操作。非必要、正在使用或暂不可用的任务会自动跳过并附带原因。可先用 `mo optimize --dry-run` 预览，或用 `mo optimize --whitelist` 排除指定任务或路径。
+`mo optimize` 对 Finder、网络、系统数据库与 macOS 服务执行安全的维护操作。非必要、正在使用或暂不可用的任务会自动跳过并说明原因。可先用 `mo optimize --dry-run` 预览，或用 `mo optimize --whitelist` 排除指定任务或路径。
 
 ```text
 $ mo optimize
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` 提供只读系统硬件仪表盘，涵盖 CPU、系统负载、磁盘读写、网络流量、电源与异常进程。
 
-当默认 IPv4 路由使用 VPN 或通道接口时，流量图表会追踪该通道，避免与物理网卡重复统计。
+当默认 IPv4 路由使用 VPN 或虚拟网卡接口时，流量图表会追踪该通道，避免与物理网卡重复统计。
 
 ```text
 $ mo status
@@ -318,9 +318,9 @@ $ mo status --json
 }
 ```
 
-僵尸进程诊断仅供参考，不会主动结束进程或影响系统健康分。如果某个采集器发生错误，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0。
+僵尸进程诊断仅供参考，不会主动结束进程或影响系统健康分。如果某个指标采集出错，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0。
 
-还支持对高 CPU 占用的进程进行只读告警，可通过 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 进行调节或关闭。
+支持对持续高 CPU 占用的进程进行提示，可通过 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 进行调整或关闭。
 
 </details>
 
@@ -371,7 +371,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### 安装包清理（Installer）
 
-`mo installer` 自动查找下载目录、桌面、Homebrew 缓存、iCloud、Mail、Telegram 等常见位置中的 DMG、PKG、MPKG、ISO、XIP 与安装器 ZIP 文件。清理前列出各文件大小与来源。使用 `mo installer --dry-run` 预览清理计划；扫描具备全局超时保护，删除前会自动二次校验文件完整性。
+`mo installer` 自动查找下载目录、桌面、Homebrew 缓存、iCloud、Mail、Telegram 等常见位置中的 DMG、PKG、MPKG、ISO、XIP 与安装器 ZIP 文件。清理前列出各文件大小与来源。使用 `mo installer --dry-run` 预览清理计划；扫描具备全局超时保护，删除前会自动再次检查文件完整性。
 
 <details>
 <summary><strong>Installer 示例输出</strong></summary>
@@ -401,7 +401,7 @@ Removed 5 installers, freed 3.83GB
 <details>
 <summary><strong>Raycast 与 Alfred 配置</strong></summary>
 
-一键安装五大快捷启动器（Clean、Uninstall、Optimize、Analyze、Status）：
+安装快捷启动器（Clean、Uninstall、Optimize、Analyze 与 Status）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/Mole/main/scripts/setup-quick-launchers.sh | bash
@@ -415,13 +415,13 @@ Raycast 安装后需一次性手动设置：
 2. 添加 `~/Library/Application Support/Raycast/script-commands` 目录。
 3. 在 Raycast 中点击 **Reload Script Directories**。
 
-启动器会自动适配常见终端（Terminal、iTerm2、Alacritty、kitty、WezTerm、Ghostty、Hyper、WindTerm、Warp）。可通过 `MO_LAUNCHER_APP=<名称>` 指定终端，亦可直接在 [Kaku](https://github.com/tw93/Kaku) 中运行。
+启动器会自动适配常见终端（Terminal、iTerm2、Alacritty、kitty、WezTerm、Ghostty、Hyper、WindTerm、Warp）。可通过 `MO_LAUNCHER_APP=<名称>` 指定终端，也可以直接在 [Kaku](https://github.com/tw93/Kaku) 中运行。
 
 </details>
 
 ## 社区反馈
 
-感谢所有参与构建 Mole 的贡献者 ❤️
+感谢所有参与 Mole 开发与维护的贡献者 ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole 贡献者" width="1000" />
@@ -446,6 +446,6 @@ Raycast 安装后需一次性手动设置：
 
 ## 开源协议
 
-Mole 基于 GPL-3.0 协议开源；详见 [LICENSE](LICENSE)。任何修改并分发的版本须保持相同开源协议。如果你将 Mole 分叉为其他独立产品，请使用不同名称并注明出处。
+Mole 基于 GPL-3.0 协议开源；详见 [LICENSE](LICENSE)。任何修改与分发的版本需要保持相同的开源协议。如果你将 Mole 分叉为其他独立产品，请使用不同名称并注明出处。
 
 [Mole for Mac](https://mole.fit) 是单独的商业原生应用。

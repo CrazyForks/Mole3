@@ -14,7 +14,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole 清理成果" width="1000" />
 </p>
 
-> 💡 喜歡圖形介面？可嘗試原生應用 [Mole for Mac](https://mole.fit/)：支援清理前逐項確認、系統資料深入清理、AI 工具維護與清理、實測 800 多款軟體卸載殘留、多項系統一鍵最佳化、多維下鑽分析磁碟空間，並提供系統狀態監控、風扇控制與螢幕常亮等功能。
+> 💡 喜歡圖形介面？可嘗試原生應用 [Mole for Mac](https://mole.fit/)：支援清理前逐項確認、系統資料深入清理、AI 工具維護與清理、實測 800 多款軟體卸載殘留、多項系統維護最佳化、逐層分析磁碟空間，並提供系統狀態監控、風扇控制與螢幕常亮等功能。
 
 ## 功能
 
@@ -130,12 +130,12 @@ nix profile remove mole
 Mole 內建多層安全機制：嚴格檢查路徑有效性，預設保護系統關鍵目錄與使用者隱私資料，操作前主動確認；無法確認安全的檔案自動略過。
 
 - `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會執行檔案清理，建議先用 `--dry-run` 預覽，需要時加上 `--debug`
-- 日常執行 **無需 `sudo`**，僅在觸及系統級清理時按需請求管理員權限
+- 日常執行 **無需 `sudo`**，僅在涉及系統清理時按需請求管理員權限
 - `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶，可隨時放回
-- 清理操作均記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
+- 清理操作記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
 - 可透過 `mo clean --whitelist` 保護指定快取，或使用 `mo optimize --whitelist` 排除維護項目
 
-更多安全邊界與機制說明請參閱 [SECURITY.md](SECURITY.md) 與 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
+更多安全機制與詳細設計請參考 [SECURITY.md](SECURITY.md) 與 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
 
 ## 功能說明
 
@@ -143,7 +143,7 @@ Mole 內建多層安全機制：嚴格檢查路徑有效性，預設保護系統
 
 ### 深度清理（Clean）
 
-`mo clean` 掃描並清理安全的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。使用 `mo clean --dry-run` 預覽可清理路徑，使用 `mo clean --whitelist` 保護特定目錄。
+`mo clean` 掃描並清理快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。
 
 ```text
 $ mo clean
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 應用程式解除安裝（Uninstall）
 
-`mo uninstall` 完整移除已安裝的應用程式，並同步清理關聯的偏好設定、快取與自啟動項目。如果有其他同款軟體共用資料，Mole 會保留共用部分。可使用 `mo uninstall --dry-run` 預覽解除安裝計畫。如果應用程式此前已被手動刪除，可直接執行 `mo clean` 掃描遺留殘留。
+`mo uninstall` 完整移除已安裝的應用程式，並同步清理關聯的偏好設定、快取與自啟動項目。若有其他軟體共用資料則自動保留。可先用 `mo uninstall --dry-run` 預覽解除安裝計畫。如果應用程式此前已被手動刪除，可直接執行 `mo clean` 掃描遺留殘留。
 
 ```text
 $ mo uninstall
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 系統最佳化（Optimize）
 
-`mo optimize` 對 Finder、網路、系統資料庫與 macOS 服務執行安全的維護操作。非必要、目前正在使用或無法使用的任務會自動略過並附帶原因。可使用 `mo optimize --dry-run` 預覽，使用 `mo optimize --whitelist` 排除指定任務或路徑。
+`mo optimize` 對 Finder、網路、系統資料庫與 macOS 服務執行安全的維護操作。非必要、目前正在使用或無法使用的任務會自動略過並說明原因。可使用 `mo optimize --dry-run` 預覽，使用 `mo optimize --whitelist` 排除指定任務或路徑。
 
 ```text
 $ mo optimize
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` 提供唯讀系統硬體儀表板，涵蓋 CPU、系統負載、磁碟讀寫、網路流量、電源與異常行程。
 
-當預設 IPv4 路由使用 VPN 或通道介面時，流量圖表會追蹤該通道，避免與實體網卡重複統計。
+當預設 IPv4 路由使用 VPN 或虛擬網卡介面時，流量圖表會追蹤該通道，避免與實體網卡重複統計。
 
 ```text
 $ mo status
@@ -318,9 +318,9 @@ $ mo status --json
 }
 ```
 
-殭屍行程診斷僅供參考，不會主動終止行程或影響系統健康分。如果某個收集器發生錯誤，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並正常結束（結束碼 0）。
+殭屍行程診斷僅供參考，不會主動終止行程或影響系統健康分。如果某個指標收集出錯，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並正常結束（結束碼 0）。
 
-還支援對高 CPU 佔用的行程進行唯讀警示，可透過 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 進行調整或關閉。
+支援對持續高 CPU 佔用的行程進行提示，可透過 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 進行調整或關閉。
 
 </details>
 
@@ -401,7 +401,7 @@ Removed 5 installers, freed 3.83GB
 <details>
 <summary><strong>Raycast 與 Alfred 設定</strong></summary>
 
-一鍵安裝五大快捷啟動器（Clean、Uninstall、Optimize、Analyze、Status）：
+安裝快捷啟動器（Clean、Uninstall、Optimize、Analyze 與 Status）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/Mole/main/scripts/setup-quick-launchers.sh | bash
@@ -415,13 +415,13 @@ Raycast 安裝後需一次性手動設定：
 2. 新增 `~/Library/Application Support/Raycast/script-commands` 目錄。
 3. 在 Raycast 中點選 **Reload Script Directories**。
 
-啟動器會自動適配常見終端機（Terminal、iTerm2、Alacritty、kitty、WezTerm、Ghostty、Hyper、WindTerm、Warp）。可透過 `MO_LAUNCHER_APP=<名稱>` 指定終端機，亦可直接在 [Kaku](https://github.com/tw93/Kaku) 中執行。
+啟動器會自動適配常見終端機（Terminal、iTerm2、Alacritty、kitty、WezTerm、Ghostty、Hyper、WindTerm、Warp）。可透過 `MO_LAUNCHER_APP=<名稱>` 指定終端機，也可以直接在 [Kaku](https://github.com/tw93/Kaku) 中執行。
 
 </details>
 
 ## 社群回饋
 
-感謝所有參與構建 Mole 的貢獻者 ❤️
+感謝所有參與 Mole 開發與維護的貢獻者 ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole 貢獻者" width="1000" />
@@ -446,6 +446,6 @@ Raycast 安裝後需一次性手動設定：
 
 ## 開源授權條款
 
-Mole 基於 GPL-3.0 條款開源；詳見 [LICENSE](LICENSE)。任何修改並發布的版本須保持相同的開源授權條款。如果你將 Mole 分叉為其他獨立產品，請使用不同名稱並註明出處。
+Mole 基於 GPL-3.0 條款開源；詳見 [LICENSE](LICENSE)。任何修改與發布的版本需要保持相同的開源授權條款。如果你將 Mole 分叉為其他獨立產品，請使用不同名稱並註明出處。
 
 [Mole for Mac](https://mole.fit) 是單獨的原生應用程式。
