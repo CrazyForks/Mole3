@@ -1,18 +1,14 @@
-<h4 align="right"><a href="README.md">English</a> | <a href="README_CN.md">中文</a> | <a href="README_TW.md">繁體</a> | <a href="README_DE.md">Deutsch</a> | <a href="README_FR.md">Français</a> | <strong>한국어</strong></h4>
-
 <div align="center">
   <h1>Mole</h1>
-  <p><em>🐹 Mac 심층 정리, 앱 제거, 시스템 최적화, 디스크 분석 및 상태 모니터링 — 가볍고 빠른 오픈소스 CLI와 네이티브 앱</em></p>
-</div>
-
-<p align="center">
+  <p><b>Mac 심층 정리, 앱 제거, 시스템 최적화, 디스크 분석 및 상태 모니터링, 가볍고 빠른 오픈소스 CLI와 네이티브 앱</b></p>
+  <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · 한국어 · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL_v3-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://github.com/tw93/mole/commits"><img src="https://img.shields.io/github/commit-activity/m/tw93/mole?style=flat-square" alt="Commits"></a>
   <a href="https://twitter.com/HiTw93"><img src="https://img.shields.io/badge/follow-Tw93-red?style=flat-square&logo=Twitter" alt="Twitter"></a>
   <a href="https://t.me/+9f9gf4ZrFSQ2OWVl"><img src="https://img.shields.io/badge/chat-Telegram-blueviolet?style=flat-square&logo=Telegram" alt="Telegram"></a>
-</p>
+</div>
 
 <p align="center">
   <img src="./docs/img/big-mole.png" alt="Mole 정리 결과" width="1000" />
