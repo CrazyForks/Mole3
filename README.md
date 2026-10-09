@@ -86,7 +86,7 @@ mo analyze /Volumes          # Analyze external drives only
 mo analyze /private/tmp      # Review user-owned temporary directories
 ```
 
-Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`.
+Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`. Before adding custom paths, open the menu and press Enter to save the selections, then append one path per line. An existing file replaces the optional defaults; built-in safety protections still apply.
 
 <details>
 <summary><strong>Other install options</strong></summary>
