@@ -14,6 +14,7 @@ Tag-driven flow. The `release.yml` workflow watches `'V*'` tag pushes (capital `
 | Nightly (`mo update --nightly`) | `main` HEAD via `install.sh` | Any commit pushed to `main` | Automatic; no tag or release involved |
 | GitHub stable release | amd64/arm64 binaries + `SHA256SUMS` | Push a capital-`V` tag | `release.yml` builds and creates the release; curated notes are a manual follow-up |
 | Homebrew core | Version-bump PR to `Homebrew/homebrew-core` | Same `V*` tag workflow | Automatic PR; merge timing is upstream's |
+| Nix flake | Source-built macOS package from the selected Git ref | `main` follows development; a release tag pins that release | Nix manages install, upgrade and removal; no separate registry publish |
 
 At the start of any release-flavored task, restate which channels this run will touch and which it will not, and confirm with the maintainer before acting. Channel scope is specified by the maintainer, never inferred.
 
@@ -30,7 +31,7 @@ Resolve the latest published stable tag from GitHub before choosing the version 
 
 Use the Go version declared in `go.mod` for local release builds, matching `actions/setup-go` in CI, then run `scripts/check_release_minos.sh` on both architectures. A newer local Go can raise the minimum macOS version even with `CGO_ENABLED=0`; during V1.54.0 verification, Go 1.27 produced macOS 13 binaries while the declared Go 1.25 toolchain preserved macOS 12. Rebuild with the declared toolchain instead of relaxing the minimum-OS gate. Check the `make release-amd64 release-arm64` outputs, not `make build`: the local build links `status` with cgo against the host SDK, so its `status-go` reports the host macOS as its minimum and says nothing about the release binaries.
 
-Capture the test runner's exit status and structured summary, with skipped tests reported separately. After pushing the candidate commit, wait for its required Check, Validation, and CodeQL workflows to finish successfully before tagging that exact SHA. A cancelled run or a green check on another commit is not release evidence.
+Capture the test runner's exit status and structured summary, with skipped tests reported separately. After pushing the candidate commit, wait for its required Check, Validation, CodeQL, and Nix workflows to finish successfully before tagging that exact SHA. Nix must verify both Darwin architectures and the installed/profile lifecycle. A cancelled run or a green check on another commit is not release evidence.
 
 ## Tag and publish
 
