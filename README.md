@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><em>🐹 Clean, uninstall, analyze, optimize, and monitor your Mac. Free open-source CLI, plus a native Mac app.</em></p>
+  <p><em>🐹 Keep your Mac clean, light, and running like new. Fast open-source CLI, plus a native Mac app.</em></p>
 </div>
 
 <p align="center">
