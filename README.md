@@ -1,3 +1,5 @@
+<h4 align="right"><strong>English</strong> | <a href="README_CN.md">简体中文</a></h4>
+
 <div align="center">
   <h1>Mole</h1>
   <p><em>🐹 Keep your Mac clean, light, and running like new. Fast open-source CLI, plus a native Mac app.</em></p>
@@ -16,7 +18,7 @@
   <img src="./docs/img/big-mole.png" alt="Mole cleanup results" width="1000" />
 </p>
 
-> 💡 This repo is the free open-source CLI (`mo`). Prefer a native app? [Mole for Mac](https://mole.fit/) is a separate download: cleanup, app management, maintenance, disk maps, and live status in one lightweight, VoiceOver-ready app. One license covers 2 Macs with free updates and a 14-day refund. `brew install mole` installs the CLI only.
+> 💡 Prefer a native app? Check out [Mole for Mac](https://mole.fit/): it brings review-before-delete safety, deep system data cleanup, AI tool maintenance, handcrafted leftovers cleanup for over 800 apps, one-tap system optimizations, and multi-dimensional disk drill-downs. It also includes clean system health monitors, fan controls, and keep-awake utilities.
 
 ## Features
 
