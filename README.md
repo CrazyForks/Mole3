@@ -435,7 +435,7 @@ The launchers auto-detect Terminal, iTerm2, Alacritty, kitty, WezTerm, Ghostty, 
 
 </details>
 
-## Community Love
+## Community
 
 Thanks to everyone who helped build Mole. Go follow them. ❤️
 

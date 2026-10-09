@@ -16,9 +16,9 @@
 
 > 💡 喜欢图形界面？可尝试原生应用 [Mole for Mac](https://mole.fit/)：支持清理前逐项确认、系统数据深入清理、AI 工具维护与清理、实测 800 多款软件卸载残留、多项系统一键优化、多维下钻分析磁盘空间，并提供系统状态监控、风扇控制与屏幕常亮等功能。
 
-## 功能特性
+## 功能
 
-- **多合一终端工具**：涵盖类似 CleanMyMac、AppCleaner、DaisyDisk 与 iStat Menus 的日常场景，轻巧专注
+- **全功能命令行**：涵盖类似 CleanMyMac、AppCleaner、DaisyDisk 与 iStat Menus 的日常场景，轻巧专注
 - **深度清理**：安全清除系统缓存、应用日志与卸载残留，释放磁盘空间
 - **应用卸载**：完整移除应用程序，同步清理配置文件与自启动项
 - **磁盘分析**：终端交互式可视化，清晰浏览目录层级，定位占用空间的大文件
@@ -49,7 +49,7 @@ Mole 主要面向 macOS。实验性的 Windows 版本可在 [windows 分支](htt
 
 ```bash
 mo                           # 打开交互式菜单
-mo clean                     # 深度清理：清理系统缓存、日志与卸载残留
+mo clean                     # 深度清理：安全清理系统缓存、日志与卸载残留
 mo uninstall                 # 应用卸载：完整卸载软件并清理残留文件
 mo optimize                  # 系统优化：刷新系统服务与缓存
 mo analyze                   # 磁盘分析：交互式查看磁盘空间占用与大文件
@@ -66,7 +66,7 @@ mo --help                    # 查看帮助信息
 mo --version                 # 查看已安装版本
 ```
 
-**安全演练**
+**安全预览**
 
 ```bash
 mo clean --dry-run
@@ -125,21 +125,21 @@ nix profile remove mole
 
 观看 PAPAYA 電腦教室 制作的 [Mole 教学视频](https://www.youtube.com/watch?v=UEe9-w4CcQ0)。
 
-## 安全保障
+## 安全机制
 
-Mole 始终以数据安全为先：严格校验路径有效性，默认保护系统关键目录与用户敏感数据，操作前主动确认；对无法证实安全的文件一律自动跳过。
+Mole 内置多层安全机制：严格校验路径有效性，默认保护系统关键目录与用户敏感数据，操作前主动确认；无法确认安全的文件自动跳过。
 
 - `clean`、`uninstall`、`purge`、`installer` 与 `remove` 会执行文件清理，建议先用 `--dry-run` 预览，需要时加上 `--debug`
 - 日常运行 **无需 `sudo`**，仅在触及系统级清理时按需请求管理员权限
-- `mo analyze` 中的删除操作在确认后默认移入 macOS 废纸篓，可随时放回
+- `mo analyze` 中的删除操作在确认后默认放入 macOS 废纸篓，可随时放回
 - 清理操作均记录在 `~/Library/Logs/mole/operations.log` 中，可通过 `mo history` 查看，或设置 `MO_NO_OPLOG=1` 禁用
 - 可通过 `mo clean --whitelist` 保护指定缓存，或使用 `mo optimize --whitelist` 排除维护项
 
 更多安全边界与机制说明请参阅 [SECURITY.md](SECURITY.md) 与 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
 
-## 功能详解
+## 功能说明
 
-以下展示为缩减示例，具体显示项、体积与跳过原因取决于你的 Mac 实际环境。
+以下展示为缩减示例，具体显示项、大小与跳过原因取决于你的 Mac 实际环境。
 
 ### 深度清理（Clean）
 
@@ -236,13 +236,13 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-支持通过路径规则排除挂载项（例如常驻挂载的 `/Volumes/mail`），避免其被误提为卸载目标。
+支持通过路径规则排除挂载项（例如常驻挂载的 `/Volumes/mail`），避免被识别为卸载目标。
 
 ### 空间分析（Analyze）
 
 `mo analyze` 打开终端交互式磁盘分析器，支持方向键与 Vim 快捷键浏览、快速过滤、多选标记、Finder 预览与移入废纸篓。外置磁盘默认不在概览中显示，可运行 `mo analyze /Volumes` 或指定挂载路径单独查看。使用 `mo analyze /private/tmp` 仅检查临时目录而不执行自动清理。
 
-以 `+` 结尾的体积表示部分扫描；`unknown` 表示暂时无法测量。因临时超时中断的条目不会覆盖已有完整缓存，后续刷新可自动补全。终端界面默认列出前 30 个最大项，JSON 格式输出则包含所有扫描条目。
+以 `+` 结尾的大小表示部分扫描；`unknown` 表示暂时无法计算。因临时超时中断的条目不会覆盖已有完整缓存，后续刷新可自动补全。终端界面默认列出前 30 个最大项，JSON 格式输出则包含所有扫描条目。
 
 `mo analyze --json /path` 输出中包含各项的 `scan_status`（`complete`、`partial` 或 `unavailable`）。未完成的扫描仍会返回退出码 0，脚本自动化可据此判断状态。
 
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-僵尸进程诊断仅供观察，不会主动结束进程或影响系统健康分。如果某个采集器发生错误，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0。
+僵尸进程诊断仅供参考，不会主动结束进程或影响系统健康分。如果某个采集器发生错误，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0。
 
 还支持对高 CPU 占用的进程进行只读告警，可通过 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 进行调节或关闭。
 
@@ -419,7 +419,7 @@ Raycast 安装后需一次性手动设置：
 
 </details>
 
-## 社区声音
+## 社区反馈
 
 感谢所有参与构建 Mole 的贡献者 ❤️
 
@@ -432,7 +432,7 @@ Raycast 安装后需一次性手动设置：
 
 <img src="./docs/img/mole-love.png" alt="社区反馈" width="1000" />
 
-## 赞助支持
+## 支持项目
 
 - 购买 [Mole for Mac](https://mole.fit) 是支持 Mole 持续开发最直接的方式
 - 如果 Mole 帮到了你，欢迎点个 Star、[分享给朋友](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)，或在 GitHub 提交 Issue 和 PR

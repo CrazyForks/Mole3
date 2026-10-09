@@ -16,9 +16,9 @@
 
 > 💡 喜歡圖形介面？可嘗試原生應用 [Mole for Mac](https://mole.fit/)：支援清理前逐項確認、系統資料深入清理、AI 工具維護與清理、實測 800 多款軟體卸載殘留、多項系統一鍵最佳化、多維下鑽分析磁碟空間，並提供系統狀態監控、風扇控制與螢幕常亮等功能。
 
-## 功能特性
+## 功能
 
-- **多合一終端機工具**：涵蓋類似 CleanMyMac、AppCleaner、DaisyDisk 與 iStat Menus 的日常場景，輕巧專注
+- **全功能命令列**：涵蓋類似 CleanMyMac、AppCleaner、DaisyDisk 與 iStat Menus 的日常場景，輕巧專注
 - **深度清理**：安全清除系統快取、應用程式日誌與解除安裝殘留，釋放磁碟空間
 - **應用程式解除安裝**：完整移除應用程式，同步清理偏好設定與自啟動項目
 - **磁碟分析**：終端機互動式視覺化，清楚瀏覽目錄層級，定位佔用空間的大檔案
@@ -49,7 +49,7 @@ Mole 主要面向 macOS。實驗性的 Windows 版本可在 [windows 分支](htt
 
 ```bash
 mo                           # 開啟互動式選單
-mo clean                     # 深度清理：清理系統快取、日誌與解除安裝殘留
+mo clean                     # 深度清理：安全清理系統快取、日誌與解除安裝殘留
 mo uninstall                 # 應用程式解除安裝：完整解除安裝軟體並清理殘留檔案
 mo optimize                  # 系統最佳化：重新整理系統服務與快取
 mo analyze                   # 磁碟分析：互動式查看磁碟空間佔用與大檔案
@@ -66,7 +66,7 @@ mo --help                    # 查看說明資訊
 mo --version                 # 查看已安裝版本
 ```
 
-**安全演練**
+**安全預覽**
 
 ```bash
 mo clean --dry-run
@@ -125,19 +125,19 @@ nix profile remove mole
 
 觀看 PAPAYA 電腦教室 製作的 [Mole 教學影片](https://www.youtube.com/watch?v=UEe9-w4CcQ0)。
 
-## 安全保障
+## 安全機制
 
-Mole 始終以資料安全為先：嚴格檢查路徑有效性，預設保護系統關鍵目錄與使用者敏感資料，操作前主動確認；對無法證實安全的檔案一律自動略過。
+Mole 內建多層安全機制：嚴格檢查路徑有效性，預設保護系統關鍵目錄與使用者隱私資料，操作前主動確認；無法確認安全的檔案自動略過。
 
 - `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會執行檔案清理，建議先用 `--dry-run` 預覽，需要時加上 `--debug`
 - 日常執行 **無需 `sudo`**，僅在觸及系統級清理時按需請求管理員權限
-- `mo analyze` 中的刪除操作在確認後預設移入 macOS 垃圾桶，可隨時放回
+- `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶，可隨時放回
 - 清理操作均記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
 - 可透過 `mo clean --whitelist` 保護指定快取，或使用 `mo optimize --whitelist` 排除維護項目
 
 更多安全邊界與機制說明請參閱 [SECURITY.md](SECURITY.md) 與 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
 
-## 功能詳解
+## 功能說明
 
 以下展示為縮減範例，具體顯示項目、大小與略過原因取決於你的 Mac 實際環境。
 
@@ -236,13 +236,13 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-支援透過路徑規則排除掛載項目，例如常駐掛載的 `/Volumes/mail`，避免其被識別為可卸載目標。
+支援透過路徑規則排除掛載項目（例如常駐掛載的 `/Volumes/mail`），避免被識別為卸載目標。
 
 ### 空間分析（Analyze）
 
-`mo analyze` 開啟終端機互動式磁碟分析器。支援方向鍵與 Vim 快捷鍵瀏覽、快速過濾、多選標記、Finder 預覽以及移入垃圾桶。外接磁碟預設不在概覽中顯示，可執行 `mo analyze /Volumes` 或指定掛載路徑進行檢視。使用 `mo analyze /private/tmp` 僅檢查暫存目錄而不執行自動清理。
+`mo analyze` 開啟終端機互動式磁碟分析器，支援方向鍵與 Vim 快捷鍵瀏覽、快速過濾、多選標記、Finder 預覽與放入垃圾桶。外接磁碟預設不在概覽中顯示，可執行 `mo analyze /Volumes` 或指定掛載路徑單獨檢視。使用 `mo analyze /private/tmp` 僅檢查暫存目錄而不執行自動清理。
 
-以 `+` 結尾的容量表示部分掃描；`unknown` 表示暫時無法測量。因臨時逾時中斷的項目不會覆蓋已有完整快取，後續重新整理可自動補全。終端機介面預設列出前 30 個最大項目，JSON 格式輸出則包含所有掃描項目。
+以 `+` 結尾的大小表示部分掃描；`unknown` 表示暫時無法計算。因臨時逾時中斷的項目不會覆蓋已有完整快取，後續重新整理可自動補全。終端機介面預設列出前 30 個最大項目，JSON 格式輸出則包含所有掃描項目。
 
 `mo analyze --json /path` 輸出中包含各項的 `scan_status`（`complete`、`partial` 或 `unavailable`）。未完成的掃描仍會返回結束碼 0，腳本自動化可據此判斷狀態。
 
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-殭屍行程診斷僅供觀察，不會主動終止行程或影響系統健康分。如果某個收集器發生錯誤，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並正常結束（結束碼 0）。
+殭屍行程診斷僅供參考，不會主動終止行程或影響系統健康分。如果某個收集器發生錯誤，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並正常結束（結束碼 0）。
 
 還支援對高 CPU 佔用的行程進行唯讀警示，可透過 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 進行調整或關閉。
 
@@ -419,7 +419,7 @@ Raycast 安裝後需一次性手動設定：
 
 </details>
 
-## 社群聲音
+## 社群回饋
 
 感謝所有參與構建 Mole 的貢獻者 ❤️
 
@@ -432,7 +432,7 @@ Raycast 安裝後需一次性手動設定：
 
 <img src="./docs/img/mole-love.png" alt="社群回饋" width="1000" />
 
-## 贊助支援
+## 支持專案
 
 - 購買 [Mole for Mac](https://mole.fit) 是支持 Mole 持續開發最直接的方式
 - 如果 Mole 幫到了你，歡迎給予 Star、[分享給朋友](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)，或在 GitHub 提交 Issue 和 PR
