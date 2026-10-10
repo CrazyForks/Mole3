@@ -98,7 +98,8 @@ truncate_by_display_width() {
     current_width=$(get_display_width "$str")
 
     if [[ $current_width -le $max_width ]]; then
-        echo "$str"
+        # printf, not echo: a string such as "-n" or "-e" is an echo option.
+        printf '%s\n' "$str"
         return
     fi
 
@@ -160,7 +161,7 @@ truncate_by_display_width() {
         unset LC_ALL
     fi
 
-    echo "${truncated}..."
+    printf '%s...\n' "$truncated"
 }
 
 # Read single keyboard input
@@ -230,7 +231,7 @@ read_key() {
             $'\n' | $'\r') echo "ENTER" ;;
             $'\x7f' | $'\x08') echo "DELETE" ;;
             $'\x15') echo "CLEAR_LINE" ;; # Ctrl+U (often mapped from Cmd+Delete in terminals)
-            ' ') echo "SPACE" ;;          # Allow space in filter mode for selection
+            ' ') echo "SPACE" ;;          # Search input or selection, decided by the menu
             $'\x03') echo "QUIT" ;;
             [[:print:]]) echo "CHAR:$key" ;;
             *) echo "OTHER" ;;

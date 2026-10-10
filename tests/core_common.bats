@@ -1186,6 +1186,12 @@ EOF
     [ "$status" -eq 0 ]
 }
 
+@test "truncate_by_display_width prints strings that look like echo options" {
+    run /bin/bash -c "export MOLE_BASE_LOADED=1; source '$PROJECT_ROOT/lib/core/ui.sh'; truncate_by_display_width '-n' 10; truncate_by_display_width '-e' 10"
+    [ "$status" -eq 0 ]
+    [ "$output" = $'-n\n-e' ]
+}
+
 @test "read_key respects MOLE_READ_KEY_FORCE_CHAR" {
     run /bin/bash -c "export MOLE_BASE_LOADED=1; export MOLE_READ_KEY_FORCE_CHAR=1; source '$PROJECT_ROOT/lib/core/ui.sh'; echo -n 'j' | read_key"
     [ "$output" = "CHAR:j" ]
