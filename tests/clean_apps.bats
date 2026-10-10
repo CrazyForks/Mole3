@@ -3279,3 +3279,63 @@ EOF
 		return 1
 	}
 }
+
+@test "clean_orphaned_system_services keeps a spinner up while it rechecks candidates" {
+    mole_test_fake_command mdfind
+    local order_log="$BATS_TEST_TMPDIR/orphan-order.log"
+    : > "$order_log"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" ORDER_LOG="$order_log" MOLE_TEST_MODE=0 MOLE_TEST_NO_AUTH=0 DRY_RUN=true MOLE_DRY_RUN=1 /bin/bash --noprofile --norc <<'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/apps.sh"
+
+# Every hook appends to one file because the sizing call runs inside a
+# command substitution whose output is captured.
+start_section_spinner() { echo "START:${1:-}" >> "$ORDER_LOG"; }
+stop_section_spinner() { echo "STOP" >> "$ORDER_LOG"; }
+note_activity() { echo "PRINTED" >> "$ORDER_LOG"; }
+debug_log() { :; }
+
+tmp_dir="$(mktemp -d)"
+tmp_plist="$tmp_dir/com.sogou.test.plist"
+cat > "$tmp_plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.sogou.test</string>
+    <key>Program</key>
+    <string>$tmp_dir/missing-binary</string>
+</dict>
+</plist>
+PLIST
+
+sudo() {
+  if [[ "$1" == "-n" && "$2" == "true" ]]; then
+    return 0
+  fi
+  [[ "${1:-}" == "-n" ]] && shift
+  if [[ "$1" == "find" ]]; then
+    printf '%s\0' "$tmp_plist"
+    return 0
+  fi
+  if [[ "$1" == "du" ]]; then
+    echo "SIZED" >> "$ORDER_LOG"
+    echo "4 $tmp_plist"
+    return 0
+  fi
+  command "$@"
+}
+
+clean_orphaned_system_services
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Orphaned services · "*" found dry"* ]] || { echo "$output"; return 1; }
+    local order
+    order=$(grep -v '^START:Scanning' "$order_log" | tr '\n' '|')
+    # The per-candidate work runs under the "Checking" spinner, and the
+    # result line prints only after that spinner stops.
+    [[ "$order" == *"START:Checking orphaned system services...|SIZED|"*"STOP|PRINTED"* ]] || { echo "$order"; return 1; }
+}

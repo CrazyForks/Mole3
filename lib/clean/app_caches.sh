@@ -2049,25 +2049,27 @@ clean_remote_desktop() {
 clean_user_gui_applications() {
     # Product and media App Container rows share one recursive-handle budget.
     local _MOLE_CONTAINER_CACHE_PROBE_DEADLINE=""
+    # safe_clean stops the section spinner before it prints a row, so restart
+    # it before each app group; otherwise the rest of the section runs with
+    # nothing on screen.
+    local app_group group_rc
+    for app_group in clean_communication_apps clean_dingtalk clean_ai_apps \
+        clean_design_tools clean_video_tools clean_3d_tools clean_productivity_apps \
+        clean_media_players clean_video_players clean_download_managers \
+        clean_gaming_platforms clean_translation_apps clean_screenshot_tools \
+        clean_email_clients clean_task_apps clean_shell_utils clean_system_utils \
+        clean_note_apps clean_launcher_apps clean_remote_desktop; do
+        start_section_spinner "Scanning apps..."
+        if [[ "$app_group" == "clean_download_managers" ]]; then
+            group_rc=0
+            "$app_group" || group_rc=$?
+            if [[ $group_rc -ne 0 ]]; then
+                stop_section_spinner
+                return "$group_rc"
+            fi
+        else
+            "$app_group"
+        fi
+    done
     stop_section_spinner
-    clean_communication_apps
-    clean_dingtalk
-    clean_ai_apps
-    clean_design_tools
-    clean_video_tools
-    clean_3d_tools
-    clean_productivity_apps
-    clean_media_players
-    clean_video_players
-    clean_download_managers || return $?
-    clean_gaming_platforms
-    clean_translation_apps
-    clean_screenshot_tools
-    clean_email_clients
-    clean_task_apps
-    clean_shell_utils
-    clean_system_utils
-    clean_note_apps
-    clean_launcher_apps
-    clean_remote_desktop
 }

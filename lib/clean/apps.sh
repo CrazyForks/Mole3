@@ -1677,9 +1677,8 @@ clean_orphaned_system_services() {
     fi
     rm -f -- "$service_scan_file" 2> /dev/null || true # SAFE: exact tracked temp file created above
 
-    stop_section_spinner
-
     if [[ $service_scan_status -ne 0 ]]; then
+        stop_section_spinner
         debug_log "Skipping orphaned system services: privileged scan incomplete (status $service_scan_status)"
         if [[ $service_scan_status -ge 128 ]]; then
             return "$service_scan_status"
@@ -1729,8 +1728,12 @@ clean_orphaned_system_services() {
         fi
     fi
 
-    # Report and clean
-    if [[ $orphaned_count -gt 0 ]]; then
+    # Report and clean. Each candidate is resolved again before it is listed
+    # or removed, about a second apiece, so keep the spinner up until output.
+    if [[ $orphaned_count -eq 0 ]]; then
+        stop_section_spinner
+    else
+        start_section_spinner "Checking orphaned system services..."
         debug_log "Found $orphaned_count orphaned system services"
 
         local removed_count=0
@@ -1748,11 +1751,13 @@ clean_orphaned_system_services() {
             local eligibility_rc=0
             _orphan_service_candidate_still_eligible "$orphan_file" "$expected_identity" || eligibility_rc=$?
             if mole_rc_timeout "$eligibility_rc"; then
+                stop_section_spinner
                 echo -e "  ${YELLOW}${ICON_WARNING}${NC} Orphaned system services · ${GRAY}time limit reached, stopped cleanup${NC}"
                 debug_log "Orphaned services stopped by deadline at stage: eligibility recheck"
                 note_activity
                 return 0
             elif [[ $eligibility_rc -ge 128 ]]; then
+                stop_section_spinner
                 return "$eligibility_rc"
             elif [[ $eligibility_rc -ne 0 ]]; then
                 debug_log "Keeping changed or no-longer-orphaned service: $orphan_file"
@@ -1780,12 +1785,14 @@ clean_orphaned_system_services() {
                         -n du -skP "$orphan_file" < /dev/null 2> /dev/null | awk '{print $1}') || orphan_size_rc=$?
                 fi
                 if mole_rc_timeout "$orphan_size_rc"; then
+                    stop_section_spinner
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} Orphaned system services · ${GRAY}time limit reached, stopped cleanup${NC}"
                     debug_log "Orphaned services stopped by deadline at stage: dry-run sizing"
                     note_activity
                     return 0
                 fi
                 if [[ $orphan_size_rc -ge 128 ]]; then
+                    stop_section_spinner
                     return "$orphan_size_rc"
                 fi
                 [[ $orphan_size_rc -eq 0 && "$orphan_size_kb" =~ ^[0-9]+$ ]] || orphan_size_kb=0
@@ -1806,12 +1813,14 @@ clean_orphaned_system_services() {
                         -n du -skP "$orphan_file" < /dev/null 2> /dev/null | awk '{print $1}') || file_size_rc=$?
                 fi
                 if mole_rc_timeout "$file_size_rc"; then
+                    stop_section_spinner
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} Orphaned system services · ${GRAY}time limit reached, stopped cleanup${NC}"
                     debug_log "Orphaned services stopped by deadline at stage: plist removal"
                     note_activity
                     return 0
                 fi
                 if [[ $file_size_rc -ge 128 ]]; then
+                    stop_section_spinner
                     return "$file_size_rc"
                 fi
                 [[ $file_size_rc -eq 0 && "$file_size_kb" =~ ^[0-9]+$ ]] || file_size_kb=0
@@ -1826,11 +1835,13 @@ clean_orphaned_system_services() {
                 _orphan_service_candidate_still_eligible "$orphan_file" \
                     "$expected_identity" || final_eligibility_rc=$?
                 if mole_rc_timeout "$final_eligibility_rc"; then
+                    stop_section_spinner
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} Orphaned system services · ${GRAY}time limit reached, stopped cleanup${NC}"
                     debug_log "Orphaned services stopped by deadline at stage: helper binary removal"
                     note_activity
                     return 0
                 elif [[ $final_eligibility_rc -ge 128 ]]; then
+                    stop_section_spinner
                     return "$final_eligibility_rc"
                 elif [[ $final_eligibility_rc -ne 0 ]]; then
                     debug_log "Keeping changed or no-longer-orphaned service before removal: $orphan_file"
@@ -1847,10 +1858,12 @@ clean_orphaned_system_services() {
                     debug_log "Skipping protected orphaned service: $orphan_file"
                     skipped_protected_count=$((skipped_protected_count + 1))
                 elif mole_rc_timeout "$remove_rc"; then
+                    stop_section_spinner
                     echo -e "  ${YELLOW}${ICON_WARNING}${NC} Orphaned system services · ${GRAY}removal timed out, stopped cleanup${NC}"
                     note_activity
                     return 0
                 elif [[ $remove_rc -ge 128 ]]; then
+                    stop_section_spinner
                     return "$remove_rc"
                 else
                     debug_log "Failed to remove orphaned service: $orphan_file"
@@ -1858,6 +1871,7 @@ clean_orphaned_system_services() {
                 fi
             fi
         done
+        stop_section_spinner
 
         if [[ "${DRY_RUN:-false}" == "true" ]]; then
             echo -e "  ${YELLOW}${ICON_DRY_RUN}${NC} Orphaned services · ${YELLOW}${orphaned_count} found dry${NC}"

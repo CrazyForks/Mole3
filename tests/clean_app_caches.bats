@@ -427,6 +427,40 @@ EOF
     [[ "$output" == *"ai"* ]]
 }
 
+@test "clean_user_gui_applications restarts the spinner before every app group" {
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/app_caches.sh"
+start_section_spinner() { echo "START"; }
+stop_section_spinner() { echo "STOP"; }
+for group in clean_communication_apps clean_dingtalk clean_ai_apps clean_design_tools \
+    clean_video_tools clean_3d_tools clean_productivity_apps clean_media_players \
+    clean_video_players clean_download_managers clean_gaming_platforms \
+    clean_translation_apps clean_screenshot_tools clean_email_clients clean_task_apps \
+    clean_shell_utils clean_system_utils clean_note_apps clean_launcher_apps \
+    clean_remote_desktop; do
+    eval "$group() { echo GROUP; }"
+done
+clean_user_gui_applications
+echo "RC=$?"
+clean_download_managers() { return 130; }
+rc=0
+clean_user_gui_applications || rc=$?
+echo "CANCEL_RC=$rc"
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local first_run
+    first_run=$(printf '%s\n' "$output" | sed -n '1,/^RC=/p' | tr '\n' ' ')
+    # Twenty groups, each one preceded by its own spinner start, then one stop.
+    [ "$(printf '%s\n' "$output" | sed -n '1,/^RC=/p' | grep -c '^START$')" -eq 20 ] || { echo "$first_run"; return 1; }
+    [[ "$first_run" != *"GROUP GROUP"* ]] || { echo "$first_run"; return 1; }
+    [[ "$first_run" == *"GROUP STOP RC=0"* ]] || { echo "$first_run"; return 1; }
+    # A cancelled download-manager group still stops the spinner and returns its status.
+    [[ "$output" == *$'STOP\nCANCEL_RC=130'* ]] || { echo "$output"; return 1; }
+}
+
 @test "clean_final_cut_pro_generated_caches targets only safe generated media in Movies libraries" {
     run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
 set -euo pipefail
