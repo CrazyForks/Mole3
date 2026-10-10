@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Macのディープクリーン、アプリアンインストール、システム最適化、ディスク分析、ステータス監視、軽量なオープンソースCLIとネイティブMacアプリ</b></p>
+  <p><b>Macのディープクリーン、アプリアンインストール、システム最適化、ディスク分析、ステータス監視。無料のオープンソースCLIと、ネイティブMacアプリ。</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · 日本語 · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,11 +14,11 @@
   <img src="./docs/img/big-mole.png" alt="Mole クリーンアップ結果" width="1000" />
 </p>
 
-> 💡 グラフィカルな画面をお好みですか？ネイティブデスクトップアプリ [Mole for Mac](https://mole.fit/) をお試しください。削除前の項目別確認、システムデータの深層クリーン、AIツールのメンテナンスとクリーン、800種以上のアプリのアンインストール残留データ対策、ワンタップでのシステム最適化、多階層のディスク空間分析を提供します。システムステータス監視、ファン制御、スリープ防止機能も備えています。
+> 💡 このリポジトリは無料のオープンソースCLI（`mo`）です。ネイティブアプリがよければ、[Mole for Mac](https://mole.fit/) を別途ダウンロードできます。削除前の項目別確認、800以上のアプリで検証済みの残留ファイル削除、メンテナンス、ディスクの階層分析、リアルタイムのステータス表示、対応Macでのファン制御を備えています。`brew install mole` でインストールされるのはCLIのみです。
 
 ## 機能
 
-- **オールインワンCLIツール**：CleanMyMac、AppCleaner、DaisyDisk、iStat Menusの主要機能を高速な単一バイナリに集約
+- **オールインワンCLIツール**：CleanMyMac、AppCleaner、DaisyDisk、iStat Menus風のワークフローをひとつのターミナルコマンドに集約
 - **ディープクリーン**：キャッシュ、ログ、一時ファイル、アンインストール残留物を安全に削除して空き容量を確保
 - **スマートアンインストーラ**：アプリ本体とLaunchAgents、設定ファイル、関連残留物をまとめて完全削除
 - **ディスク分析**：インタラクティブTUIで容量内訳を可視化し、大容量ファイルを探索
@@ -85,7 +85,7 @@ mo analyze /Volumes          # 外付けドライブのみ分析
 mo analyze /private/tmp      # 一時ディレクトリの確認（自動削除なし）
 ```
 
-`mo clean --whitelist` で保存したパスは `~/.config/mole/whitelist` に保持されます（1行に1パス直接編集も可能）。独自設定は標準ルールを補完し、組み込みのシステム保護は常に有効です。
+`mo clean --whitelist` で選んだパスは `~/.config/mole/whitelist` に保存されます。独自のパスを追加する前に、メニューを開いてEnterで選択内容を保存し、そのあと1行に1パスずつ追記してください。ファイルが存在するとオプションの標準ルールは置き換えられますが、組み込みの安全保護は引き続き有効です。
 
 <details>
 <summary><strong>その他のインストールオプション</strong></summary>
@@ -97,6 +97,8 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- main
 ```
 
+`main` はデフォルトブランチの未リリースのコードをインストールするため、不安定な部分があるかもしれません。`latest` は `main` の旧エイリアスとして残っており、名前に反して最新の安定版はインストールしません。
+
 スクリプトは通常 `/usr/local/bin` にインストールされ、管理者パスワードが求められる場合があります。パスワード入力なしで `mo update` を実行したい場合は、ユーザーディレクトリにインストールしてください：
 
 ```bash
@@ -105,15 +107,19 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
+新しいターミナルでも使えるように、同じ `PATH` の設定を `~/.zshrc` などのシェル設定ファイルにも追加してください。Moleは実行したインストールを更新するので、以後もこのディレクトリが使われます。システム所有のファイルを変更するコマンドは、引き続き管理者権限を求めることがあります。
+
 **Nix**
 
-macOS環境のNixユーザーは、`main` ブランチからflakeを直接インストールできます：
+macOS環境のNixユーザーは、未リリースの変更を含む `main` ブランチからflakeを直接インストールできます：
 
 ```bash
 nix profile install github:tw93/mole/main#mole
 nix profile upgrade mole
 nix profile remove mole
 ```
+
+宣言的に構成する場合は、`github:tw93/mole/main` をflake inputとして追加し、`packages.${system}.mole` パッケージを使用してください。更新と削除はNixで行います。`mo update` と `mo remove` はNixで管理されたインストールを変更しません。
 
 </details>
 
@@ -171,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### アプリアンインストール（Uninstall）
 
-`mo uninstall` はインストール済みアプリと、関連する設定ファイル、キャッシュ、自動起動項目を完全に削除します。他のアプリと共有されているデータは安全に保持されます。
+`mo uninstall` はインストール済みアプリと、関連する設定ファイル、キャッシュ、自動起動項目を完全に削除します。同じアプリの別のインストールがまだ使っている共有ファイルは保持されます。`mo uninstall --dry-run` で削除計画を確認できます。アプリがすでに削除済みの場合は、`mo clean` で残留ファイルを探せます。
 
 ```text
 $ mo uninstall
@@ -197,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### システム最適化（Optimize）
 
-`mo optimize` はFinder、ネットワーク、システムデータベース、macOSサービスを安全にメンテナンスします。不要な処理、使用中、または利用できない項目は理由とともに自動スキップされます。
+`mo optimize` はFinder、ネットワーク、システムデータベース、macOSサービスを安全にメンテナンスします。不要な処理、使用中、または利用できない項目は理由とともに自動スキップされます。`mo optimize --dry-run` で事前に確認し、`mo optimize --whitelist` でタスクやパスパターンを除外できます。
 
 ```text
 $ mo optimize
@@ -233,6 +239,10 @@ Applied 3 optimizations
 ### ディスク分析（Analyze）
 
 `mo analyze` はターミナル内で動作するインタラクティブなディスク探索ツールです。矢印キーやVimキーバインドでの移動、絞り込み、複数選択、Finderプレビュー、ゴミ箱への移動に対応しています。外付けドライブは通常画面から除外されており、`mo analyze /Volumes` で確認できます。
+
+サイズの末尾に `+` が付く場合は部分スキャンで計測できたバイト数、`unknown` はサイズを計測できなかったことを示します。タイムアウトなど一時的な失敗で中断した結果は、完全なキャッシュ済みの計測値を上書きせず、後の再スキャンで欠けたデータを補えます。macOSがターミナルからの読み取りを許可しないフォルダは、アクセス権が変わるまで部分スキャンのままです。ターミナルの一覧は大きい順に30件までなので、読み取れない項目が一覧から外れることがありますが、その場合も合計は部分スキャンとして表示されます。ディレクトリのJSON出力にはスキャンしたすべての項目が含まれます。
+
+`mo analyze --json /path` の結果全体と各項目には `scan_status`（`complete`、`partial`、`unavailable`）が含まれます。数値のサイズは計測済みのバイト数で、`unavailable` での0は空のディレクトリを意味しません。部分スキャンでも終了コードは0なので、自動化では `scan_status` を確認してください。完全性はMoleの既存のスキャン除外の範囲内で判断され、ファイルシステムのアトミックなスナップショットは保証しません。
 
 ```text
 $ mo analyze
@@ -283,11 +293,38 @@ Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 - `mo status --watch --interval 2s`：NDJSON形式でリアルタイムストリーミング
 - `mo history --json`：クリーンアップ履歴をJSONで出力
 
+```text
+$ mo status --json
+{
+  "host": "MacBook-Pro",
+  "health_score": 92,
+  "cpu": { "usage": 45.2, "logical_cpu": 8 },
+  "memory": { "total": 34359738368, "used": 20078972109, "used_percent": 58.4 },
+  "disks": [],
+  "process_collected_at": "2026-08-29T12:30:00Z",
+  "process_stale": false,
+  "zombie_count": 3,
+  "zombie_parents": [
+    { "pid": 4242, "name": "Google Chrome for Testing", "count": 3 }
+  ],
+  "zombie_parents_complete": true,
+  "uptime": "3d 12h 45m"
+}
+```
+
+ゾンビプロセスの診断は読み取り専用で、プロセスを終了したりヘルススコアに影響したりしません。Moleがプロセスのサンプルを一度も取得できていない間は、`process_collected_at`、`process_stale`、`zombie_count`、`zombie_parents_complete` が省略され、`zombie_parents` は `null` になります。その後のfast/watchスナップショットは、最後に成功したサンプルを元の `process_collected_at` のまま再利用して `process_stale: true` を設定し、新しいサンプルを取得すると `false` に戻ります。`0` はMoleが計測した結果ゾンビがなかったことを意味します。親プロセスの要約は判明した上位3件までで、`zombie_parents_complete: false` は帰属情報が取得できない、不完全、または切り詰められたことを示します。
+
+一部のコレクタが失敗しても、`mo status --json` は収集できた指標を出力し、失敗をstderrに報告して正常終了します。`--watch` がストリームを続けるのと同じ動作です。CPU、メモリ、ディスク、プロセスの指標がどれも取得できない場合、またはJSON出力に失敗した場合のみ終了コード1になります。
+
+CPU使用率がしきい値を超え続けるプロセスについて、読み取り専用のアラートも表示します。`--proc-cpu-threshold`、`--proc-cpu-window`、`--proc-cpu-alerts=false` で調整または無効化できます。
+
 </details>
 
 ### プロジェクトクリーン（Purge）
 
-`mo purge` は再ビルド可能なプロジェクト生成ディレクトリ（`node_modules`、`target`、`.build`、`build`、`dist` など）を検出します。プロジェクトごとに整理して表示し、チェックして確認した項目のみを削除します。直近7日間に変更のあった項目は標準で選択解除されます。
+`mo purge` は再ビルド可能なプロジェクト生成ディレクトリ（`node_modules`、`target`、`.build`、`build`、`dist` など）を検出します。プロジェクトごとに整理して表示し、チェックして確認した項目のみを、ゴミ箱を経由せず完全に削除します。直近7日間にファイルの変更があった項目や、変更時期をMoleが確認できない項目は標準で選択解除されます。`fd` があれば使用し、なければ `find` を使います。デプロイ用のキーペアファイル、入れ子のGitリポジトリ、Gitで管理されたファイルを含むディレクトリは保護されます。非対話モードでは `mo purge --yes` が必要です。先に `mo purge --dry-run` で候補を確認してください。
+
+Page Up/Downまたは `h`/`l` でページ移動、`[`/`]` でプロジェクト間を移動、`X` でそのプロジェクトをスキップして次へ進みます。`/` でプロジェクトのパスと生成物の名前を検索し、`n` で選択状態を変えずに次の一致へ移動します。Enterで最終的なパスの確認画面を開きます。表示される容量は推定値で、計測できなかった生成物や不完全なスキャンは明示されます。
 
 <details>
 <summary><strong>Purge 出力例</strong></summary>
@@ -313,9 +350,24 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 </details>
 
+<details>
+<summary><strong>カスタムスキャンパス</strong></summary>
+
+`mo purge --paths` でスキャン対象のディレクトリを設定するか、`~/.config/mole/purge_paths` を直接編集します：
+
+```shell
+~/Documents/MyProjects
+~/Work/ClientA
+~/Work/ClientB
+```
+
+カスタムパスを設定すると、Moleはそのディレクトリだけをスキャンします。未設定の場合は `~/Projects`、`~/GitHub`、`~/dev` や、対応するエージェントのworktreeディレクトリなどの標準パスを使います。探索の途中結果は保存されません。生成物のスキャンは設定した各ルートから6階層下までなので、より深いプロジェクトには近いルートを追加してください。Purgeはworktree内の再ビルド可能な生成物を削除しますが、worktree自体は削除しません。
+
+</details>
+
 ### インストーラ整理（Installer）
 
-`mo installer` はダウンロード、デスクトップ、Homebrewキャッシュ、iCloud、Mail、TelegramなどからDMG、PKG、MPKG、ISO、XIP、ZIPインストーラを探索します。削除前にサイズと保存場所が表示されます。
+`mo installer` はダウンロード、デスクトップ、Homebrewキャッシュ、iCloud、Mail、TelegramなどからDMG、PKG、MPKG、ISO、XIP、ZIPインストーラを探索します。削除前にサイズと保存場所が表示されます。`mo installer --dry-run` で削除対象を事前に確認できます。スキャン全体に制限時間があり、スキャンやメタデータの取得が失敗またはタイムアウトした場合は、部分的なデータで処理せず結果を破棄します。シンボリックリンクのスキャンルートには対応しますが、その配下のシンボリックリンクはたどりません。選択したファイルは、変更されていないことを削除の直前に再検証します。
 
 <details>
 <summary><strong>Installer 出力例</strong></summary>
@@ -351,7 +403,15 @@ Clean、Uninstall、Optimize、Analyze、Status の5つのランチャーを一�
 curl -fsSL https://raw.githubusercontent.com/tw93/Mole/main/scripts/setup-quick-launchers.sh | bash
 ```
 
-RaycastコマンドおよびAlfredワークフローが自動追加されます。
+スクリプトはRaycastコマンドを追加し、Alfredの設定がある場合は `clean`、`uninstall`、`optimize`、`analyze`、`status` をキーワードにしたAlfredワークフローも追加します。
+
+Raycastは一度だけ手動設定が必要です：
+
+1. **Raycast Settings > Extensions > Script Commands** を開きます。
+2. `~/Library/Application Support/Raycast/script-commands` をスクリプトディレクトリとして追加します。
+3. Raycastで **Reload Script Directories** を実行します。
+
+ランチャーはTerminal、iTerm2、Alacritty、kitty、WezTerm、Ghostty、Hyper、WindTerm、Warpを自動検出します。`MO_LAUNCHER_APP=<name>` で使うターミナルを指定でき、[Kaku](https://github.com/tw93/Kaku) でMoleを直接実行することもできます。
 
 </details>
 
@@ -382,6 +442,6 @@ X (Twitter) で寄せられた実際の声：
 
 ## ライセンス
 
-MoleはGPL-3.0ライセンスのもとでオープンソース公開されています。詳細は [LICENSE](LICENSE) をご覧ください。
+MoleはGPL-3.0ライセンスのもとでオープンソース公開されています。詳細は [LICENSE](LICENSE) をご覧ください。変更したバージョンを共有する場合は、同じライセンスのままにする必要があります。Moleをフォークして別の製品にする場合は、別の名前を使い、Moleを元のプロジェクトとして明記してください。
 
-[Mole for Mac](https://mole.fit) は個別のネイティブデスクトップアプリです。
+[Mole for Mac](https://mole.fit) は独立したプロプライエタリなアプリです。Moleはこれからも長く続けていきます。

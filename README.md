@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Deep clean, uninstall apps, optimize, analyze disk, and monitor your Mac, fast open-source CLI, plus a native app</b></p>
+  <p><b>Deep clean, uninstall apps, optimize, analyze disk, and monitor your Mac. Free open-source CLI, plus a native Mac app.</b></p>
   <p>English · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,11 +14,11 @@
   <img src="./docs/img/big-mole.png" alt="Mole cleanup results" width="1000" />
 </p>
 
-> 💡 Prefer a native app? Check out [Mole for Mac](https://mole.fit/): it brings review-before-delete safety, deep system data cleanup, AI tool maintenance, tested leftovers cleanup for over 800 apps, one-tap system optimizations, and multi-dimensional disk drill-downs. It also includes system health monitors, fan controls, and keep-awake utilities.
+> 💡 This repo is the free open-source CLI (`mo`). Prefer a native app? [Mole for Mac](https://mole.fit/) is a separate download with review-before-delete cleanup, tested leftovers for 800+ apps, maintenance, disk drill-downs, live status, and fan controls on supported Macs. `brew install mole` installs the CLI only.
 
 ## Features
 
-- **All-in-one CLI toolkit**: Combines CleanMyMac, AppCleaner, DaisyDisk, and iStat Menus workflows into a fast terminal binary
+- **All-in-one CLI toolkit**: Combines CleanMyMac, AppCleaner, DaisyDisk, and iStat Menus style workflows in one terminal command
 - **Deep clean**: Removes caches, logs, leftovers, and orphaned app data to reclaim disk space
 - **Smart uninstaller**: Removes apps together with LaunchAgents, preferences, and leftovers
 - **Disk analyzer**: Visualizes disk usage with an interactive TUI, finds large files, and navigates directories
@@ -85,7 +85,7 @@ mo analyze /Volumes          # Analyze external drives only
 mo analyze /private/tmp      # Review user-owned temporary directories
 ```
 
-Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`. You can also edit this file directly by adding one path per line. Custom paths supplement or override optional defaults, while built-in safety protections always apply.
+Selections made with `mo clean --whitelist` persist in `~/.config/mole/whitelist`. Before adding custom paths, open the menu and press Enter to save the selections, then append one path per line. An existing file replaces the optional defaults; built-in safety protections still apply.
 
 <details>
 <summary><strong>Other install options</strong></summary>
@@ -242,9 +242,9 @@ Path patterns work too, so you can keep a long-lived mounted disk image around, 
 
 `mo analyze` opens a terminal disk explorer. It supports arrow keys and Vim navigation, filtering, multi-selection, Finder preview, and confirmed moves to Trash. External drives are skipped from the default overview; inspect them with `mo analyze /Volumes` or a specific mount path. Use `mo analyze /private/tmp` to review user-owned temporary files without turning them into automatic cleanup targets.
 
-A size ending in `+` indicates a partial scan; `unknown` means the size could not be calculated. Results interrupted by temporary timeouts do not overwrite complete cached measurements, so a later scan can fill in the missing data. Folders that the terminal lacks permission to read remain marked as partial. The terminal view shows the 30 largest entries; JSON output includes all scanned entries.
+A size ending in `+` contains measured bytes from a partial scan; `unknown` means the size could not be measured. Results cut short by temporary failures such as timeouts do not replace complete cached measurements, and a later refresh can recover the missing data. Folders macOS will not let the terminal read stay partial until access changes. The terminal list keeps the 30 largest entries, so an unreadable entry may fall outside that list; the total still indicates a partial scan. Directory JSON output includes all scanned entries.
 
-`mo analyze --json /path` includes `scan_status` (`complete`, `partial`, or `unavailable`) on each entry. Numeric sizes reflect measured bytes; a zero with `unavailable` does not mean an empty directory. Partial scans still exit 0, so automated workflows should check `scan_status`. Scans reflect filesystem state at runtime, subject to Mole's default exclusions.
+`mo analyze --json /path` includes `scan_status` on the result and each entry: `complete`, `partial`, or `unavailable`. Numeric sizes contain measured bytes; a zero with `unavailable` does not mean an empty directory. Partial scans still exit successfully, so automation should inspect `scan_status`. Completeness applies within Mole's existing scan exclusions and does not promise an atomic filesystem snapshot.
 
 ```text
 $ mo analyze
@@ -332,9 +332,17 @@ $ mo status --json
 }
 ```
 
-Zombie diagnostics are read-only; they do not terminate processes or affect the health score. Before Mole gathers its initial process sample, fields like `zombie_count` and `process_collected_at` are omitted, and `zombie_parents` is `null`. Subsequent watch snapshots reuse the latest successful sample with `process_stale: true`, resetting to `false` when fresh data arrives. A count of `0` means no zombies were detected. Parent summaries include up to three known owners (`zombie_parents_complete: false` indicates partial or truncated attribution).
+Zombie diagnostics are read-only and do not affect the health score or terminate processes. Before
+Mole has a successful process sample, `process_collected_at`, `process_stale`, `zombie_count`, and
+`zombie_parents_complete` are omitted and `zombie_parents` is `null`. Later fast/watch snapshots
+reuse the latest successful sample with its original `process_collected_at` and set
+`process_stale: true`; a live process sample sets it to `false`. A count of `0` means Mole measured
+no zombies. Parent summaries contain at most three known owners;
+`zombie_parents_complete: false` means attribution was unavailable, incomplete, or truncated.
 
-If an individual collector encounters an error, `mo status --json` prints all available metrics, logs the error to stderr, and exits 0 (matching `--watch` streaming behavior). It exits with code 1 only if all major metric categories fail or JSON serialization errors.
+If one collector fails, `mo status --json` still prints the metrics that were collected, reports the
+failure on stderr, and exits successfully, the same way `--watch` keeps streaming. It exits 1
+when none of CPU, memory, disk, or process metrics are available, or when JSON output fails.
 
 Status also supports read-only alerts for processes that stay above a CPU threshold. Use `--proc-cpu-threshold`, `--proc-cpu-window`, or `--proc-cpu-alerts=false` to tune or disable them.
 
@@ -464,4 +472,4 @@ Real feedback from users who shared Mole on X.
 
 Mole is open source under GPL-3.0; see [LICENSE](LICENSE). Any modified version you share must remain under the same license. If you fork Mole, please use a distinct name and credit Mole as the upstream source.
 
-[Mole for Mac](https://mole.fit) is a separate native companion app.
+[Mole for Mac](https://mole.fit) is a separate proprietary app. Mole is here for the long run.

@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Mac 심층 정리, 앱 제거, 시스템 최적화, 디스크 분석 및 상태 모니터링, 가볍고 빠른 오픈소스 CLI와 네이티브 앱</b></p>
+  <p><b>Mac 심층 정리, 앱 제거, 시스템 최적화, 디스크 분석 및 상태 모니터링. 무료 오픈소스 CLI와 네이티브 Mac 앱.</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · 한국어 · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,13 +14,13 @@
   <img src="./docs/img/big-mole.png" alt="Mole 정리 결과" width="1000" />
 </p>
 
-> 💡 그래픽 인터페이스를 선호하시나요? 네이티브 데스크톱 앱 [Mole for Mac](https://mole.fit/)을 확인해 보세요. 삭제 전 단계별 세부 확인, 시스템 데이터 심층 정리, AI 도구 유지보수 및 정리, 800여 개 앱의 잔여 파일 맞춤 정리, 원클릭 시스템 최적화, 다차원 디스크 공간 분석을 제공합니다. 시스템 상태 모니터링은 물론 팬 속도 제어와 화면 켜짐 유지 기능도 제공합니다.
+> 💡 이 저장소는 무료 오픈소스 CLI(`mo`)입니다. 네이티브 앱을 원한다면 [Mole for Mac](https://mole.fit/)을 별도로 내려받을 수 있습니다. 삭제 전 항목별 확인, 800개 이상 앱에서 테스트한 잔여 파일 정리, 유지보수, 디스크 단계별 분석, 실시간 상태 확인, 지원되는 Mac에서의 팬 제어를 제공합니다. `brew install mole`은 CLI만 설치합니다.
 
 ## 주요 기능
 
-- **올인원 CLI 툴킷**: CleanMyMac, AppCleaner, DaisyDisk, iStat Menus의 핵심 워크플로를 빠르고 가벼운 단일 터미널 도구로 통합
-- **심층 정리**: 캐시, 로그, 잔여물 및 분실된 앱 데이터를 안전하게 제거하여 디스크 공간 확보
-- **스마트 앱 제거**: 앱과 함께 연결된 LaunchAgents, 환경설정, 잔여 파일을 완벽하게 정리
+- **올인원 CLI 툴킷**: CleanMyMac, AppCleaner, DaisyDisk, iStat Menus 스타일의 워크플로를 하나의 터미널 명령으로 통합
+- **심층 정리**: 캐시, 로그, 잔여물 및 삭제된 앱이 남긴 데이터를 안전하게 제거하여 디스크 공간 확보
+- **스마트 앱 제거**: 앱과 함께 연결된 LaunchAgents, 환경설정, 잔여 파일을 정리
 - **디스크 분석기**: 인터랙티브 TUI로 디스크 사용량을 시각화하고 대용량 파일 탐색
 - **시스템 최적화**: DNS 플러시, QuickLook 및 아이콘 캐시 재구축, 핵심 시스템 데이터베이스 최적화
 - **실시간 모니터링**: CPU, 메모리, 디스크 I/O, 네트워크 트래픽 및 프로세스 상태를 실시간 확인
@@ -85,7 +85,7 @@ mo analyze /Volumes          # 외장 드라이브만 분석
 mo analyze /private/tmp      # 임시 디렉터리 검토(자동 삭제 없음)
 ```
 
-`mo clean --whitelist`로 저장한 경로는 `~/.config/mole/whitelist`에 보관됩니다. 이 파일을 직접 편집할 수도 있습니다(한 줄에 한 경로). 사용자 설정은 기본 규칙을 보완하며 내장 시스템 보호는 항상 우선 적용됩니다.
+`mo clean --whitelist`에서 선택한 경로는 `~/.config/mole/whitelist`에 저장됩니다. 직접 경로를 추가하려면 먼저 메뉴를 열고 Enter를 눌러 선택 항목을 저장한 뒤, 한 줄에 하나씩 경로를 추가하세요. 이 파일이 있으면 선택적 기본 규칙을 대체하며, 내장 안전 보호는 계속 적용됩니다.
 
 <details>
 <summary><strong>기타 설치 옵션</strong></summary>
@@ -111,7 +111,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 **Nix**
 
-macOS 환경의 Nix 사용자는 `main` 브랜치에서 플레이크로 직접 설치할 수 있습니다:
+macOS 환경의 Nix 사용자는 아직 릴리스되지 않은 변경 사항이 포함된 `main` 브랜치에서 플레이크로 직접 설치할 수 있습니다:
 
 ```bash
 nix profile install github:tw93/mole/main#mole
@@ -127,7 +127,7 @@ nix profile remove mole
 
 ## 안전성 및 신뢰성
 
-Mole은 데이터 안전을 최우선으로 설계되었습니다. 모든 경로는 사전에 철저히 검증되며, 시스템 핵심 디렉터리는 보호되고, 중요한 삭제 작업 전에는 항상 확인을 요청합니다. 안전 여부가 확실하지 않은 파일은 자동으로 건너뜁니다.
+Mole은 데이터 안전을 최우선으로 설계되었습니다. 모든 경로는 사전에 철저히 검증되며, 시스템 핵심 디렉터리는 보호되고, 필요할 때 확인을 요청합니다. 안전 여부가 확실하지 않은 파일은 자동으로 건너뜁니다.
 
 - `clean`, `uninstall`, `purge`, `installer`, `remove` 명령은 파일을 삭제합니다. 먼저 `--dry-run`으로 확인하고 필요 시 `--debug`를 함께 사용하세요.
 - 일상적인 Mole 실행에는 **`sudo`가 필요하지 않습니다**. 시스템 수준의 정리 작업에만 관리자 권한을 요청합니다.
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 앱 제거 (Uninstall)
 
-`mo uninstall`은 설치된 앱과 함께 관련 환경설정, 캐시, 백그라운드 등록 항목을 말끔히 제거합니다. 다른 앱과 공유하는 데이터는 안전하게 보존됩니다. `mo uninstall --dry-run`으로 삭제 대상을 미리 확인할 수 있습니다. 이미 휴지통으로 지운 앱의 경우 `mo clean`을 실행하여 남은 잔여물을 찾으세요.
+`mo uninstall`은 설치된 앱과 함께 관련 환경설정, 캐시, 백그라운드 등록 항목을 말끔히 제거합니다. 같은 앱의 다른 설치본이 아직 사용하는 공유 파일은 보존됩니다. `mo uninstall --dry-run`으로 삭제 대상을 미리 확인할 수 있습니다. 이미 휴지통으로 지운 앱의 경우 `mo clean`을 실행하여 남은 잔여물을 찾으세요.
 
 ```text
 $ mo uninstall
@@ -244,7 +244,7 @@ Applied 3 optimizations
 
 크기 뒤에 `+`가 붙은 항목은 부분 검사를 의미하며, `unknown`은 계산이 불가능했음을 나타냅니다. 일시적인 시간 초과로 중단된 결과는 기존 캐시를 덮어쓰지 않으므로 나중에 다시 검사하여 보완할 수 있습니다. 터미널에는 상위 30개 항목이 표시되며 JSON 출력에는 모든 항목이 포함됩니다.
 
-`mo analyze --json /path` 출력에는 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다.
+`mo analyze --json /path` 출력에는 결과 전체와 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다.
 
 ```text
 $ mo analyze
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-좀비 프로세스 진단은 정보 제공용이며, 프로세스를 임의로 종료하거나 건강 점수를 차감하지 않습니다. 특정 수집기에서 에러가 발생하더라도 `mo status --json`은 가용한 지표를 정상 출력하고 stderr에 에러를 기록하며 정상 종료(코드 0)합니다.
+좀비 프로세스 진단은 읽기 전용이며, 프로세스를 임의로 종료하거나 건강 점수를 차감하지 않습니다. 특정 수집기에서 에러가 발생하더라도 `mo status --json`은 가용한 지표를 정상 출력하고 stderr에 에러를 기록하며 정상 종료(코드 0)합니다. CPU, 메모리, 디스크, 프로세스 지표를 모두 수집하지 못했거나 JSON 출력에 실패한 경우에만 코드 1로 종료합니다.
 
 높은 CPU 사용률을 지속하는 프로세스에 대한 읽기 전용 알림도 제공되며, `--proc-cpu-threshold`, `--proc-cpu-window`, `--proc-cpu-alerts=false`로 조정하거나 끌 수 있습니다.
 
@@ -326,7 +326,7 @@ $ mo status --json
 
 ### 프로젝트 정리 (Purge)
 
-`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 삭제합니다. 최근 7일 내 변경된 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일이나 Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
+`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일이나 Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
 
 Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뜁니다. `/`로 프로젝트 경로 및 산출물 검색, `n`으로 다음 항목을 찾습니다. Enter 키로 삭제를 확인합니다.
 
@@ -365,13 +365,13 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-사용자 지정 경로가 설정되면 해당 디렉터리만 검색합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 등)를 탐색합니다. 검색은 지정된 루트 아래 최대 6단계까지 진행됩니다. Purge는 빌드 캐시만 정리하며 원본 소스 코드는 절대 삭제하지 않습니다.
+사용자 지정 경로가 설정되면 해당 디렉터리만 검색합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 및 지원되는 에이전트 worktree 디렉터리)를 탐색합니다. 검색은 지정된 루트 아래 최대 6단계까지 진행됩니다. Purge는 worktree 안의 다시 빌드할 수 있는 산출물만 삭제하며 worktree 자체는 삭제하지 않습니다.
 
 </details>
 
 ### 설치 패키지 정리 (Installer)
 
-`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 스캔에는 전체 제한 시간이 적용되며, 최종 삭제 직전 파일 변경 여부를 한 번 더 확인합니다.
+`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 스캔에는 전체 제한 시간이 적용되며, 스캔이나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
 
 <details>
 <summary><strong>Installer 출력 예시</strong></summary>
@@ -448,4 +448,4 @@ X (Twitter)에 공유해 주신 사용자들의 생생한 후기:
 
 Mole은 GPL-3.0 라이선스 하에 오픈소스로 공개되어 있습니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하세요. 코드를 수정하여 배포하는 경우 동일한 라이선스를 유지해야 합니다. 프로젝트를 포크하는 경우 고유한 이름을 사용하고 Mole을 원출처로 명시해 주세요.
 
-[Mole for Mac](https://mole.fit)은 독립적인 네이티브 상용 앱입니다.
+[Mole for Mac](https://mole.fit)은 별도의 비공개 소스 앱입니다. Mole은 앞으로도 계속 유지보수됩니다.

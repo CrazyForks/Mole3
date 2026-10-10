@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Nettoyage en profondeur, désinstallation d'apps, optimisation, analyse de disque et surveillance pour Mac, CLI open source rapide, doublé d'une app native</b></p>
+  <p><b>Nettoyage en profondeur, désinstallation d'apps, optimisation, analyse de disque et surveillance pour Mac. CLI open source gratuite, plus une app Mac native.</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · Français</p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,11 +14,11 @@
   <img src="./docs/img/big-mole.png" alt="Résultats du nettoyage avec Mole" width="1000" />
 </p>
 
-> 💡 Vous préférez une interface graphique ? Découvrez [Mole for Mac](https://mole.fit/) : confirmation visuelle avant suppression, nettoyage approfondi des données système, maintenance des outils d'IA, nettoyage ciblé des résidus pour plus de 800 applications, optimisations système en un clic et exploration multidimensionnelle du disque. Inclut également la surveillance du système, le contrôle des ventilateurs et le maintien de l'éveil.
+> 💡 Ce dépôt contient la CLI open source gratuite (`mo`). Vous préférez une app native ? [Mole for Mac](https://mole.fit/) se télécharge séparément : vérification avant suppression, nettoyage des résidus testé sur plus de 800 apps, maintenance, exploration détaillée du disque, état en direct et contrôle des ventilateurs sur les Mac compatibles. `brew install mole` installe uniquement la CLI.
 
 ## Fonctionnalités
 
-- **Boîte à outils CLI tout-en-un** : combine les usages de CleanMyMac, AppCleaner, DaisyDisk et iStat Menus dans un binaire rapide pour le terminal
+- **Boîte à outils CLI tout-en-un** : combine les usages façon CleanMyMac, AppCleaner, DaisyDisk et iStat Menus dans une seule commande de terminal
 - **Nettoyage en profondeur** : supprime les caches, journaux, résidus et fichiers orphelins pour libérer de l'espace disque
 - **Désinstalleur intelligent** : supprime les applications avec leurs LaunchAgents, préférences et fichiers résiduels
 - **Analyseur de disque** : visualise l'espace disque via une interface TUI interactive, repère les gros fichiers et explore les dossiers
@@ -85,7 +85,7 @@ mo analyze /Volumes          # Analyser uniquement les disques externes
 mo analyze /private/tmp      # Examiner les dossiers temporaires sans nettoyage automatique
 ```
 
-Les chemins protégés par `mo clean --whitelist` sont enregistrés dans `~/.config/mole/whitelist`. Vous pouvez aussi modifier ce fichier directement (un chemin par ligne). Vos règles complètent la configuration par défaut, et les protections système intégrées s'appliquent en permanence.
+Les chemins sélectionnés avec `mo clean --whitelist` sont enregistrés dans `~/.config/mole/whitelist`. Avant d'ajouter des chemins personnalisés, ouvrez le menu et appuyez sur Entrée pour enregistrer la sélection, puis ajoutez un chemin par ligne. Un fichier existant remplace les règles par défaut optionnelles ; les protections de sécurité intégrées s'appliquent toujours.
 
 <details>
 <summary><strong>Autres options d'installation</strong></summary>
@@ -111,7 +111,7 @@ Ajoutez l'exportation `PATH` correspondante dans votre `~/.zshrc` ou configurati
 
 **Nix**
 
-Sur macOS, les utilisateurs de Nix peuvent installer le flake depuis `main` :
+Sur macOS, les utilisateurs de Nix peuvent installer le flake depuis `main`, qui contient des changements non publiés :
 
 ```bash
 nix profile install github:tw93/mole/main#mole
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Désinstallation (Uninstall)
 
-`mo uninstall` supprime proprement une application installée ainsi que ses préférences, caches et éléments de démarrage. Si une autre application installée partage certains fichiers, Mole les conserve. Utilisez `mo uninstall --dry-run` pour prévisualiser les éléments ciblés. Si l'application a déjà été supprimée manuellement, lancez `mo clean` pour trouver les résidus orphelins.
+`mo uninstall` supprime proprement une application installée ainsi que ses préférences, caches et éléments de démarrage. Si une autre copie installée de la même application utilise encore des fichiers partagés, Mole les conserve. Utilisez `mo uninstall --dry-run` pour prévisualiser les éléments ciblés. Si l'application a déjà été supprimée manuellement, lancez `mo clean` pour trouver les résidus orphelins.
 
 ```text
 $ mo uninstall
@@ -244,7 +244,7 @@ Les motifs de chemins sont acceptés, ce qui permet par exemple de préserver un
 
 Une taille terminée par `+` signale une analyse partielle ; `unknown` indique que le volume n'a pas pu être mesuré. Les résultats interrompus par un délai d'attente n'écrasent pas les mesures complètes en cache ; une analyse ultérieure comblera les données manquantes.
 
-`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour chaque élément.
+`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour le résultat et pour chaque élément.
 
 ```text
 $ mo analyze
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-La détection des processus zombies est informative ; elle n'interrompt aucun processus et n'altère pas la note de santé. Si un collecteur rencontre une erreur, `mo status --json` affiche les métriques disponibles, consigne l'incident dans stderr et quitte avec le code 0.
+La détection des processus zombies est en lecture seule ; elle n'interrompt aucun processus et n'altère pas la note de santé. Si un collecteur rencontre une erreur, `mo status --json` affiche les métriques disponibles, consigne l'incident dans stderr et quitte avec le code 0. Il quitte avec le code 1 uniquement si aucune métrique CPU, mémoire, disque ou processus n'est disponible, ou si la sortie JSON échoue.
 
 Des alertes en lecture seule pour les processus monopolisant le processeur sont également disponibles ; réglez-les avec `--proc-cpu-threshold`, `--proc-cpu-window` ou `--proc-cpu-alerts=false`.
 
@@ -326,7 +326,7 @@ Des alertes en lecture seule pour les processus monopolisant le processeur sont 
 
 ### Nettoyage de projets (Purge)
 
-`mo purge` identifie les dossiers de build régénérables tels que `node_modules`, `target`, `.build`, `build` et `dist`. Ils sont regroupés par projet et ne sont supprimés qu'après confirmation explicite de votre part. Les éléments modifiés au cours des 7 derniers jours sont décochés par défaut. Mole privilégie `fd` et se rabat sur `find`. Les dossiers contenant des clés de déploiement ou des fichiers sous contrôle Git sont protégés. En mode non interactif, utilisez `mo purge --yes` ; prévisualisez d'abord avec `mo purge --dry-run`.
+`mo purge` identifie les dossiers de build régénérables tels que `node_modules`, `target`, `.build`, `build` et `dist`. Ils sont regroupés par projet, et seuls les éléments confirmés sont supprimés définitivement, sans passer par la Corbeille. Les éléments modifiés au cours des 7 derniers jours, ou dont l'activité ne peut pas être vérifiée, sont décochés par défaut. Mole privilégie `fd` et se rabat sur `find`. Les dossiers contenant des clés de déploiement ou des fichiers sous contrôle Git sont protégés. En mode non interactif, utilisez `mo purge --yes` ; prévisualisez d'abord avec `mo purge --dry-run`.
 
 Utilisez Page Haut/Bas ou `h`/`l` pour faire défiler, `[`/`]` pour naviguer entre les projets et `X` pour passer au suivant. `/` recherche par nom de projet ou de dossier, `n` passe à l'occurrence suivante. Appuyez sur Entrée pour valider.
 
@@ -365,13 +365,13 @@ Lancez `mo purge --paths` pour sélectionner les répertoires à analyser, ou mo
 ~/Work/ClientB
 ```
 
-Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers (par défaut : `~/Projects`, `~/GitHub`, `~/dev`, etc.). L'analyse explore jusqu'à 6 niveaux de profondeur. Purge ne nettoie que les caches de build et ne touche jamais à votre code source.
+Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers (par défaut : `~/Projects`, `~/GitHub`, `~/dev` et les dossiers de worktrees d'agents pris en charge). L'analyse explore jusqu'à 6 niveaux de profondeur. Purge supprime les artefacts régénérables à l'intérieur des worktrees, jamais les worktrees eux-mêmes.
 
 </details>
 
 ### Fichiers d'installation (Installer)
 
-`mo installer` recherche les fichiers DMG, PKG, MPKG, ISO, XIP et ZIP d'installation dans Téléchargements, le Bureau, les caches Homebrew, iCloud, Mail, Telegram et d'autres emplacements courants. Chaque élément affiche son poids et sa provenance avant suppression. Utilisez `mo installer --dry-run` pour prévisualiser les fichiers trouvés. L'analyse dispose d'un délai d'expiration global. Une ultime vérification est effectuée juste avant la suppression pour s'assurer que le fichier n'a pas changé.
+`mo installer` recherche les fichiers DMG, PKG, MPKG, ISO, XIP et ZIP d'installation dans Téléchargements, le Bureau, les caches Homebrew, iCloud, Mail, Telegram et d'autres emplacements courants. Chaque élément affiche son poids et sa provenance avant suppression. Utilisez `mo installer --dry-run` pour prévisualiser les fichiers trouvés. L'analyse dispose d'un délai d'expiration global ; si une analyse ou une lecture de métadonnées échoue ou expire, Mole abandonne la liste sans sélectionner de fichiers. Une ultime vérification est effectuée juste avant la suppression pour s'assurer que le fichier n'a pas changé.
 
 <details>
 <summary><strong>Exemple de sortie Installer</strong></summary>
@@ -448,4 +448,4 @@ Retours authentiques d'utilisateurs sur X (Twitter) :
 
 Mole est un logiciel libre distribué sous licence GPL-3.0 ; voir [LICENSE](LICENSE). Toute version modifiée et redistribuée doit conserver cette même licence. En cas de fork, veuillez utiliser un nom distinct et mentionner Mole comme projet d'origine.
 
-[Mole for Mac](https://mole.fit) est une application native dédiée distincte.
+[Mole for Mac](https://mole.fit) est une application propriétaire distincte. Mole est là pour durer.

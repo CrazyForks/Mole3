@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Mac 深度清理、應用程式解除安裝、系統最佳化、磁碟分析與狀態監控，輕巧開源命令列工具，另有原生 Mac App</b></p>
+  <p><b>Mac 深度清理、應用程式解除安裝、系統最佳化、磁碟分析與狀態監控，免費開源命令列工具，另有原生 Mac App</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · 繁體 · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · <a href="README_DE.md">Deutsch</a> · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,16 +14,16 @@
   <img src="./docs/img/big-mole.png" alt="Mole 清理成果" width="1000" />
 </p>
 
-> 💡 喜歡圖形介面？可嘗試原生應用 [Mole for Mac](https://mole.fit/)：支援清理前逐項確認、系統資料深入清理、AI 工具維護與清理、實測 800 多款軟體卸載殘留、多項系統維護最佳化、逐層分析磁碟空間，並提供系統狀態監控、風扇控制與螢幕常亮等功能。
+> 💡 這個倉庫是免費開源的命令列工具（`mo`）。喜歡圖形介面的話，[Mole for Mac](https://mole.fit/) 需要另外下載，支援刪除前逐項確認、實測 800 多款軟體的解除安裝殘留、系統維護、逐層分析磁碟空間、即時狀態監控，以及在支援的 Mac 上控制風扇。`brew install mole` 只會安裝命令列工具。
 
 ## 功能
 
-- **全功能命令列**：涵蓋類似 CleanMyMac、AppCleaner、DaisyDisk 與 iStat Menus 的日常場景，輕巧專注
+- **多合一命令列**：把 CleanMyMac、AppCleaner、DaisyDisk 與 iStat Menus 的日常用法放進一個終端機指令
 - **深度清理**：安全清除系統快取、應用程式日誌與解除安裝殘留，釋放磁碟空間
 - **應用程式解除安裝**：完整移除應用程式，同步清理偏好設定與自啟動項目
 - **磁碟分析**：終端機互動式視覺化，清楚瀏覽目錄層級，定位佔用空間的大檔案
 - **系統最佳化**：重新整理系統服務、重建快取並最佳化核心資料庫
-- **即時監控**：在終端機儀表板中即時查看 CPU、記憶體、磁碟讀寫、網路流量與電池狀態
+- **即時監控**：在終端機儀表板中即時查看 CPU、記憶體、磁碟讀寫、網路流量與行程
 
 ## 快速開始
 
@@ -85,7 +85,7 @@ mo analyze /Volumes          # 僅分析外接行動硬碟或磁碟卷宗
 mo analyze /private/tmp      # 僅檢視暫存目錄（不自動清理）
 ```
 
-使用 `mo clean --whitelist` 儲存的白名單保存在 `~/.config/mole/whitelist` 中，也可直接編輯（每行一個路徑）。自訂白名單是對預設規則的補充，內建系統保護始終生效。
+使用 `mo clean --whitelist` 選好的路徑會寫進 `~/.config/mole/whitelist`，想加自訂路徑時先打開選單按 Enter 儲存一次，再往檔案裡每行追加一個路徑，檔案一旦存在就會取代可選的預設規則，內建安全保護仍然生效。
 
 <details>
 <summary><strong>其他安裝選項</strong></summary>
@@ -97,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s -- main
 ```
 
-`main` 分支包含未釋出的最新開發程式碼。`latest` 是 `main` 的歷史別名；請注意它不會安裝最新的穩定正式版。
+`main` 會安裝預設分支上還沒釋出的程式碼，可能不穩定，`latest` 只是 `main` 的舊別名，並不會安裝最新穩定版。
 
 安裝指令碼預設安裝至 `/usr/local/bin`，可能需要輸入管理員密碼。如果你希望未來的 `mo update` 無需密碼，可以安裝至使用者目錄：
 
@@ -111,7 +111,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 **Nix**
 
-在 macOS 上，Nix 使用者可從 `main` 分支安裝 flake：
+在 macOS 上，Nix 使用者可從 `main` 分支安裝 flake，其中包含還沒釋出的改動：
 
 ```bash
 nix profile install github:tw93/mole/main#mole
@@ -127,10 +127,10 @@ nix profile remove mole
 
 ## 安全機制
 
-Mole 內建多層安全機制：嚴格檢查路徑有效性，預設保護系統關鍵目錄與使用者隱私資料，操作前主動確認；無法確認安全的檔案自動略過。
+Mole 會刪除檔案，所以會先檢查路徑、保護共用和系統目錄，需要時才請你確認，無法確認安全的項目一律略過或拒絕。
 
 - `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會執行檔案清理，建議先用 `--dry-run` 預覽，需要時加上 `--debug`
-- 日常執行 **無需 `sudo`**，僅在涉及系統清理時按需請求管理員權限
+- 日常執行 **無需 `sudo`**，僅在觸及系統級清理時按需請求管理員權限
 - `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶，可隨時放回
 - 清理操作記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
 - 可透過 `mo clean --whitelist` 保護指定快取，或使用 `mo optimize --whitelist` 排除維護項目
@@ -143,7 +143,7 @@ Mole 內建多層安全機制：嚴格檢查路徑有效性，預設保護系統
 
 ### 深度清理（Clean）
 
-`mo clean` 掃描並清理快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。
+`mo clean` 掃描並清理已知可安全刪除的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。
 
 ```text
 $ mo clean
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 應用程式解除安裝（Uninstall）
 
-`mo uninstall` 完整移除已安裝的應用程式，並同步清理關聯的偏好設定、快取與自啟動項目。若有其他軟體共用資料則自動保留。可先用 `mo uninstall --dry-run` 預覽解除安裝計畫。如果應用程式此前已被手動刪除，可直接執行 `mo clean` 掃描遺留殘留。
+`mo uninstall` 完整移除已安裝的應用程式，並同步清理關聯的偏好設定、快取與自啟動項目。若同一應用程式的另一個已安裝副本仍在使用這些檔案，會自動保留。可先用 `mo uninstall --dry-run` 預覽解除安裝計畫。如果應用程式此前已被手動刪除，可直接執行 `mo clean` 掃描遺留殘留。
 
 ```text
 $ mo uninstall
@@ -238,13 +238,13 @@ Applied 3 optimizations
 
 支援透過路徑規則排除掛載項目（例如常駐掛載的 `/Volumes/mail`），避免被識別為卸載目標。
 
-### 空間分析（Analyze）
+### 磁碟分析（Analyze）
 
 `mo analyze` 開啟終端機互動式磁碟分析器，支援方向鍵與 Vim 快捷鍵瀏覽、快速過濾、多選標記、Finder 預覽與放入垃圾桶。外接磁碟預設不在概覽中顯示，可執行 `mo analyze /Volumes` 或指定掛載路徑單獨檢視。使用 `mo analyze /private/tmp` 僅檢查暫存目錄而不執行自動清理。
 
 以 `+` 結尾的大小表示部分掃描；`unknown` 表示暫時無法計算。因臨時逾時中斷的項目不會覆蓋已有完整快取，後續重新整理可自動補全。終端機介面預設列出前 30 個最大項目，JSON 格式輸出則包含所有掃描項目。
 
-`mo analyze --json /path` 輸出中包含各項的 `scan_status`（`complete`、`partial` 或 `unavailable`）。未完成的掃描仍會返回結束碼 0，腳本自動化可據此判斷狀態。
+`mo analyze --json /path` 的結果本身和其中每一項都帶有 `scan_status`（`complete`、`partial` 或 `unavailable`）。未完成的掃描仍返回結束碼 0，腳本要看 `scan_status` 判斷結果是否完整，`unavailable` 時的 0 也不代表目錄為空。
 
 ```text
 $ mo analyze
@@ -261,9 +261,9 @@ Select a location to explore:
 
 ### 狀態監控（Status）
 
-`mo status` 提供唯讀系統硬體儀表板，涵蓋 CPU、系統負載、磁碟讀寫、網路流量、電源與異常行程。
+`mo status` 提供唯讀系統硬體儀表板，涵蓋 CPU、系統負載、磁碟讀寫、網路流量、電源與行程。
 
-當預設 IPv4 路由使用 VPN 或虛擬網卡介面時，流量圖表會追蹤該通道，避免與實體網卡重複統計。
+當預設 IPv4 路由走 VPN 或通道介面時，流量圖表會統計這個介面，避免和實體網卡重複計算。
 
 ```text
 $ mo status
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-殭屍行程診斷僅供參考，不會主動終止行程或影響系統健康分。如果某個指標收集出錯，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並正常結束（結束碼 0）。
+殭屍行程診斷是唯讀的，不會終止行程，也不影響健康分。如果某個指標收集出錯，`mo status --json` 仍會輸出其他可用指標，將錯誤記錄在 stderr 中並以結束碼 0 結束，只有 CPU、記憶體、磁碟和行程指標全都拿不到，或者 JSON 輸出失敗時才以結束碼 1 結束。
 
 支援對持續高 CPU 佔用的行程進行提示，可透過 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 進行調整或關閉。
 
@@ -326,7 +326,7 @@ $ mo status --json
 
 ### 專案清理（Purge）
 
-`mo purge` 自動尋找可隨時重新建置的專案生成目錄，例如 `node_modules`、`target`、`.build`、`build` 與 `dist`。按專案歸類呈現，僅在你勾選確認後才會執行刪除。最近 7 天內活躍的檔案預設不勾選。優先使用 `fd`，降級使用 `find`。包含部署金鑰、巢狀 Git 倉庫或 Git 追蹤檔案的目錄會自動受到保護。非互動式執行需使用 `mo purge --yes`；建議先執行 `mo purge --dry-run` 預覽候選目錄。
+`mo purge` 自動尋找可隨時重新建置的專案生成目錄，例如 `node_modules`、`target`、`.build`、`build` 與 `dist`。按專案歸類呈現，只永久刪除你勾選確認的項目，不經過垃圾桶，最近 7 天內有改動或無法確認改動時間的產物預設不勾選。優先使用 `fd`，降級使用 `find`。包含部署金鑰、巢狀 Git 倉庫或 Git 追蹤檔案的目錄會自動受到保護。非互動式執行需使用 `mo purge --yes`；建議先執行 `mo purge --dry-run` 預覽候選目錄。
 
 使用 Page Up/Down 或 `h`/`l` 翻頁，`[`/`]` 在專案間跳轉，`X` 略過目前專案。按 `/` 搜尋專案路徑與產物名稱，`n` 尋找下一個。按 Enter 確認清理。
 
@@ -365,7 +365,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-設定自訂路徑後，Mole 僅掃描這些指定目錄。未設定時使用預設目錄（如 `~/Projects`、`~/GitHub`、`~/dev` 等）。產物掃描深度為設定根目錄下 6 層。Purge 僅清理工作區內的建置快取，絕不刪除原始碼本身。
+設定自訂路徑後，Mole 僅掃描這些指定目錄。未設定時使用預設目錄（如 `~/Projects`、`~/GitHub`、`~/dev` 以及支援的 agent worktree 目錄）。產物掃描深度為設定根目錄下 6 層。Purge 只刪除 worktree 裡可重新建置的產物，不會刪除 worktree 目錄本身。
 
 </details>
 
@@ -448,4 +448,4 @@ Raycast 安裝後需一次性手動設定：
 
 Mole 基於 GPL-3.0 條款開源；詳見 [LICENSE](LICENSE)。任何修改與發布的版本需要保持相同的開源授權條款。如果你將 Mole 分叉為其他獨立產品，請使用不同名稱並註明出處。
 
-[Mole for Mac](https://mole.fit) 是單獨的原生應用程式。
+[Mole for Mac](https://mole.fit) 是獨立的閉源 App。Mole 會長期維護下去。

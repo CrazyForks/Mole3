@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Mole</h1>
-  <p><b>Tiefenreinigung, App-Deinstallation, Systemoptimierung, Festplattenanalyse und Statusüberwachung für Mac, schnelles Open-Source-CLI, plus native App</b></p>
+  <p><b>Tiefenreinigung, App-Deinstallation, Systemoptimierung, Festplattenanalyse und Statusüberwachung für Mac. Kostenloses Open-Source-CLI, plus native Mac-App.</b></p>
   <p><a href="README.md">English</a> · <a href="README_CN.md">中文</a> · <a href="README_TW.md">繁體</a> · <a href="README_JA.md">日本語</a> · <a href="README_KR.md">한국어</a> · Deutsch · <a href="README_FR.md">Français</a></p>
   <a href="https://github.com/tw93/mole/stargazers"><img src="https://img.shields.io/github/stars/tw93/mole?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/tw93/mole/releases"><img src="https://img.shields.io/github/v/tag/tw93/mole?label=version&style=flat-square" alt="Version"></a>
@@ -14,11 +14,11 @@
   <img src="./docs/img/big-mole.png" alt="Mole Bereinigungsergebnisse" width="1000" />
 </p>
 
-> 💡 Bevorzugst du eine native App? Entdecke [Mole for Mac](https://mole.fit/): sichere Bestätigung vor dem Löschen, Tiefenreinigung von Systemdaten, Bereinigung von KI-Werkzeugen, geprüfte Restdateien-Entfernung für über 800 Apps, Systemoptimierung mit einem Klick und mehrdimensionale Festplattenanalyse. Enthält außerdem Systemüberwachung, Lüftersteuerung und Wachhalte-Funktionen.
+> 💡 Dieses Repository ist das kostenlose Open-Source-CLI (`mo`). Lieber eine native App? [Mole for Mac](https://mole.fit/) ist ein separater Download mit Prüfung vor dem Löschen, getesteter Restdateien-Entfernung für über 800 Apps, Wartung, Festplatten-Drill-down, Live-Status und Lüftersteuerung auf unterstützten Macs. `brew install mole` installiert nur das CLI.
 
 ## Funktionen
 
-- **All-in-One CLI-Toolkit**: Vereint Workflows wie CleanMyMac, AppCleaner, DaisyDisk und iStat Menus in einem schnellen Terminal-Werkzeug
+- **All-in-One CLI-Toolkit**: Vereint Workflows im Stil von CleanMyMac, AppCleaner, DaisyDisk und iStat Menus in einem Terminal-Befehl
 - **Tiefenreinigung**: Entfernt Caches, Protokolle, Reste und verwaiste Daten, um Speicherplatz freizugeben
 - **Smarte App-Deinstallation**: Entfernt Apps mitsamt LaunchAgents, Einstellungen und Restdateien
 - **Festplattenanalyse**: Visualisiert den Speicherplatz mit einer interaktiven TUI, findet große Dateien und navigiert Verzeichnisse
@@ -85,7 +85,7 @@ mo analyze /Volumes          # Nur externe Laufwerke analysieren
 mo analyze /private/tmp      # Temporäre Benutzerverzeichnisse prüfen
 ```
 
-Mit `mo clean --whitelist` gespeicherte Pfade liegen in `~/.config/mole/whitelist`. Du kannst diese Datei auch direkt bearbeiten (ein Pfad pro Zeile). Eigene Pfade ergänzen die Standardregeln, während der integrierte Systemschutz immer aktiv bleibt.
+Mit `mo clean --whitelist` gespeicherte Pfade liegen in `~/.config/mole/whitelist`. Bevor du eigene Pfade hinzufügst, öffne das Menü und drücke Enter, um die Auswahl zu speichern, und ergänze dann einen Pfad pro Zeile. Eine vorhandene Datei ersetzt die optionalen Standardregeln; der integrierte Sicherheitsschutz gilt weiterhin.
 
 <details>
 <summary><strong>Weitere Installationsoptionen</strong></summary>
@@ -111,7 +111,7 @@ Füge den `PATH`-Export auch zu deiner `~/.zshrc` oder Profil-Datei hinzu.
 
 **Nix**
 
-Unter macOS können Nix-Nutzer den Flake direkt aus dem `main`-Branch installieren:
+Unter macOS können Nix-Nutzer den Flake direkt aus dem `main`-Branch installieren, der unveröffentlichte Änderungen enthält:
 
 ```bash
 nix profile install github:tw93/mole/main#mole
@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Deinstallation (Uninstall)
 
-`mo uninstall` entfernt installierte Apps vollständig mitsamt Einstellungen, Caches und Autostart-Dateien. Gemeinsam genutzte Dateien anderer Programme bleiben erhalten. Nutze `mo uninstall --dry-run` zur Vorschau. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
+`mo uninstall` entfernt installierte Apps vollständig mitsamt Einstellungen, Caches und Autostart-Dateien. Gemeinsam genutzte Dateien bleiben erhalten, solange eine andere installierte Kopie derselben App sie noch nutzt. Nutze `mo uninstall --dry-run` zur Vorschau. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
 
 ```text
 $ mo uninstall
@@ -244,7 +244,7 @@ Pfadmuster werden unterstützt, um beispielsweise dauerhaft gemountete Images wi
 
 Ein `+` am Ende einer Größenangabe zeigt einen Teilscan an; `unknown` bedeutet, dass die Größe nicht berechnet werden konnte. Durch Timeouts unterbrochene Ergebnisse überschreiben keinen vollständigen Cache; spätere Scans ergänzen fehlende Daten.
 
-`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für jeden Eintrag.
+`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag.
 
 ```text
 $ mo analyze
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-Die Zombie-Prozess-Diagnose dient reinen Informationszwecken; sie beendet keine Prozesse und beeinflusst die Bewertung nicht. Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus und beendet mit Code 0.
+Die Zombie-Prozess-Diagnose ist rein lesend; sie beendet keine Prozesse und beeinflusst die Bewertung nicht. Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus und beendet mit Code 0. Mit Code 1 endet es nur, wenn weder CPU-, Speicher-, Festplatten- noch Prozessdaten verfügbar sind oder die JSON-Ausgabe fehlschlägt.
 
 Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-window` oder `--proc-cpu-alerts=false` konfiguriert werden.
 
@@ -326,7 +326,7 @@ Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-w
 
 ### Projektbereinigung (Purge)
 
-`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert und erst nach deiner Bestätigung gelöscht. Innerhalb der letzten 7 Tage aktive Dateien sind standardmäßig abgewählt. Verzeichnisse mit Deployment-Schlüsseln oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
+`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert, und nur die bestätigten Einträge werden endgültig gelöscht, ohne Umweg über den Papierkorb. Artefakte mit Aktivität in den letzten 7 Tagen oder mit nicht prüfbarer Aktivität sind standardmäßig abgewählt. Verzeichnisse mit Deployment-Schlüsseln oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
 
 Verwende Bild auf/ab oder `h`/`l` zum Blättern, `[`/`]` zum Springen zwischen Projekten und `X` zum Überspringen. `/` sucht nach Pfaden und Namen, `n` findet den nächsten Treffer. Enter bestätigt das Löschen.
 
@@ -365,13 +365,13 @@ Führe `mo purge --paths` aus oder bearbeite `~/.config/mole/purge_paths` direkt
 ~/Work/ClientB
 ```
 
-Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse (Standard: `~/Projects`, `~/GitHub`, `~/dev` usw.). Purge bereinigt nur Build-Caches, niemals Quellcode.
+Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse (Standard: `~/Projects`, `~/GitHub`, `~/dev` und unterstützte Agent-Worktree-Ordner). Purge entfernt neu erstellbare Artefakte innerhalb von Worktrees, nie die Worktrees selbst.
 
 </details>
 
 ### Installationsdateien (Installer)
 
-`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren typischen Ordnern. Vor dem Löschen werden Größe und Pfad angezeigt. Nutze `mo installer --dry-run` zur Vorschau. Scans verfügen über einen globalen Timeout-Schutz. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
+`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren typischen Ordnern. Vor dem Löschen werden Größe und Pfad angezeigt. Nutze `mo installer --dry-run` zur Vorschau. Scans verfügen über einen globalen Timeout-Schutz; schlägt ein Scan oder eine Metadatenabfrage fehl oder läuft ab, verwirft Mole die Liste und wählt keine Dateien aus. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
 
 <details>
 <summary><strong>Installer Beispielausgabe</strong></summary>
@@ -448,4 +448,4 @@ Echtes Feedback von Nutzern auf X (Twitter):
 
 Mole ist Open Source unter der GPL-3.0; siehe [LICENSE](LICENSE). Modifizierte und weitergegebene Versionen müssen unter derselben Lizenz verbleiben. Bei einem Fork verwende bitte einen eigenständigen Namen und nenne Mole als Upstream-Quelle.
 
-[Mole for Mac](https://mole.fit) ist eine separate native Desktop-Applikation.
+[Mole for Mac](https://mole.fit) ist eine separate proprietäre App. Mole bleibt langfristig bestehen.
