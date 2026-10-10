@@ -5488,4 +5488,6 @@ clean_developer_tools() {
     # with `No such file or directory @ dir_s_rmdir` (#1594). `brew cleanup`
     # below already prunes what is genuinely stale, under Homebrew's own locking.
     _run_developer_cleanup_step clean_homebrew || return $?
+    # Stale service logs in <prefix>/var/log, a tree brew cleanup never touches.
+    _run_developer_cleanup_step clean_homebrew_service_logs || return $?
 }

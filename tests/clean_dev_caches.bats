@@ -2706,6 +2706,7 @@ clean_dev_automation_browsers() { :; }
 clean_sqlite_temp_files() { :; }
 clean_dev_npm() { echo "npm"; }
 clean_homebrew() { echo "brew"; }
+clean_homebrew_service_logs() { echo "brew-logs"; }
 clean_project_caches() { :; }
 clean_dev_python() { :; }
 clean_dev_go() { :; }
@@ -2743,7 +2744,8 @@ EOF
     [ "$status" -eq 0 ]
     [[ "$output" == *"npm"* ]] || return 1
     [[ "$output" == *"mise"* ]] || return 1
-    [[ "$output" == *"brew"* ]]
+    [[ "$output" == *"brew"* ]] || return 1
+    [[ "$output" == *"brew-logs"* ]]
 }
 
 @test "clean_dev_ruby cleans rbenv, gem, and bundler caches" {

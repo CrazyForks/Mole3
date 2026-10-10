@@ -2413,3 +2413,273 @@ EOF
     [[ "$output" == *"Homebrew unused dependencies · 5 formulae · remove with"* ]] || return 1
     [[ "$output" != *"==>"* ]]
 }
+
+# Homebrew service logs. A fake prefix under the test HOME stands in for
+# /opt/homebrew (or /usr/local): `brew --prefix` answers it, lsof is a shell
+# function behind a pass-through run_with_timeout, and the real /opt/homebrew
+# is never read.
+make_brew_service_log_prefix() {
+    local prefix="$HOME/brew-prefix"
+    rm -rf "$prefix" "$HOME/outside-dir"
+    rm -f "$HOME/outside-target.log" "$HOME/hard-twin.log" "$HOME/clean-list.txt"
+    mkdir -p "$prefix/var/log/nginx/old" "$prefix/var/mysql" "$HOME/outside-dir"
+    printf 'stale\n' > "$prefix/var/log/php-fpm.log"
+    printf 'stale\n' > "$prefix/var/log/nginx/access.log"
+    printf 'rotated\n' > "$prefix/var/log/redis.log.1"
+    printf 'rotated\n' > "$prefix/var/log/nginx/error.log.2.gz"
+    printf 'open\n' > "$prefix/var/log/nginx/error.log"
+    printf 'fresh\n' > "$prefix/var/log/postgresql@17.log"
+    printf 'notes\n' > "$prefix/var/log/notes.txt"
+    printf 'deep\n' > "$prefix/var/log/nginx/old/deep.log"
+    printf 'db\n' > "$prefix/var/mysql/host.err"
+    printf 'db\n' > "$prefix/var/mysql/binlog.log"
+    printf 'target\n' > "$HOME/outside-target.log"
+    ln -s "$HOME/outside-target.log" "$prefix/var/log/link.log"
+    printf 'hard\n' > "$prefix/var/log/hard.log"
+    ln "$prefix/var/log/hard.log" "$HOME/hard-twin.log"
+    printf 'linked\n' > "$HOME/outside-dir/inner.log"
+    ln -s "$HOME/outside-dir" "$prefix/var/log/linked-dir"
+    local stale
+    for stale in php-fpm.log nginx/access.log redis.log.1 nginx/error.log.2.gz \
+        nginx/error.log notes.txt nginx/old/deep.log hard.log; do
+        touch -t 202001010000 "$prefix/var/log/$stale"
+    done
+    touch -t 202001010000 "$prefix/var/mysql/host.err" "$prefix/var/mysql/binlog.log" \
+        "$HOME/outside-target.log" "$HOME/outside-dir/inner.log"
+}
+
+run_brew_service_log_cleanup() {
+    local dry_run="$1"
+    local lsof_body="$2"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" DRY_RUN_MODE="$dry_run" \
+        LSOF_BODY="$lsof_body" BREW_PREFIX="$HOME/brew-prefix" \
+        /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+if [[ "$DRY_RUN_MODE" == "true" ]]; then
+    DRY_RUN=true
+    export MOLE_DRY_RUN=1
+else
+    DRY_RUN=false
+    export MOLE_DRY_RUN=0
+fi
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_MOLE_COMPLETE_LSOF_MODE=direct
+EXPORT_LIST_FILE="$HOME/clean-list.txt"
+: > "$EXPORT_LIST_FILE"
+oplog_enabled() { return 1; }
+log_operation() { :; }
+note_activity() { :; }
+run_with_timeout() { shift; "$@"; }
+brew() {
+    [[ "$1" == "--prefix" ]] || return 1
+    printf '%s\n' "$BREW_PREFIX"
+}
+eval "lsof() { $LSOF_BODY; }"
+clean_homebrew_service_logs
+cat "$EXPORT_LIST_FILE"
+EOF2
+}
+
+@test "clean_homebrew_service_logs dry run lists only stale idle user logs" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    # nginx holds error.log open, as a running service does.
+    run_brew_service_log_cleanup true \
+        "printf 'p611\nf5\nn%s\n' \"\$HOME/brew-prefix/var/log/nginx/error.log\"; return 1"
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == *"Homebrew service logs"*"4 items"* ]] || { echo "$output"; return 1; }
+    [[ "$output" == *"$log_root/php-fpm.log  #"* ]] || return 1
+    [[ "$output" == *"$log_root/nginx/access.log  #"* ]] || return 1
+    [[ "$output" == *"$log_root/redis.log.1  #"* ]] || return 1
+    [[ "$output" == *"$log_root/nginx/error.log.2.gz  #"* ]] || return 1
+    [[ "$output" != *"$log_root/nginx/error.log  #"* ]] || return 1
+    [[ "$output" != *"postgresql@17.log"* ]] || return 1
+    [[ "$output" != *"notes.txt"* ]] || return 1
+    [[ "$output" != *"deep.log"* ]] || return 1
+    [[ "$output" != *"link.log"* ]] || return 1
+    [[ "$output" != *"hard.log"* ]] || return 1
+    [[ "$output" != *"inner.log"* ]] || return 1
+    [[ "$output" != *"mysql"* ]] || return 1
+    # Dry run removes nothing.
+    [[ -f "$log_root/php-fpm.log" && -f "$log_root/nginx/access.log" ]]
+}
+
+@test "clean_homebrew_service_logs removes stale logs and keeps open, fresh, linked and var state" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    run_brew_service_log_cleanup false \
+        "local a; for a in \"\$@\"; do [[ \"\$a\" == */nginx/error.log ]] && { printf 'p611\nf5\nn%s\n' \"\$a\"; return 0; }; done; return 1"
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ ! -e "$log_root/php-fpm.log" ]] || return 1
+    [[ ! -e "$log_root/nginx/access.log" ]] || return 1
+    [[ ! -e "$log_root/redis.log.1" ]] || return 1
+    [[ ! -e "$log_root/nginx/error.log.2.gz" ]] || return 1
+    [[ -f "$log_root/nginx/error.log" ]] || return 1
+    [[ -f "$log_root/postgresql@17.log" ]] || return 1
+    [[ -f "$log_root/notes.txt" ]] || return 1
+    [[ -f "$log_root/nginx/old/deep.log" ]] || return 1
+    [[ -L "$log_root/link.log" && -f "$HOME/outside-target.log" ]] || return 1
+    [[ -f "$log_root/hard.log" && -f "$HOME/hard-twin.log" ]] || return 1
+    [[ -L "$log_root/linked-dir" && -f "$HOME/outside-dir/inner.log" ]] || return 1
+    [[ -f "$HOME/brew-prefix/var/mysql/host.err" ]] || return 1
+    [[ -f "$HOME/brew-prefix/var/mysql/binlog.log" ]]
+}
+
+@test "clean_homebrew_service_logs keeps everything when the open state is unknown" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    # lsof diagnostics are not a reliable "nothing open". Dry run has no sink
+    # probe, so this isolates the batch decision.
+    run_brew_service_log_cleanup true \
+        "printf 'lsof: WARNING: can not stat\n'; return 1"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ -f "$log_root/php-fpm.log" && -f "$log_root/nginx/access.log" ]] || return 1
+    [[ "$output" != *"Homebrew service logs"* ]] || return 1
+
+    # A name lsof reports under another spelling matches no candidate, so
+    # nothing can be ruled idle.
+    run_brew_service_log_cleanup true \
+        "printf 'p611\nf5\nn/OPT/HOMEBREW/var/log/nginx/error.log\n'; return 1"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" != *"Homebrew service logs"* ]] || return 1
+
+    # No complete process view at all.
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+_MOLE_COMPLETE_LSOF_MODE=unknown
+note_activity() { :; }
+run_with_timeout() { shift; "$@"; }
+brew() { printf '%s\n' "$HOME/brew-prefix"; }
+lsof() { return 1; }
+clean_homebrew_service_logs
+EOF2
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ -f "$log_root/php-fpm.log" && -f "$log_root/redis.log.1" ]]
+}
+
+@test "clean_homebrew_service_logs re-checks the open state at the sink" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    # The batch probe (several names) reports nothing open; the per-file sink
+    # probe (one name) finds php-fpm writing again.
+    run_brew_service_log_cleanup false \
+        "if [[ \$# -le 4 && \"\${*: -1}\" == */php-fpm.log ]]; then printf 'p9\nf3\nn%s\n' \"\${*: -1}\"; return 0; fi; return 1"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ -f "$log_root/php-fpm.log" ]] || return 1
+    [[ ! -e "$log_root/nginx/access.log" ]]
+}
+
+@test "clean_homebrew_service_logs honors the whitelist" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/bin/clean.sh"
+DRY_RUN=false
+MOLE_CURRENT_COMMAND=clean
+MOLE_CLEAN_CANCEL_STATUS=0
+_MOLE_COMPLETE_LSOF_MODE=direct
+WHITELIST_PATTERNS=("$HOME/brew-prefix/var/log/nginx")
+oplog_enabled() { return 1; }
+log_operation() { :; }
+note_activity() { :; }
+run_with_timeout() { shift; "$@"; }
+brew() { printf '%s\n' "$HOME/brew-prefix"; }
+lsof() { return 1; }
+clean_homebrew_service_logs
+EOF2
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ -f "$log_root/nginx/access.log" ]] || return 1
+    [[ ! -e "$log_root/php-fpm.log" ]]
+}
+
+@test "brew_service_log_is_eligible rechecks shape, depth, links, owner and age at the sink" {
+    make_brew_service_log_prefix
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/brew.sh"
+_BREW_SERVICE_LOG_ROOT="$HOME/brew-prefix/var/log"
+_BREW_SERVICE_LOG_UID=$(id -u)
+r="$_BREW_SERVICE_LOG_ROOT"
+check() { if brew_service_log_is_eligible "$1"; then echo "yes:${1#"$r"/}"; else echo "no:${1#"$r"/}"; fi; }
+check "$r/php-fpm.log"
+check "$r/nginx/error.log.2.gz"
+check "$r/postgresql@17.log"
+check "$r/notes.txt"
+check "$r/nginx/old/deep.log"
+check "$r/link.log"
+check "$r/hard.log"
+check "$r/linked-dir/inner.log"
+check "$HOME/brew-prefix/var/mysql/binlog.log"
+_BREW_SERVICE_LOG_UID=$(( $(id -u) + 1 ))
+check "$r/php-fpm.log"
+EOF2
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    local expected
+    expected=$'yes:php-fpm.log\nyes:nginx/error.log.2.gz\nno:postgresql@17.log\nno:notes.txt\nno:nginx/old/deep.log\nno:link.log\nno:hard.log\nno:linked-dir/inner.log\nno:'"$HOME"$'/brew-prefix/var/mysql/binlog.log\nno:php-fpm.log'
+    [[ "$output" == "$expected" ]] || { echo "$output"; return 1; }
+}
+
+@test "brew_service_log_is_eligible rejects names carrying a control character" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    local newline_name=$'php-fpm.log\nnginx.log'
+    local tab_name=$'redis\t.log'
+    printf 'stale\n' > "$log_root/$newline_name"
+    printf 'stale\n' > "$log_root/nginx/$tab_name"
+    touch -t 202001010000 "$log_root/$newline_name" "$log_root/nginx/$tab_name"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/brew.sh"
+_BREW_SERVICE_LOG_ROOT="$HOME/brew-prefix/var/log"
+_BREW_SERVICE_LOG_UID=$(id -u)
+r="$_BREW_SERVICE_LOG_ROOT"
+check() { if brew_service_log_is_eligible "$1"; then echo yes; else echo no; fi; }
+check "$r/php-fpm.log"
+check "$r/"$'php-fpm.log\nnginx.log'
+check "$r/nginx/"$'redis\t.log'
+EOF2
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == $'yes\nno\nno' ]] || { echo "$output"; return 1; }
+}
+
+@test "_brew_service_log_delete_guard refuses a parent swapped for a link before binding" {
+    make_brew_service_log_prefix
+    local log_root="$HOME/brew-prefix/var/log"
+    mkdir -p "$HOME/swap-target"
+    printf 'keep\n' > "$HOME/swap-target/access.log"
+    touch -t 202001010000 "$HOME/swap-target/access.log"
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF2'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/brew.sh"
+DRY_RUN=false
+_BREW_SERVICE_LOG_ROOT="$HOME/brew-prefix/var/log"
+_BREW_SERVICE_LOG_UID=$(id -u)
+r="$_BREW_SERVICE_LOG_ROOT"
+_mole_paths_have_open_handle() { return 1; }
+# Swap nginx for a link between the eligibility check and the snapshot.
+eval "_orig$(declare -f _mole_snapshot_path_identity)"
+_mole_snapshot_path_identity() {
+    if [[ ! -L "$r/nginx" ]]; then
+        mv "$r/nginx" "$r/nginx.real"
+        ln -s "$HOME/swap-target" "$r/nginx"
+    fi
+    _orig_mole_snapshot_path_identity "$@"
+}
+rc=0
+_brew_service_log_delete_guard "$r/nginx/access.log" || rc=$?
+echo "rc=$rc bound=${_MOLE_SAFE_CLEAN_BOUND_PATH:-}"
+EOF2
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [[ "$output" == "rc=1 bound=" ]] || { echo "$output"; return 1; }
+    [[ -f "$HOME/swap-target/access.log" ]]
+}
