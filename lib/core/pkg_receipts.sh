@@ -46,8 +46,19 @@ pkg_receipt_nonstandard_app_paths() {
     fi
     [[ -n "$pkgs_output" ]] || return 0
 
+    # The list alone misses an upgrade or reinstall that keeps its package id,
+    # which can still add an app at a new path. The installer rewrites that
+    # receipt's plist every time, so its mtime joins the key. Only a key that
+    # covers both may outlive the short TTL.
+    local receipts_dir="${MOLE_PKG_RECEIPT_DB_DIR:-/var/db/receipts}"
+    local receipt_stamps=""
+    receipt_stamps=$(LC_ALL=C stat -f '%m %N' "$receipts_dir"/*.plist 2> /dev/null) || receipt_stamps=""
+    if [[ -n "$receipt_stamps" && -z "${MOLE_PKG_RECEIPT_CACHE_TTL:-}" ]]; then
+        cache_ttl=604800
+    fi
+
     local receipts_fingerprint=""
-    receipts_fingerprint=$(printf '%s\n' "$pkgs_output" | LC_ALL=C cksum 2> /dev/null |
+    receipts_fingerprint=$(printf '%s\n%s\n' "$pkgs_output" "$receipt_stamps" | LC_ALL=C cksum 2> /dev/null |
         LC_ALL=C tr -cd '0-9 ' | LC_ALL=C tr ' ' '-') || receipts_fingerprint=""
     receipts_fingerprint="${receipts_fingerprint%-}"
 
@@ -82,6 +93,9 @@ pkg_receipt_nonstandard_app_paths() {
     fi
 
     local -a seen_apps=()
+    # Only a scan that read every receipt may be cached: a complete caller
+    # reads a cache hit as proof that no other package owns an app.
+    local scan_complete=1
     local scan_start=$SECONDS
     local scan_timeout="${MOLE_PKG_RECEIPT_SCAN_TIMEOUT:-8}"
     local scan_deadline=0
@@ -94,6 +108,7 @@ pkg_receipt_nonstandard_app_paths() {
     while IFS= read -r pkg_id; do
         if [[ "$scan_timeout" =~ ^[0-9]+$ && $scan_timeout -gt 0 && $((SECONDS - scan_start)) -ge $scan_timeout ]]; then
             [[ "$require_complete" == "1" ]] && return 124
+            scan_complete=0
             break
         fi
 
@@ -118,16 +133,20 @@ pkg_receipt_nonstandard_app_paths() {
         else
             if [[ $scan_deadline -gt 0 ]]; then
                 local remaining=$((scan_deadline - SECONDS))
-                [[ $remaining -gt 0 ]] || break
+                if [[ $remaining -le 0 ]]; then
+                    scan_complete=0
+                    break
+                fi
                 if declare -f run_with_timeout > /dev/null 2>&1; then
                     pkg_files=$(run_with_timeout "$remaining" \
-                        pkgutil --files "$pkg_id" 2> /dev/null || true)
+                        pkgutil --files "$pkg_id" 2> /dev/null) || pkg_files_rc=$?
                 else
-                    pkg_files=$(pkgutil --files "$pkg_id" 2> /dev/null || true)
+                    pkg_files=$(pkgutil --files "$pkg_id" 2> /dev/null) || pkg_files_rc=$?
                 fi
             else
-                pkg_files=$(pkgutil --files "$pkg_id" 2> /dev/null || true)
+                pkg_files=$(pkgutil --files "$pkg_id" 2> /dev/null) || pkg_files_rc=$?
             fi
+            [[ $pkg_files_rc -eq 0 ]] || scan_complete=0
         fi
         [[ -n "$pkg_files" ]] || continue
 
@@ -135,6 +154,7 @@ pkg_receipt_nonstandard_app_paths() {
         while IFS= read -r rel_path; do
             if [[ "$scan_timeout" =~ ^[0-9]+$ && $scan_timeout -gt 0 && $((SECONDS - scan_start)) -ge $scan_timeout ]]; then
                 [[ "$require_complete" == "1" ]] && return 124
+                scan_complete=0
                 break 2
             fi
 
@@ -155,7 +175,11 @@ pkg_receipt_nonstandard_app_paths() {
                 *) continue ;;
             esac
 
-            [[ -n "$app_path" && -d "$app_path" ]] || continue
+            # Record the path whether or not it exists now: the cache can
+            # outlive this scan, and an app that is briefly missing (in the
+            # Trash, mid self-update) must not disappear from a complete
+            # answer until its receipt changes. Existence is checked on output.
+            [[ -n "$app_path" ]] || continue
 
             duplicate=false
             local seen
@@ -174,7 +198,12 @@ pkg_receipt_nonstandard_app_paths() {
     done <<< "$pkgs_output"
 
     if [[ ${#seen_apps[@]} -gt 0 ]]; then
-        if ! printf '%s\n' "${seen_apps[@]}" | sort -u; then
+        local seen_app
+        if ! for seen_app in "${seen_apps[@]}"; do
+            if [[ -d "$seen_app" ]]; then
+                printf '%s\n' "$seen_app"
+            fi
+        done | sort -u; then
             [[ "$require_complete" == "1" ]] && return 2
         fi
     fi
@@ -182,7 +211,7 @@ pkg_receipt_nonstandard_app_paths() {
     # No fingerprint means no verifiable cache entry, so skip the write rather
     # than leave a file that can never match on read.
     if [[ "${MOLE_PKG_RECEIPT_CACHE_DISABLE:-0}" != "1" && -n "$cache_file" &&
-        -n "$receipts_fingerprint" ]]; then
+        -n "$receipts_fingerprint" && $scan_complete -eq 1 ]]; then
         local cache_dir="${cache_file%/*}"
         if [[ -n "$cache_dir" && "$cache_dir" != "$cache_file" ]]; then
             if declare -f ensure_user_dir > /dev/null 2>&1; then

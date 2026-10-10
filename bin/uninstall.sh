@@ -1361,7 +1361,7 @@ _scan_finalize_index() {
     debug_log "Uninstall finalization: metadata refresh begin (elapsed ${SECONDS}s, parent $$)"
     start_uninstall_metadata_refresh "$refresh_file"
     debug_log "Uninstall finalization: metadata refresh launched (elapsed ${SECONDS}s, parent $$)"
-    stop_scan_spinner
+    stop_scan_spinner "Preparing app list..."
     debug_log "Uninstall finalization: spinner stopped (elapsed ${SECONDS}s, parent $$)"
 
     if [[ -f "${temp_file}.sorted" ]]; then
@@ -1498,7 +1498,11 @@ scan_applications() {
         spinner_pid=$!
     }
 
+    # With a final message, a shown spinner leaves that line in place on the
+    # alternate screen instead of erasing it, so the screen is not blank while
+    # the selector builds its rows. The selector header clears the line.
     stop_scan_spinner() {
+        local final_message="${1:-}"
         if [[ -n "$spinner_pid" ]]; then
             debug_log "Uninstall spinner stop begin (pid $spinner_pid, elapsed ${SECONDS}s)"
             kill -TERM "$spinner_pid" 2> /dev/null || true
@@ -1507,7 +1511,12 @@ scan_applications() {
             spinner_pid=""
         fi
         if [[ -f "$spinner_shown_file" ]]; then
-            printf "\r\033[K" >&2
+            if [[ -n "$final_message" && "${MOLE_ALT_SCREEN_ACTIVE:-}" == "1" ]]; then
+                mo_load_spinner_frames
+                printf "\r\033[K%s %s" "${MO_SPINNER_FRAMES[0]}" "$final_message" >&2
+            else
+                printf "\r\033[K" >&2
+            fi
         fi
         rm -f "$spinner_shown_file" "$scan_status_file" 2> /dev/null || true
     }
@@ -2106,8 +2115,10 @@ main() {
         # Keystrokes typed during the scan/load phase must not leak into the
         # selector. A queued Enter would confirm whichever app is highlighted
         # first and drop the user straight into the destructive path. See #726.
+        # The drain flushes everything already queued, so a longer idle wait
+        # only adds blank screen before the list.
         debug_log "Uninstall input drain begin (elapsed ${SECONDS}s, parent $$)"
-        drain_pending_input 0.2
+        drain_pending_input
         debug_log "Uninstall selector begin (elapsed ${SECONDS}s, parent $$)"
 
         set +e

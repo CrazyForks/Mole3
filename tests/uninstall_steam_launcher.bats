@@ -298,3 +298,51 @@ EOF
     [[ "$output" == *"N/A (Steam-managed)"* ]] || return 1
     [[ "$output" == *"Steam launcher only; game files managed by Steam are not included"* ]]
 }
+
+@test "uninstall_steam_launcher_appid still checks a launcher inside a MacOS subdirectory" {
+    app="$HOME/Applications/NestedGame.app"
+    create_steam_launcher_app "$app" "570"
+    mkdir -p "$app/Contents/MacOS/bin"
+    mv "$app/Contents/MacOS/SteamGame" "$app/Contents/MacOS/bin/SteamGame"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable bin/SteamGame' "$app/Contents/Info.plist"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/steam.sh"
+uninstall_steam_launcher_appid "$HOME/Applications/NestedGame.app"
+SCRIPT
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == "570" ]]
+}
+
+@test "uninstall_steam_launcher_appid rules out a bundle with no script executable" {
+    app="$HOME/Applications/NativeApp.app"
+    create_regular_app "$app"
+    printf '\xcf\xfa\xed\xfe binary' > "$app/Contents/MacOS/RegularApp"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/steam.sh"
+uninstall_steam_launcher_appid "$HOME/Applications/NativeApp.app"
+SCRIPT
+
+    [ "$status" -eq 1 ]
+    [ -z "$output" ]
+}
+
+@test "uninstall_steam_launcher_appid still checks a hidden launcher executable" {
+    app="$HOME/Applications/HiddenGame.app"
+    create_steam_launcher_app "$app" "730"
+    mv "$app/Contents/MacOS/SteamGame" "$app/Contents/MacOS/.SteamGame"
+    /usr/libexec/PlistBuddy -c 'Set :CFBundleExecutable .SteamGame' "$app/Contents/Info.plist"
+
+    run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc <<'SCRIPT'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/uninstall/steam.sh"
+uninstall_steam_launcher_appid "$HOME/Applications/HiddenGame.app"
+SCRIPT
+
+    [ "$status" -eq 0 ]
+    [[ "$output" == "730" ]]
+}

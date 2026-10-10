@@ -187,6 +187,8 @@ paginated_multi_select() {
     local -a orig_indices=()
     local -a view_indices=()
     local -a filter_targets_lower=()
+    local has_ascii_lowercase=false
+    declare -f mole_ascii_lowercase > /dev/null 2>&1 && has_ascii_lowercase=true
     local i
     for ((i = 0; i < total_items; i++)); do
         orig_indices[i]=$i
@@ -198,7 +200,13 @@ paginated_multi_select() {
             filter_target="${items[i]}"
         fi
         local filter_target_lower
-        filter_target_lower=$(printf "%s" "$filter_target" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+        # Runs once per item before the first draw; skip the per-item fork
+        # when base.sh is loaded. Both produce the bytes LC_ALL=C tr does.
+        if [[ $has_ascii_lowercase == true ]]; then
+            mole_ascii_lowercase filter_target_lower "$filter_target"
+        else
+            filter_target_lower=$(printf "%s" "$filter_target" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+        fi
         filter_targets_lower[i]="$filter_target_lower"
     done
 

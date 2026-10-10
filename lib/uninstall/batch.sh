@@ -1083,9 +1083,11 @@ _uninstall_materialize_complete_pkg_apps() {
     [[ $remaining_rc -eq 0 ]] || return "$remaining_rc"
 
     # Allow the on-disk receipt cache (#1383). A cold walk of every non-Apple
-    # package on an Xcode machine can burn the whole discovery budget; the
-    # cache is keyed by a 1h TTL and only stores nonstandard .app paths, which
-    # is enough for the sibling check. A stale miss is still fail-closed:
+    # package on an Xcode machine can burn the whole discovery budget. A
+    # complete caller only accepts a cache keyed by the receipt list plus each
+    # receipt plist's mtime, so an install, upgrade or reinstall invalidates
+    # it; only a scan that read every receipt is written, and it keeps every
+    # receipt-owned .app path, present or not. A stale miss is still fail-closed:
     # timeout/incomplete paths degrade to MOLE_UNINSTALL_SCAN_PARTIAL and
     # narrow the plan rather than deleting shared leftovers.
     local producer_rc=0

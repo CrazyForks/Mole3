@@ -1123,3 +1123,136 @@ EOF
 	# The whole point: the newly packaged sibling must appear immediately.
 	[[ "$output" == *"AFTER=[$HOME/usr-local/First.app $HOME/usr-local/Second.app]"* ]] || return 1
 }
+
+@test "a reinstalled receipt with the same package id invalidates the cached answer" {
+	# Upgrading or reinstalling keeps the package id, so the receipt list alone
+	# cannot tell the cache it is stale. The installer rewrites that receipt's
+	# plist, and its mtime is part of the key.
+	local mock_bin="$HOME/mock-pkgutil-reinstall"
+	local files_file="$HOME/receipt-files.txt"
+	local receipts_dir="$HOME/receipts-db"
+	mkdir -p "$mock_bin" "$receipts_dir" \
+		"$HOME/usr-local/Old.app/Contents" \
+		"$HOME/usr-local/New.app/Contents"
+	cat > "$mock_bin/pkgutil" << MOCK
+#!/bin/bash
+case "\$1" in
+    --pkgs) printf 'com.example.tool\n' ;;
+    --files) cat "$files_file" ;;
+esac
+MOCK
+	chmod +x "$mock_bin/pkgutil"
+	printf '%s\n' "${HOME#/}/usr-local/Old.app/Contents/Info.plist" > "$files_file"
+	touch -t 202601010000 "$receipts_dir/com.example.tool.plist"
+
+	sed -e "s|/usr/local/|$HOME/usr-local/|g" \
+		-e 's|MOLE_PKG_RECEIPTS_LOADED|MOLE_PKG_RECEIPTS_TEST_LOADED|g' \
+		"$PROJECT_ROOT/lib/core/pkg_receipts.sh" > "$HOME/pkg_receipts_reinstall_test.sh"
+
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" FILES_FILE="$files_file" RECEIPTS_DIR="$receipts_dir" \
+		PATH="$mock_bin:/usr/bin:/bin" \
+		MOLE_PKG_RECEIPT_CACHE_FILE="$HOME/receipt-cache" \
+		MOLE_PKG_RECEIPT_DB_DIR="$receipts_dir" \
+		/bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$HOME/pkg_receipts_reinstall_test.sh"
+first=$(pkg_receipt_nonstandard_app_paths --require-complete)
+# The upgrade installs the app at a new path under the same package id.
+printf '%s\n' "${HOME#/}/usr-local/New.app/Contents/Info.plist" > "$FILES_FILE"
+touch -t 202601020000 "$RECEIPTS_DIR/com.example.tool.plist"
+after=$(pkg_receipt_nonstandard_app_paths --require-complete)
+printf 'FIRST=[%s]\nAFTER=[%s]\n' "$(printf '%s' "$first" | tr '\n' ' ')" "$(printf '%s' "$after" | tr '\n' ' ')"
+EOF
+
+	[ "$status" -eq 0 ] || {
+		echo "$output"
+		return 1
+	}
+	[[ "$output" == *"FIRST=[$HOME/usr-local/Old.app]"* ]] || return 1
+	[[ "$output" == *"AFTER=[$HOME/usr-local/New.app]"* ]] || return 1
+}
+
+@test "an incomplete receipt scan is not cached for a complete caller" {
+	# The list scan tolerates a failed listing, but its partial answer must not
+	# be stored where the uninstall guard reads a hit as a complete answer.
+	local mock_bin="$HOME/mock-pkgutil-partial"
+	local fail_flag="$HOME/fail-listing"
+	mkdir -p "$mock_bin" "$HOME/usr-local/Shared.app/Contents"
+	cat > "$mock_bin/pkgutil" << MOCK
+#!/bin/bash
+case "\$1" in
+    --pkgs) printf 'com.example.shared\n' ;;
+    --files)
+        [[ -e "$fail_flag" ]] && exit 1
+        printf '%s\n' "${HOME#/}/usr-local/Shared.app/Contents/Info.plist"
+        ;;
+esac
+MOCK
+	chmod +x "$mock_bin/pkgutil"
+	touch "$fail_flag"
+
+	sed -e "s|/usr/local/|$HOME/usr-local/|g" \
+		-e 's|MOLE_PKG_RECEIPTS_LOADED|MOLE_PKG_RECEIPTS_TEST_LOADED|g' \
+		"$PROJECT_ROOT/lib/core/pkg_receipts.sh" > "$HOME/pkg_receipts_partial_test.sh"
+
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" FAIL_FLAG="$fail_flag" \
+		PATH="$mock_bin:/usr/bin:/bin" \
+		MOLE_PKG_RECEIPT_CACHE_FILE="$HOME/receipt-cache" \
+		/bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$HOME/pkg_receipts_partial_test.sh"
+partial=$(pkg_receipt_nonstandard_app_paths)
+rm -f "$FAIL_FLAG"
+complete=$(pkg_receipt_nonstandard_app_paths --require-complete)
+printf 'PARTIAL=[%s]\nCOMPLETE=[%s]\n' "$(printf '%s' "$partial" | tr '\n' ' ')" "$(printf '%s' "$complete" | tr '\n' ' ')"
+EOF
+
+	[ "$status" -eq 0 ] || {
+		echo "$output"
+		return 1
+	}
+	[[ "$output" == *"PARTIAL=[]"* ]] || return 1
+	[[ "$output" == *"COMPLETE=[$HOME/usr-local/Shared.app]"* ]] || return 1
+}
+
+@test "a receipt app missing during the scan returns to the cached complete answer" {
+	# The cache outlives the scan, and the sibling guard reads a hit as a
+	# complete answer. An app that was briefly gone (in the Trash, mid
+	# self-update) must come back as soon as it exists again.
+	local mock_bin="$HOME/mock-pkgutil-missing"
+	mkdir -p "$mock_bin" "$HOME/usr-local"
+	cat > "$mock_bin/pkgutil" << MOCK
+#!/bin/bash
+case "\$1" in
+    --pkgs) printf 'com.example.away\n' ;;
+    --files) printf '%s\n' "${HOME#/}/usr-local/Away.app/Contents/Info.plist" ;;
+esac
+MOCK
+	chmod +x "$mock_bin/pkgutil"
+
+	sed -e "s|/usr/local/|$HOME/usr-local/|g" \
+		-e 's|MOLE_PKG_RECEIPTS_LOADED|MOLE_PKG_RECEIPTS_TEST_LOADED|g' \
+		"$PROJECT_ROOT/lib/core/pkg_receipts.sh" > "$HOME/pkg_receipts_missing_test.sh"
+
+	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" \
+		PATH="$mock_bin:/usr/bin:/bin" \
+		MOLE_PKG_RECEIPT_CACHE_FILE="$HOME/receipt-cache" \
+		/bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$HOME/pkg_receipts_missing_test.sh"
+missing=$(pkg_receipt_nonstandard_app_paths --require-complete)
+mkdir -p "$HOME/usr-local/Away.app/Contents"
+back=$(pkg_receipt_nonstandard_app_paths --require-complete)
+printf 'MISSING=[%s]\nBACK=[%s]\n' "$(printf '%s' "$missing" | tr '\n' ' ')" "$(printf '%s' "$back" | tr '\n' ' ')"
+EOF
+
+	[ "$status" -eq 0 ] || {
+		echo "$output"
+		return 1
+	}
+	[[ "$output" == *"MISSING=[]"* ]] || return 1
+	[[ "$output" == *"BACK=[$HOME/usr-local/Away.app]"* ]] || return 1
+}
