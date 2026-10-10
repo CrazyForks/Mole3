@@ -359,7 +359,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 <details>
 <summary><strong>사용자 지정 검사 경로</strong></summary>
 
-`mo purge --paths`를 실행하여 스캔할 경로를 설정하거나 `~/.config/mole/purge_paths` 파일을 직접 편집하세요:
+`mo purge --paths`를 실행하여 검사할 경로를 설정하거나 `~/.config/mole/purge_paths` 파일을 직접 편집하세요:
 
 ```shell
 ~/Documents/MyProjects
@@ -373,7 +373,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### 설치 패키지 정리 (Installer)
 
-`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 스캔에는 전체 제한 시간이 적용되며, 스캔이나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 손상되었거나 읽을 수 없는 ZIP 압축 파일은 건너뜁니다. 심볼릭 링크로 된 스캔 루트는 지원하지만 그 아래의 심볼릭 링크는 따라가지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
+`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 검사에는 전체 제한 시간이 적용되며, 검사나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 손상되었거나 읽을 수 없는 ZIP 압축 파일은 건너뜁니다. 심볼릭 링크로 된 검사 루트는 지원하지만 그 아래의 심볼릭 링크는 따라가지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
 
 <details>
 <summary><strong>Installer 출력 예시</strong></summary>
