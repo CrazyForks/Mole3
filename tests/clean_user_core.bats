@@ -4188,3 +4188,29 @@ EOF_INNER
     [[ "$output" == *"REMOVE:$volume/Photos/._IMG_0001.jpg"* ]] || return 1
     [[ "$output" != *"REMOVE:$volume/.Spotlight-V100"* ]]
 }
+
+@test "clean_trash names a Trash it cannot list instead of skipping silently" {
+    local trash_home="$BATS_TEST_TMPDIR/locked-trash-home"
+    mkdir -p "$trash_home/.Trash"
+    touch "$trash_home/.Trash/kept.tmp"
+    chmod 000 "$trash_home/.Trash"
+
+    run env HOME="$trash_home" PROJECT_ROOT="$PROJECT_ROOT" /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/user.sh"
+stop_section_spinner() { :; }
+note_activity() { :; }
+is_path_whitelisted() { return 1; }
+safe_remove() { echo "REMOVE:$1"; }
+for DRY_RUN in true false; do
+    clean_trash
+done
+EOF
+
+    chmod 700 "$trash_home/.Trash"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$(printf '%s\n' "$output" | grep -c 'Trash · skipped, grant Full Disk Access')" -eq 2 ] || return 1
+    [[ "$output" != *"REMOVE:"* ]] || return 1
+    [ -e "$trash_home/.Trash/kept.tmp" ]
+}

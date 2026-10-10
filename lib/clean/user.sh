@@ -43,6 +43,15 @@ clean_trash() {
     fi
     stop_section_spinner
 
+    # Without Full Disk Access ~/.Trash cannot be listed, so every count below
+    # would read zero and Trash would be skipped without a word. Listing is the
+    # only reliable probe: stat and -r both succeed under that block.
+    if [[ -d "$HOME/.Trash" ]] && ! command ls -A "$HOME/.Trash" > /dev/null 2>&1; then
+        echo -e "  ${GRAY}${ICON_WARNING}${NC} Trash · skipped, grant Full Disk Access to your terminal"
+        note_activity
+        return 0
+    fi
+
     # Always count and delete directly. The previous Finder AppleScript path
     # triggered macOS's "Show warning before emptying the Trash" dialog and
     # blocked mo clean on user confirmation. Volume Trashes
