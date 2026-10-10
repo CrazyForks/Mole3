@@ -14,10 +14,29 @@ brew_autoremove_preview_has_items() {
     grep -Eq '^(==> )?Would autoremove [0-9]+ unneeded formula' "$preview_file"
 }
 
+# Autoremove stays a review line: brew only sees its own dependency graph, so
+# a formula a venv, pyenv build or cargo crate links against can still look
+# unneeded (#1093). Name up to three candidates and count the rest.
 show_brew_autoremove_preview() {
     local preview_file="$1"
-    echo -e "  ${GRAY}${ICON_WARNING}${NC} Homebrew autoremove would remove:"
-    sed 's/^/    /' "$preview_file"
+    local -a names=()
+    local name
+    while IFS= read -r name; do
+        [[ -n "$name" ]] && names+=("$(mole_terminal_safe_text "$name")")
+    done < <(awk 'found && NF && $0 !~ /^==>/ { print $1 } /Would autoremove [0-9]+ unneeded formula/ { found = 1 }' "$preview_file")
+    [[ ${#names[@]} -gt 0 ]] || return 0
+
+    local subject=""
+    if [[ ${#names[@]} -le 3 ]]; then
+        subject="${names[0]}"
+        local i
+        for ((i = 1; i < ${#names[@]}; i++)); do
+            subject+=", ${names[i]}"
+        done
+    else
+        subject="${#names[@]} formulae"
+    fi
+    echo -e "  ${GRAY}${ICON_REVIEW}${NC} Homebrew unused dependencies · ${subject} · remove with ${GRAY}brew autoremove${NC}"
 }
 
 # `brew cleanup --dry-run` shares the real run's arguments, so the preview
@@ -379,7 +398,6 @@ clean_homebrew() {
         note_activity
     elif brew_autoremove_preview_has_items "$autoremove_preview_file"; then
         show_brew_autoremove_preview "$autoremove_preview_file"
-        echo -e "  ${GRAY}${ICON_WARNING}${NC} Homebrew autoremove · skipped (run ${GRAY}brew autoremove${NC} manually)"
         note_activity
     fi
     # Stamp only a finished cleanup; a timed-out one resumes on the next run.

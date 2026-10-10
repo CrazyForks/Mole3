@@ -891,9 +891,9 @@ EOF
 
     [ "$status" -eq 0 ]
     [[ "$output" == *"CALL:brew cleanup --prune=30 env_no_autoremove=1"* ]] || return 1
-    [[ "$output" == *"Homebrew autoremove would remove"* ]] || return 1
-    [[ "$output" == *"python@3.14"* ]] || return 1
-    [[ "$output" == *"Homebrew autoremove · skipped"* ]] || return 1
+    [[ "$output" == *"Homebrew unused dependencies · python@3.14 · remove with"*"brew autoremove"* ]] || return 1
+    [[ "$output" != *"==>"* ]] || return 1
+    [[ "$output" != *"skipped"* ]] || return 1
     [[ "$output" == *"CALL:brew autoremove --dry-run"* ]] || return 1
     [[ "$output" != *"REAL_AUTOREMOVE"* ]]
 }
@@ -1192,8 +1192,8 @@ EOF
     [[ "$output" != *"Skipping"* ]] || return 1
     [[ "$output" != *"man4"* ]] || return 1
     [[ "$output" != *"Homebrew · would cleanup"* ]] || return 1
-    [[ "$output" == *"Homebrew autoremove would remove"* ]] || return 1
-    [[ "$output" == *"python@3.14"* ]] || return 1
+    [[ "$output" == *"Homebrew unused dependencies · python@3.14 · remove with"*"brew autoremove"* ]] || return 1
+    [[ "$output" != *"Would autoremove"* ]] || return 1
     [[ "$output" == *"CALL:brew cleanup --prune=30 --dry-run"* ]] || return 1
     [[ "$output" == *"CALL:brew autoremove --dry-run"* ]] || return 1
     [[ "$output" != *$'CALL:brew cleanup --prune=30\n'* ]] || return 1
@@ -2389,4 +2389,27 @@ EOF
 
     run grep -F -- '-name "*.code_sign_clone"' "$PROJECT_ROOT/lib/clean/system.sh"
     [ "$status" -eq 1 ]
+}
+
+@test "autoremove preview is one review line naming up to three formulae" {
+    run /bin/bash --noprofile --norc << 'EOF'
+set -euo pipefail
+source "$PROJECT_ROOT/lib/core/common.sh"
+source "$PROJECT_ROOT/lib/clean/brew.sh"
+preview="$HOME/autoremove-preview"
+printf '==> Would autoremove 1 unneeded formula:\nllvm@22\n' > "$preview"
+show_brew_autoremove_preview "$preview"
+printf '==> Would autoremove 3 unneeded formulae:\nllvm@22\npython@3.13\nz\033]2;x\007std\n' > "$preview"
+show_brew_autoremove_preview "$preview"
+printf '==> Would autoremove 5 unneeded formulae:\na\nb\nc\nd\ne\n' > "$preview"
+show_brew_autoremove_preview "$preview"
+EOF
+
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+    [ "$(printf '%s\n' "$output" | grep -c 'Homebrew unused dependencies')" -eq 3 ] || return 1
+    [[ "$output" == *"Homebrew unused dependencies · llvm@22 · remove with"* ]] || return 1
+    [[ "$output" == *"· llvm@22, python@3.13, z"* ]] || return 1
+    [[ "$output" != *$'\033]2;'* ]] || return 1
+    [[ "$output" == *"Homebrew unused dependencies · 5 formulae · remove with"* ]] || return 1
+    [[ "$output" != *"==>"* ]]
 }
