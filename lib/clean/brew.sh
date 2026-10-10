@@ -585,7 +585,6 @@ clean_homebrew_service_logs() {
     command -v brew > /dev/null 2>&1 || return 0
     # User-owned files only, never a privileged removal.
     is_root_user && return 0
-    declare -f safe_clean_guarded > /dev/null 2>&1 || return 0
 
     local root=""
     local root_rc=0
