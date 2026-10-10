@@ -48,7 +48,7 @@ Paste debug output here
 
 ## Environment
 
-Output of `mo --version`:
+Paste the output of `mo --version` from the version used to reproduce the problem:
 
 ```text
 Paste mo --version output here
