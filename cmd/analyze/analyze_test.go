@@ -4836,7 +4836,7 @@ func TestOverviewPartialMarkerSitsRightOfAlignedUnits(t *testing.T) {
 	}
 
 	unitColumn := map[string]int{}
-	for _, line := range strings.Split(ansi.Strip(m.View()), "\n") {
+	for line := range strings.SplitSeq(ansi.Strip(m.View()), "\n") {
 		for _, name := range []string{"User Library", "Applications"} {
 			if strings.Contains(line, name) {
 				// Display columns, not bytes: each bar block is a multibyte rune.
