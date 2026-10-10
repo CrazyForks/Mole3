@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Uninstall
 
-`mo uninstall` removes an installed app along with its preferences, caches, and launch items. It preserves shared files if another installed copy still relies on them. Use `mo uninstall --dry-run` to preview what will be removed. If the app has already been deleted, run `mo clean` to find orphaned leftovers.
+`mo uninstall` removes an installed app together with related files that Mole can tie back to that app. It keeps shared data when another installed copy still uses it. Use `mo uninstall --dry-run` to review the plan. If the app is already gone, use `mo clean` to look for leftovers.
 
 ```text
 $ mo uninstall

@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Désinstallation (Uninstall)
 
-`mo uninstall` supprime proprement une application installée ainsi que ses préférences, caches et éléments de démarrage. Si une autre copie installée de la même application utilise encore des fichiers partagés, Mole les conserve. Utilisez `mo uninstall --dry-run` pour prévisualiser les éléments ciblés. Si l'application a déjà été supprimée manuellement, lancez `mo clean` pour trouver les résidus orphelins.
+`mo uninstall` supprime une application installée ainsi que les fichiers associés que Mole peut rattacher à cette application. Si une autre copie installée de la même application utilise encore des fichiers partagés, Mole les conserve. Utilisez `mo uninstall --dry-run` pour prévisualiser les éléments ciblés. Si l'application a déjà été supprimée manuellement, lancez `mo clean` pour trouver les résidus orphelins.
 
 ```text
 $ mo uninstall
@@ -242,9 +242,9 @@ Les motifs de chemins sont acceptés, ce qui permet par exemple de préserver un
 
 `mo analyze` ouvre un explorateur de disque interactif dans le terminal. Il prend en charge les touches fléchées et les raccourcis Vim, le filtrage rapide, la sélection multiple, la prévisualisation dans le Finder et le déplacement confirmé vers la Corbeille. Les disques externes sont ignorés par défaut dans la vue générale ; examinez-les avec `mo analyze /Volumes`. Utilisez `mo analyze /private/tmp` pour vérifier les dossiers temporaires sans déclencher de nettoyage automatique.
 
-Une taille terminée par `+` signale une analyse partielle ; `unknown` indique que le volume n'a pas pu être mesuré. Les résultats interrompus par un délai d'attente n'écrasent pas les mesures complètes en cache ; une analyse ultérieure comblera les données manquantes.
+Une taille terminée par `+` signale une analyse partielle ; `unknown` indique que le volume n'a pas pu être mesuré. Les résultats interrompus par un délai d'attente n'écrasent pas les mesures complètes en cache ; une analyse ultérieure comblera les données manquantes. Les dossiers que macOS ne laisse pas lire au terminal restent marqués comme partiels tant que les droits d'accès ne changent pas. La liste du terminal ne garde que les 30 plus gros éléments, si bien qu'un élément illisible peut ne pas y figurer ; le total signale tout de même une analyse partielle. La sortie JSON d'un dossier inclut tous les éléments analysés.
 
-`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour le résultat et pour chaque élément.
+`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour le résultat et pour chaque élément. Une analyse partielle se termine quand même avec le code 0 ; les scripts doivent donc vérifier `scan_status`.
 
 ```text
 $ mo analyze

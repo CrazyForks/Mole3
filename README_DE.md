@@ -177,7 +177,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Deinstallation (Uninstall)
 
-`mo uninstall` entfernt installierte Apps vollständig mitsamt Einstellungen, Caches und Autostart-Dateien. Gemeinsam genutzte Dateien bleiben erhalten, solange eine andere installierte Kopie derselben App sie noch nutzt. Nutze `mo uninstall --dry-run` zur Vorschau. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
+`mo uninstall` entfernt eine installierte App zusammen mit den zugehörigen Dateien, die Mole eindeutig dieser App zuordnen kann. Gemeinsam genutzte Dateien bleiben erhalten, solange eine andere installierte Kopie derselben App sie noch nutzt. Nutze `mo uninstall --dry-run` zur Vorschau. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
 
 ```text
 $ mo uninstall
@@ -242,9 +242,9 @@ Pfadmuster werden unterstützt, um beispielsweise dauerhaft gemountete Images wi
 
 `mo analyze` öffnet einen interaktiven Festplatten-Explorer im Terminal. Unterstützt Pfeiltasten und Vim-Steuerung, Filterung, Mehrfachauswahl, Finder-Vorschau und sicheres Verschieben in den Papierkorb. Externe Laufwerke werden in der Standardübersicht ausgespart; prüfe sie mit `mo analyze /Volumes`. Verwende `mo analyze /private/tmp`, um temporäre Benutzerdateien zu prüfen, ohne sie automatisch zu löschen.
 
-Ein `+` am Ende einer Größenangabe zeigt einen Teilscan an; `unknown` bedeutet, dass die Größe nicht berechnet werden konnte. Durch Timeouts unterbrochene Ergebnisse überschreiben keinen vollständigen Cache; spätere Scans ergänzen fehlende Daten.
+Ein `+` am Ende einer Größenangabe zeigt einen Teilscan an; `unknown` bedeutet, dass die Größe nicht berechnet werden konnte. Durch Timeouts unterbrochene Ergebnisse überschreiben keinen vollständigen Cache; spätere Scans ergänzen fehlende Daten. Ordner, die macOS das Terminal nicht lesen lässt, bleiben als Teilscan markiert, bis sich die Zugriffsrechte ändern. Die Terminal-Liste zeigt nur die 30 größten Einträge, daher kann ein nicht lesbarer Eintrag außerhalb der Liste liegen; die Summe zeigt trotzdem einen Teilscan an. Die JSON-Ausgabe für Verzeichnisse enthält alle gescannten Einträge.
 
-`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag.
+`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag. Auch Teilscans enden mit Code 0, daher sollten Skripte `scan_status` prüfen.
 
 ```text
 $ mo analyze
