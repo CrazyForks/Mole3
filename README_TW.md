@@ -143,7 +143,7 @@ Mole 會刪除檔案，所以會先檢查路徑、保護共用和系統目錄，
 
 ### 深度清理（Clean）
 
-`mo clean` 掃描並清理已知可安全刪除的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。
+`mo clean` 掃描並清理已知可安全刪除的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。`mo clean` 預設會清空垃圾桶，想保留的話在 `mo clean --whitelist` 裡勾選 Trash。
 
 ```text
 $ mo clean

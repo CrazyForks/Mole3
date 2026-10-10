@@ -143,7 +143,7 @@ Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 공유 위�
 
 ### 심층 정리 (Clean)
 
-`mo clean`은 안전한 캐시, 로그, 임시 파일, 개발 도구 캐시 및 이미 삭제된 앱의 잔여 파일을 검사하고 정리합니다. `mo clean --dry-run`으로 대상 경로를 미리 확인하고 `mo clean --whitelist`로 보호할 디렉터리를 지정하세요.
+`mo clean`은 안전한 캐시, 로그, 임시 파일, 개발 도구 캐시 및 이미 삭제된 앱의 잔여 파일을 검사하고 정리합니다. `mo clean --dry-run`으로 대상 경로를 미리 확인하고 `mo clean --whitelist`로 보호할 디렉터리를 지정하세요. `mo clean`은 기본적으로 휴지통을 비웁니다. 휴지통을 유지하려면 `mo clean --whitelist`에서 Trash를 선택하세요.
 
 ```text
 $ mo clean

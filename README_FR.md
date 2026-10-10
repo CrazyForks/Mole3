@@ -143,7 +143,7 @@ Les exemples suivants sont abrégés. Les éléments détectés, volumes et moti
 
 ### Nettoyage (Clean)
 
-`mo clean` analyse les caches sûrs, les journaux, les fichiers temporaires, les dossiers de développement et les résidus d'applications désinstallées. Utilisez `mo clean --dry-run` pour prévisualiser les chemins éligibles et `mo clean --whitelist` pour préserver des répertoires précis.
+`mo clean` analyse les caches sûrs, les journaux, les fichiers temporaires, les dossiers de développement et les résidus d'applications désinstallées. Utilisez `mo clean --dry-run` pour prévisualiser les chemins éligibles et `mo clean --whitelist` pour préserver des répertoires précis. `mo clean` vide la corbeille par défaut ; pour la conserver, sélectionnez Trash dans `mo clean --whitelist`.
 
 ```text
 $ mo clean

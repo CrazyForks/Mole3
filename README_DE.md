@@ -143,7 +143,7 @@ Die folgenden Beispiele sind gekürzt. Die genauen Einträge und Größen hänge
 
 ### Bereinigung (Clean)
 
-`mo clean` scannt sichere Caches, Protokolle, temporäre Dateien, Entwickler-Artefakte und Reste entfernter Apps. Nutze `mo clean --dry-run` zur Vorschau und `mo clean --whitelist` zum Schutz spezifischer Pfade.
+`mo clean` scannt sichere Caches, Protokolle, temporäre Dateien, Entwickler-Artefakte und Reste entfernter Apps. Nutze `mo clean --dry-run` zur Vorschau und `mo clean --whitelist` zum Schutz spezifischer Pfade. `mo clean` leert standardmäßig den Papierkorb; um ihn zu behalten, wähle Trash in `mo clean --whitelist`.
 
 ```text
 $ mo clean

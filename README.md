@@ -143,7 +143,7 @@ The examples below are shortened. Available items, sizes, and skip reasons depen
 
 ### Clean
 
-`mo clean` reviews known-safe caches, logs, temporary files, developer artifacts, and leftovers from apps that are no longer installed. Use `mo clean --dry-run` to preview eligible paths, and `mo clean --whitelist` to protect caches you want to keep.
+`mo clean` reviews known-safe caches, logs, temporary files, developer artifacts, and leftovers from apps that are no longer installed. Use `mo clean --dry-run` to preview eligible paths, and `mo clean --whitelist` to protect caches you want to keep. `mo clean` empties the Trash by default; to keep it, select Trash in `mo clean --whitelist`.
 
 ```text
 $ mo clean
