@@ -126,3 +126,37 @@ run_selector() {
     [ "$status" -eq 0 ] || { echo "$output"; return 1; }
     [[ "$output" == *"PASS: A-Z/Z-A"* ]] || return 1
 }
+
+@test "leaving the uninstall screen stops the Preparing app list spinner" {
+    if ! /usr/bin/script -q /dev/null /usr/bin/true < /dev/null > /dev/null 2>&1; then
+        skip "script cannot allocate a TTY in this environment"
+    fi
+    local stop_fn="$BATS_TEST_TMPDIR/stop_screen.sh"
+    sed -n '/^stop_uninstall_interactive_screen() {$/,/^}$/p' "$PROJECT_ROOT/bin/uninstall.sh" > "$stop_fn"
+    [ -s "$stop_fn" ] || return 1
+
+    local raw="$BATS_TEST_TMPDIR/spinner-stop.raw"
+    # shellcheck disable=SC2016  # inner bash expands these from its environment
+    PROJECT_ROOT="$PROJECT_ROOT" HOME="$HOME" TERM=xterm-256color STOP_FN="$stop_fn" \
+        /usr/bin/script -q "$raw" /bin/bash --noprofile --norc -c '
+            source "$PROJECT_ROOT/lib/core/common.sh"
+            source "$STOP_FN"
+            MOLE_SPINNER_PREFIX="" start_inline_spinner "Preparing app list..."
+            pid="$INLINE_SPINNER_PID"
+            [[ -n "$pid" ]] && echo "SPINNER_STARTED"
+            /bin/sleep 0.2
+            stop_uninstall_interactive_screen
+            /bin/sleep 0.1
+            if kill -0 "$pid" 2> /dev/null; then
+                echo "SPINNER_LEFT_RUNNING"
+                kill "$pid" 2> /dev/null
+            else
+                echo "SPINNER_STOPPED"
+            fi
+        ' < /dev/null > /dev/null 2>&1 || true
+
+    run cat "$raw"
+    [[ "$output" == *"SPINNER_STARTED"* ]] || return 1
+    [[ "$output" == *"SPINNER_STOPPED"* ]] || return 1
+    [[ "$output" != *"SPINNER_LEFT_RUNNING"* ]]
+}

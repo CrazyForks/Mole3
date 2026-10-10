@@ -195,6 +195,12 @@ select_apps_for_uninstall() {
     export MOLE_MENU_FILTER_NAMES="$names_newline"
     export MOLE_MENU_IGNORE_INITIAL_ENTER=1
 
+    # The uninstall scan hands its "Preparing app list..." line to an inline
+    # spinner; stop it just before the menu draws over that line.
+    if declare -f stop_inline_spinner > /dev/null 2>&1; then
+        stop_inline_spinner
+    fi
+
     # Use paginated menu - result will be stored in MOLE_SELECTION_RESULT
     # Note: paginated_multi_select enters alternate screen and handles clearing
     MOLE_SELECTION_RESULT=""

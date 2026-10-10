@@ -1500,7 +1500,7 @@ scan_applications() {
 
     # With a final message, a shown spinner leaves that line in place on the
     # alternate screen instead of erasing it, so the screen is not blank while
-    # the selector builds its rows. The selector header clears the line.
+    # the selector builds its rows. The caller animates it from there.
     stop_scan_spinner() {
         local final_message="${1:-}"
         if [[ -n "$spinner_pid" ]]; then
@@ -1617,6 +1617,9 @@ start_uninstall_interactive_screen() {
 }
 
 stop_uninstall_interactive_screen() {
+    # Every exit from the scan and selector passes here, so a "Preparing app
+    # list..." spinner never outlives the alternate screen.
+    stop_inline_spinner 2> /dev/null || true
     if [[ "${MOLE_ALT_SCREEN_ACTIVE:-}" == "1" ]]; then
         leave_alt_screen
     fi
@@ -2096,6 +2099,12 @@ main() {
             fi
 
             debug_log "Uninstall interactive scan returned (elapsed ${SECONDS}s, parent $$)"
+            # The scan runs in a command substitution, so it can only leave a
+            # static "Preparing app list..." line. Animate that line here until
+            # the selector stops the spinner right before its first draw.
+            if [[ "${MOLE_ALT_SCREEN_ACTIVE:-}" == "1" ]]; then
+                MOLE_SPINNER_PREFIX="" start_inline_spinner "Preparing app list..."
+            fi
             cached_apps_file="$apps_file"
             debug_log "Uninstall inventory fingerprint begin (elapsed ${SECONDS}s, parent $$)"
             cached_inventory_fingerprint=$(uninstall_app_inventory_fingerprint "${apps_file}.inventory" 2> /dev/null || echo "")
