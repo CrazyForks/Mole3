@@ -222,17 +222,19 @@ EOF
 }
 
 @test "validate_path_for_deletion allows protected input-method names in Trash (#1517)" {
-    mkdir -p "$HOME/.Trash"
-    touch "$HOME/.Trash/com.sogou.inputmethod.sogou.plist"
-    touch "$HOME/.Trash/com.tencent.inputmethod.QQInput.plist"
+    # The verdict is string-based on HOME. The test HOME lives inside the
+    # checkout, and a checkout under /private/tmp hits the temp-root allowlist
+    # before the protection check, so use a synthetic home outside every
+    # allowlisted root. Nothing is created there.
+    local home="/Users/mole-test-home-1517"
 
-    run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$HOME/.Trash/com.sogou.inputmethod.sogou.plist'"
+    run env HOME="$home" /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$home/.Trash/com.sogou.inputmethod.sogou.plist'"
     [ "$status" -eq 0 ]
 
-    run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$HOME/.Trash/com.tencent.inputmethod.QQInput.plist'"
+    run env HOME="$home" /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$home/.Trash/com.tencent.inputmethod.QQInput.plist'"
     [ "$status" -eq 0 ]
 
-    run /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$HOME/Library/Preferences/com.sogou.inputmethod.sogou.plist'"
+    run env HOME="$home" /bin/bash -c "source '$PROJECT_ROOT/lib/core/common.sh'; validate_path_for_deletion '$home/Library/Preferences/com.sogou.inputmethod.sogou.plist'"
     [ "$status" -eq 1 ]
 }
 
