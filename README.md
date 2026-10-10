@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### Optimize
 
-`mo optimize` runs safe maintenance for Finder, network, database, and macOS services. Tasks that are unnecessary, currently in use, or unavailable are skipped with an explanation. Use `mo optimize --dry-run` to preview actions and `mo optimize --whitelist` to exclude specific tasks or paths.
+`mo optimize` runs bounded maintenance for supported Finder, network, database, and macOS services. Tasks that are unnecessary, unsafe at the moment, or unavailable are skipped with a reason. Use `mo optimize --dry-run` to preview the pass and `mo optimize --whitelist` to exclude tasks or path patterns.
 
 ```text
 $ mo optimize
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` is a read-only dashboard for hardware, system pressure, disk activity, network traffic, power, and processes.
 
-When the default IPv4 route uses a VPN or tunnel, network graphs track that interface to avoid counting the same traffic twice against the physical adapter. JSON output retains per-interface rates, while idle non-default tunnels stay hidden.
+When the IPv4 default route uses a tunnel, network graphs use that interface’s rates to avoid counting the same traffic again on its physical carrier. JSON retains per-interface rates, including the routed tunnel; idle non-default tunnels stay hidden.
 
 ```text
 $ mo status
@@ -395,7 +395,7 @@ When custom paths are configured, Mole scans only those directories. Otherwise, 
 
 ### Installer
 
-`mo installer` finds DMG, PKG, MPKG, ISO, XIP, and installer ZIP files in Downloads, Desktop, Homebrew caches, iCloud, Mail, Telegram, and other common directories. Each item shows its size and location before removal. Use `mo installer --dry-run` to preview what will be removed. Scans have a cumulative timeout; if a scan or metadata probe fails or times out, Mole discards the results rather than acting on partial data. Symlinked scan roots are supported, but nested symlinks are not followed. Selected files are re-verified right before deletion to ensure they have not changed.
+`mo installer` finds DMG, PKG, MPKG, ISO, XIP, and installer ZIP files in Downloads, Desktop, Homebrew caches, iCloud, Mail, Telegram, and other supported locations. Each item shows its size and source before removal. Use `mo installer --dry-run` to preview the plan. Discovery has a cumulative time limit. If a scan or metadata probe fails or times out, Mole discards the list and exits without selecting files; corrupt and unreadable ZIP archives are skipped. Symlinked scan roots are supported, but symlinks beneath them are not followed. Selected files are checked again against their confirmed identity at the deletion boundary.
 
 <details>
 <summary><strong>Installer example output</strong></summary>

@@ -131,7 +131,7 @@ Mole 会删除文件，所以会先校验路径、保护共享和系统目录，
 
 - `clean`、`uninstall`、`purge`、`installer` 与 `remove` 会执行文件清理，建议先用 `--dry-run` 预览，需要时加上 `--debug`
 - 日常运行 **无需 `sudo`**，仅在触及系统级清理时按需请求管理员权限
-- `mo analyze` 中的删除操作在确认后默认放入 macOS 废纸篓，可随时放回
+- `mo analyze` 中的删除操作在确认后默认放入 macOS 废纸篓
 - 清理操作记录在 `~/Library/Logs/mole/operations.log` 中，可通过 `mo history` 查看，或设置 `MO_NO_OPLOG=1` 禁用
 - 可通过 `mo clean --whitelist` 保护指定缓存，或使用 `mo optimize --whitelist` 排除维护项
 
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 系统优化（Optimize）
 
-`mo optimize` 对 Finder、网络、系统数据库与 macOS 服务执行安全的维护操作。非必要、正在使用或暂不可用的任务会自动跳过并说明原因。可先用 `mo optimize --dry-run` 预览，或用 `mo optimize --whitelist` 排除指定任务或路径。
+`mo optimize` 对支持的 Finder、网络、数据库与 macOS 服务执行范围明确的维护。非必要、当前执行不安全或不可用的任务会跳过并说明原因。可先用 `mo optimize --dry-run` 预览这一轮操作，或用 `mo optimize --whitelist` 排除任务或路径模式。
 
 ```text
 $ mo optimize
@@ -328,7 +328,7 @@ $ mo status --json
 
 ### 项目清理（Purge）
 
-`mo purge` 自动查找可随时重新构建的项目生成目录（如 `node_modules`、`target`、`.build`、`build` 与 `dist`）。按项目归类展示，只永久删除你勾选确认的项目，不经过废纸篓，最近 7 天内有改动或无法确认改动时间的产物默认不勾选。优先使用 `fd`，回退使用 `find`。包含部署密钥、嵌套 Git 仓库或 Git 追踪文件的目录会自动受保护。非交互式运行需加 `--yes`；建议先运行 `mo purge --dry-run` 预览候选目录。
+`mo purge` 自动查找可随时重新构建的项目生成目录（如 `node_modules`、`target`、`.build`、`build` 与 `dist`）。按项目归类展示，只永久删除你勾选确认的产物，不经过废纸篓，最近 7 天内有改动或无法确认改动时间的产物默认不勾选。优先使用 `fd`，回退使用 `find`。包含部署密钥、嵌套 Git 仓库或 Git 追踪文件的目录会自动受保护。非交互式运行需加 `--yes`；建议先运行 `mo purge --dry-run` 预览候选目录。
 
 使用 Page Up/Down 或 `h`/`l` 翻页，`[`/`]` 在项目间跳转，`X` 跳过当前项目并前进到下一个。按 `/` 搜索项目路径与产物名称，`n` 查找下一个匹配且不改变已选项。回车打开最终路径确认界面。显示的空间是估算值，没测出大小的产物和不完整的扫描会单独标明。
 
@@ -373,7 +373,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### 安装包清理（Installer）
 
-`mo installer` 自动查找下载目录、桌面、Homebrew 缓存、iCloud、Mail、Telegram 等常见位置中的 DMG、PKG、MPKG、ISO、XIP 与安装器 ZIP 文件。清理前列出各文件大小与来源。使用 `mo installer --dry-run` 预览清理计划。扫描具有全局超时保护，如发生错误或超时会直接放弃，避免在不完整的数据上操作。在最终删除前会对目标文件进行再次校验，确保文件未发生变动。
+`mo installer` 自动查找下载目录、桌面、Homebrew 缓存、iCloud、Mail、Telegram 等受支持位置中的 DMG、PKG、MPKG、ISO、XIP 与安装器 ZIP 文件。清理前列出各文件大小与来源。使用 `mo installer --dry-run` 预览清理计划。扫描具有全局超时保护，如发生错误或超时会直接放弃，避免在不完整的数据上操作。损坏或无法读取的 ZIP 压缩包会跳过。扫描根目录可以是符号链接，但不会跟随它下面的符号链接。在最终删除前会对目标文件进行再次校验，确保文件未发生变动。
 
 <details>
 <summary><strong>Installer 示例输出</strong></summary>

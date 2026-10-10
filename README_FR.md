@@ -131,8 +131,8 @@ Mole peut supprimer des fichiers ; il valide donc les chemins, protège les empl
 
 - `clean`, `uninstall`, `purge`, `installer` et `remove` suppriment des fichiers. Prévisualisez toujours leurs actions avec `--dry-run`, complété au besoin de `--debug`.
 - Exécutez Mole **sans `sudo`** : les privilèges administrateur ne sont demandés que pour les actions touchant au système.
-- `mo analyze` place les fichiers supprimés dans la Corbeille de macOS après confirmation, vous permettant de les récupérer.
-- Toutes les opérations sont consignées dans `~/Library/Logs/mole/operations.log` ; consultez-les avec `mo history` ou désactivez la journalisation avec `MO_NO_OPLOG=1`.
+- `mo analyze` place les éléments sélectionnés dans la Corbeille de macOS après confirmation.
+- Les opérations de nettoyage sont consignées dans `~/Library/Logs/mole/operations.log` ; consultez-les avec `mo history` ou désactivez la journalisation avec `MO_NO_OPLOG=1`.
 - Préservez des dossiers avec `mo clean --whitelist` ou excluez des opérations avec `mo optimize --whitelist`.
 
 Consultez [SECURITY.md](SECURITY.md) et [SECURITY_AUDIT.md](SECURITY_AUDIT.md) pour découvrir les règles et limites de sécurité.
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### Optimisation (Optimize)
 
-`mo optimize` exécute des tâches de maintenance sécurisées pour le Finder, le réseau, les bases de données et les services macOS. Les tâches inutiles, actuellement en cours d'utilisation ou indisponibles sont ignorées avec justification. Utilisez `mo optimize --dry-run` pour prévisualiser les actions et `mo optimize --whitelist` pour exclure des tâches spécifiques.
+`mo optimize` exécute une maintenance délimitée pour les services Finder, réseau, bases de données et macOS pris en charge. Les tâches inutiles, risquées à ce moment-là ou indisponibles sont ignorées avec justification. Utilisez `mo optimize --dry-run` pour prévisualiser le passage et `mo optimize --whitelist` pour exclure des tâches ou des motifs de chemin.
 
 ```text
 $ mo optimize
@@ -261,7 +261,7 @@ Select a location to explore:
 
 ### État du système (Status)
 
-`mo status` affiche un tableau de bord en lecture seule pour le matériel, la charge système, l'activité disque, le trafic réseau, l'alimentation et les processus anormaux.
+`mo status` affiche un tableau de bord en lecture seule pour le matériel, la charge système, l'activité disque, le trafic réseau, l'alimentation et les processus.
 
 Lorsque la route IPv4 par défaut transite par un VPN ou un tunnel, le graphique réseau suit cette interface afin d'éviter tout double comptage du trafic avec la carte physique. La sortie JSON conserve le débit de chaque interface, y compris le tunnel routé ; les tunnels inactifs hors route par défaut restent masqués.
 
@@ -318,7 +318,7 @@ $ mo status --json
 }
 ```
 
-La détection des processus zombies est en lecture seule ; elle n'interrompt aucun processus et n'altère pas la note de santé. Tant que Mole n'a obtenu aucun échantillon de processus, `process_collected_at`, `process_stale`, `zombie_count` et `zombie_parents_complete` sont omis et `zombie_parents` vaut `null`. Les instantanés fast/watch suivants réutilisent le dernier échantillon réussi avec son `process_collected_at` d'origine et définissent `process_stale: true` ; un nouvel échantillon le repasse à `false`. Une valeur de `0` signifie que Mole a mesuré et n'a trouvé aucun zombie. Le résumé des parents contient au plus trois propriétaires connus ; `zombie_parents_complete: false` signifie que l'attribution était indisponible, incomplète ou tronquée.
+La détection des processus zombies est en lecture seule ; elle n'interrompt aucun processus et n'altère pas le score de santé. Tant que Mole n'a obtenu aucun échantillon de processus, `process_collected_at`, `process_stale`, `zombie_count` et `zombie_parents_complete` sont omis et `zombie_parents` vaut `null`. Les instantanés fast/watch suivants réutilisent le dernier échantillon réussi avec son `process_collected_at` d'origine et définissent `process_stale: true` ; un nouvel échantillon le repasse à `false`. Une valeur de `0` signifie que Mole a mesuré et n'a trouvé aucun zombie. Le résumé des parents contient au plus trois propriétaires connus ; `zombie_parents_complete: false` signifie que l'attribution était indisponible, incomplète ou tronquée.
 
 Si un collecteur rencontre une erreur, `mo status --json` affiche les métriques disponibles, consigne l'incident dans stderr et quitte avec le code 0, comme `--watch` qui continue de diffuser. Il quitte avec le code 1 uniquement si aucune métrique CPU, mémoire, disque ou processus n'est disponible, ou si la sortie JSON échoue.
 
@@ -367,13 +367,13 @@ Lancez `mo purge --paths` pour sélectionner les répertoires à analyser, ou mo
 ~/Work/ClientB
 ```
 
-Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers (par défaut : `~/Projects`, `~/GitHub`, `~/dev` et les dossiers de worktrees d'agents pris en charge). Un résultat de recherche incomplet n'est jamais enregistré. L'analyse des artefacts descend jusqu'à 6 niveaux sous chaque racine configurée ; pour des projets plus profonds, ajoutez une racine plus proche. Purge supprime les artefacts régénérables à l'intérieur des worktrees, jamais les worktrees eux-mêmes.
+Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers. Sinon, il utilise des chemins par défaut comme `~/Projects`, `~/GitHub`, `~/dev` et les dossiers de worktrees d'agents pris en charge. Un résultat de recherche incomplet n'est jamais enregistré. L'analyse des artefacts descend jusqu'à 6 niveaux sous chaque racine configurée ; pour des projets plus profonds, ajoutez une racine plus proche. Purge supprime les artefacts régénérables à l'intérieur des worktrees, jamais les worktrees eux-mêmes.
 
 </details>
 
 ### Fichiers d'installation (Installer)
 
-`mo installer` recherche les fichiers DMG, PKG, MPKG, ISO, XIP et ZIP d'installation dans Téléchargements, le Bureau, les caches Homebrew, iCloud, Mail, Telegram et d'autres emplacements courants. Chaque élément affiche son poids et sa provenance avant suppression. Utilisez `mo installer --dry-run` pour prévisualiser les fichiers trouvés. L'analyse dispose d'un délai d'expiration global ; si une analyse ou une lecture de métadonnées échoue ou expire, Mole abandonne la liste sans sélectionner de fichiers. Une ultime vérification est effectuée juste avant la suppression pour s'assurer que le fichier n'a pas changé.
+`mo installer` recherche les fichiers DMG, PKG, MPKG, ISO, XIP et ZIP d'installation dans Téléchargements, le Bureau, les caches Homebrew, iCloud, Mail, Telegram et d'autres emplacements pris en charge. Chaque élément affiche son poids et sa provenance avant suppression. Utilisez `mo installer --dry-run` pour prévisualiser les fichiers trouvés. L'analyse dispose d'un délai d'expiration global ; si une analyse ou une lecture de métadonnées échoue ou expire, Mole abandonne la liste sans sélectionner de fichiers. Les archives ZIP corrompues ou illisibles sont ignorées. Les racines d'analyse en lien symbolique sont prises en charge, mais les liens symboliques situés en dessous ne sont pas suivis. Une ultime vérification est effectuée juste avant la suppression pour s'assurer que le fichier n'a pas changé.
 
 <details>
 <summary><strong>Exemple de sortie Installer</strong></summary>

@@ -80,7 +80,7 @@ mo history --json
 mo clean --dry-run --debug   # 안전 미리보기 + 상세 진단 로그
 mo optimize --whitelist      # 보호할 최적화 규칙 관리
 mo clean --whitelist         # 보호할 캐시 화이트리스트 관리
-mo purge --paths             # 프로젝트 검색 디렉터리 구성
+mo purge --paths             # 프로젝트 검사 디렉터리 구성
 mo analyze /Volumes          # 외장 드라이브만 분석
 mo analyze /private/tmp      # 임시 디렉터리 검토(자동 삭제 없음)
 ```
@@ -131,8 +131,8 @@ Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 공유 위�
 
 - `clean`, `uninstall`, `purge`, `installer`, `remove` 명령은 파일을 삭제합니다. 먼저 `--dry-run`으로 확인하고 필요 시 `--debug`를 함께 사용하세요.
 - 일상적인 Mole 실행에는 **`sudo`가 필요하지 않습니다**. 시스템 수준의 정리 작업에만 관리자 권한을 요청합니다.
-- `mo analyze`의 삭제 작업은 확인 후 macOS 휴지통으로 이동되므로 언제든지 복원할 수 있습니다.
-- 모든 정리 내역은 `~/Library/Logs/mole/operations.log`에 기록됩니다. `mo history`로 확인하거나 `MO_NO_OPLOG=1`로 비활성화할 수 있습니다.
+- `mo analyze`에서 선택한 항목은 확인 후 macOS 휴지통으로 이동됩니다.
+- 정리 내역은 `~/Library/Logs/mole/operations.log`에 기록됩니다. `mo history`로 확인하거나 `MO_NO_OPLOG=1`로 비활성화할 수 있습니다.
 - `mo clean --whitelist`로 보존할 캐시를 지정하거나 `mo optimize --whitelist`로 제외할 유지보수 작업을 관리하세요.
 
 자세한 안전 기준은 [SECURITY.md](SECURITY.md) 및 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)를 참고하세요.
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 시스템 최적화 (Optimize)
 
-`mo optimize`는 Finder, 네트워크, 데이터베이스 및 macOS 시스템 서비스를 안전하게 유지보수합니다. 불필요하거나 현재 사용 중인 작업은 이유와 함께 자동으로 건너뜁니다. `mo optimize --dry-run`으로 작업을 미리 확인하고 `mo optimize --whitelist`로 특정 작업을 제외하세요.
+`mo optimize`는 지원되는 Finder, 네트워크, 데이터베이스, macOS 서비스에 대해 범위가 정해진 유지보수를 실행합니다. 불필요하거나, 지금 실행하기에 안전하지 않거나, 사용할 수 없는 작업은 이유와 함께 건너뜁니다. `mo optimize --dry-run`으로 작업을 미리 확인하고 `mo optimize --whitelist`로 작업이나 경로 패턴을 제외하세요.
 
 ```text
 $ mo optimize
@@ -244,7 +244,7 @@ Applied 3 optimizations
 
 크기 뒤에 `+`가 붙은 항목은 부분 검사를 의미하며, `unknown`은 계산이 불가능했음을 나타냅니다. 일시적인 시간 초과로 중단된 결과는 기존 캐시를 덮어쓰지 않으므로 나중에 다시 검사하여 보완할 수 있습니다. macOS가 터미널의 읽기를 허용하지 않는 폴더는 접근 권한이 바뀔 때까지 부분 검사로 남습니다. 터미널에는 상위 30개 항목만 표시되므로 읽을 수 없는 항목이 목록 밖에 있을 수 있지만, 합계는 여전히 부분 검사로 표시됩니다. JSON 출력에는 모든 항목이 포함됩니다.
 
-`mo analyze --json /path` 출력에는 결과 전체와 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다. 숫자 크기는 실제로 측정한 바이트이며, `unavailable`일 때의 0은 빈 디렉터리를 뜻하지 않습니다. 부분 검사도 종료 코드 0으로 끝나므로 스크립트에서는 `scan_status`를 확인해야 합니다. 완전성은 Mole의 기존 검색 제외 범위 안에서만 판단되며, 파일 시스템의 원자적 스냅샷을 보장하지 않습니다.
+`mo analyze --json /path` 출력에는 결과 전체와 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다. 숫자 크기는 실제로 측정한 바이트이며, `unavailable`일 때의 0은 빈 디렉터리를 뜻하지 않습니다. 부분 검사도 종료 코드 0으로 끝나므로 스크립트에서는 `scan_status`를 확인해야 합니다. 완전성은 Mole의 기존 검사 제외 범위 안에서만 판단되며, 파일 시스템의 원자적 스냅샷을 보장하지 않습니다.
 
 ```text
 $ mo analyze
@@ -261,7 +261,7 @@ Select a location to explore:
 
 ### 시스템 상태 (Status)
 
-`mo status`는 하드웨어, 시스템 부하, 디스크 읽기/쓰기, 네트워크 트래픽, 전원 및 비정상 프로세스를 한눈에 보여주는 읽기 전용 대시보드입니다.
+`mo status`는 하드웨어, 시스템 부하, 디스크 읽기/쓰기, 네트워크 트래픽, 전원 및 프로세스를 한눈에 보여주는 읽기 전용 대시보드입니다.
 
 기본 IPv4 라우팅이 VPN이나 터널 인터페이스를 사용하는 경우 물리 어댑터와의 중복 집계를 방지하기 위해 해당 인터페이스를 추적합니다. JSON 출력에는 라우팅된 터널을 포함해 인터페이스별 속도가 남고, 기본 경로가 아닌 유휴 터널은 숨겨집니다.
 
@@ -330,7 +330,7 @@ $ mo status --json
 
 `mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일, 중첩된 Git 저장소, Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
 
-Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뛰고 다음으로 이동합니다. `/`로 프로젝트 경로와 산출물 이름을 검색하고, `n`으로 선택 상태를 바꾸지 않고 다음 일치 항목을 찾습니다. Enter 키는 최종 경로 확인 화면을 엽니다. 표시되는 용량은 추정치이며, 측정하지 못한 산출물과 불완전한 검색은 따로 표시됩니다.
+Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뛰고 다음으로 이동합니다. `/`로 프로젝트 경로와 산출물 이름을 검색하고, `n`으로 선택 상태를 바꾸지 않고 다음 일치 항목을 찾습니다. Enter 키는 최종 경로 확인 화면을 엽니다. 표시되는 용량은 추정치이며, 측정하지 못한 산출물과 불완전한 검사는 따로 표시됩니다.
 
 <details>
 <summary><strong>Purge 출력 예시</strong></summary>
@@ -357,7 +357,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 </details>
 
 <details>
-<summary><strong>사용자 지정 검색 경로</strong></summary>
+<summary><strong>사용자 지정 검사 경로</strong></summary>
 
 `mo purge --paths`를 실행하여 스캔할 경로를 설정하거나 `~/.config/mole/purge_paths` 파일을 직접 편집하세요:
 
@@ -367,13 +367,13 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-사용자 지정 경로가 설정되면 해당 디렉터리만 검색합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 및 지원되는 에이전트 worktree 디렉터리)를 탐색합니다. 탐색 중 얻은 불완전한 결과는 저장하지 않습니다. 검색은 지정된 루트 아래 최대 6단계까지 진행되며, 더 깊은 프로젝트는 가까운 루트를 추가하세요. Purge는 worktree 안의 다시 빌드할 수 있는 산출물만 삭제하며 worktree 자체는 삭제하지 않습니다.
+사용자 지정 경로가 설정되면 해당 디렉터리만 검사합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 및 지원되는 에이전트 worktree 디렉터리)를 탐색합니다. 탐색 중 얻은 불완전한 결과는 저장하지 않습니다. 검사는 지정된 루트 아래 최대 6단계까지 진행되며, 더 깊은 프로젝트는 가까운 루트를 추가하세요. Purge는 worktree 안의 다시 빌드할 수 있는 산출물만 삭제하며 worktree 자체는 삭제하지 않습니다.
 
 </details>
 
 ### 설치 패키지 정리 (Installer)
 
-`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 스캔에는 전체 제한 시간이 적용되며, 스캔이나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
+`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 스캔에는 전체 제한 시간이 적용되며, 스캔이나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 손상되었거나 읽을 수 없는 ZIP 압축 파일은 건너뜁니다. 심볼릭 링크로 된 스캔 루트는 지원하지만 그 아래의 심볼릭 링크는 따라가지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
 
 <details>
 <summary><strong>Installer 출력 예시</strong></summary>

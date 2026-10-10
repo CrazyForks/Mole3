@@ -131,7 +131,7 @@ Mole 會刪除檔案，所以會先檢查路徑、保護共用和系統目錄，
 
 - `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會執行檔案清理，建議先用 `--dry-run` 預覽，需要時加上 `--debug`
 - 日常執行 **無需 `sudo`**，僅在觸及系統級清理時按需請求管理員權限
-- `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶，可隨時放回
+- `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶
 - 清理操作記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
 - 可透過 `mo clean --whitelist` 保護指定快取，或使用 `mo optimize --whitelist` 排除維護項目
 
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 系統最佳化（Optimize）
 
-`mo optimize` 對 Finder、網路、系統資料庫與 macOS 服務執行安全的維護操作。非必要、目前正在使用或無法使用的任務會自動略過並說明原因。可使用 `mo optimize --dry-run` 預覽，使用 `mo optimize --whitelist` 排除指定任務或路徑。
+`mo optimize` 對支援的 Finder、網路、資料庫與 macOS 服務執行範圍明確的維護。非必要、目前執行不安全或無法使用的任務會略過並說明原因。可使用 `mo optimize --dry-run` 預覽這一輪操作，使用 `mo optimize --whitelist` 排除任務或路徑模式。
 
 ```text
 $ mo optimize
@@ -244,7 +244,7 @@ Applied 3 optimizations
 
 以 `+` 結尾的大小是部分掃描裡實際測到的位元組數，`unknown` 表示無法測出大小。因臨時逾時中斷的項目不會覆蓋已有完整快取，後續重新整理可自動補全。macOS 不允許終端機讀取的資料夾會一直標為部分掃描，直到存取權限改變。終端機介面只列出最大的 30 個項目，讀不到的項目可能不在這 30 項裡，但總量仍會標為部分掃描，JSON 格式輸出則包含所有掃描項目。
 
-`mo analyze --json /path` 的結果本身和其中每一項都帶有 `scan_status`（`complete`、`partial` 或 `unavailable`）。數值大小是實際測到的位元組數，`unavailable` 時的 0 也不代表目錄為空。未完成的掃描仍返回結束碼 0，腳本要看 `scan_status` 判斷結果是否完整。完整性以 Mole 現有的掃描排除規則為界，不保證是檔案系統的原子快照。
+`mo analyze --json /path` 的結果本身和其中每一項都帶有 `scan_status`（`complete`、`partial` 或 `unavailable`）。數值大小是實際測到的位元組數，`unavailable` 時的 0 也不代表目錄為空。未完成的掃描仍以結束碼 0 結束，指令碼要看 `scan_status` 判斷結果是否完整。完整性以 Mole 現有的掃描排除規則為界，不保證是檔案系統的原子快照。
 
 ```text
 $ mo analyze
@@ -373,7 +373,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### 安裝檔清理（Installer）
 
-`mo installer` 自動尋找下載目錄、桌面、Homebrew 快取、iCloud、Mail、Telegram 及其他常見目錄中的 DMG、PKG、MPKG、ISO、XIP 與安裝檔 ZIP。清理前會列出各檔案大小與來源。使用 `mo installer --dry-run` 預覽清理計畫。掃描具有全域逾時保護，如發生錯誤或逾時會直接放棄，避免在不完整的資料上操作。在最終刪除前會對目標檔案進行再次驗證，確保檔案未發生變動。
+`mo installer` 自動尋找下載目錄、桌面、Homebrew 快取、iCloud、Mail、Telegram 及其他支援位置中的 DMG、PKG、MPKG、ISO、XIP 與安裝檔 ZIP。清理前會列出各檔案大小與來源。使用 `mo installer --dry-run` 預覽清理計畫。掃描具有全域逾時保護，如發生錯誤或逾時會直接放棄，避免在不完整的資料上操作。損壞或無法讀取的 ZIP 壓縮檔會略過。掃描根目錄可以是符號連結，但不會跟隨它底下的符號連結。在最終刪除前會對目標檔案進行再次驗證，確保檔案未發生變動。
 
 <details>
 <summary><strong>Installer 範例輸出</strong></summary>
@@ -409,7 +409,7 @@ Removed 5 installers, freed 3.83GB
 curl -fsSL https://raw.githubusercontent.com/tw93/Mole/main/scripts/setup-quick-launchers.sh | bash
 ```
 
-該腳本會自動新增 Raycast 指令；若偵測到 Alfred 設定，還會同步新增帶有 `clean`、`uninstall`、`optimize`、`analyze` 與 `status` 關鍵字的 Alfred Workflow。
+該指令碼會自動新增 Raycast 指令；若偵測到 Alfred 設定，還會同步新增帶有 `clean`、`uninstall`、`optimize`、`analyze` 與 `status` 關鍵字的 Alfred Workflow。
 
 Raycast 安裝後需一次性手動設定：
 

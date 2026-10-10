@@ -131,8 +131,8 @@ Mole kann Dateien löschen. Deshalb prüft es Pfade, schützt gemeinsam genutzte
 
 - `clean`, `uninstall`, `purge`, `installer` und `remove` löschen Dateien. Überprüfe sie zuerst mit `--dry-run` und bei Bedarf mit `--debug`.
 - Führe Mole **ohne `sudo`** aus; Administratorrechte werden nur bei Bedarf für Systembereinigungen angefordert.
-- `mo analyze` verschiebt ausgewählte Objekte nach Bestätigung in den macOS Papierkorb, wo sie wiederhergestellt werden können.
-- Alle Aktionen werden in `~/Library/Logs/mole/operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`.
+- `mo analyze` verschiebt ausgewählte Objekte nach Bestätigung in den macOS-Papierkorb.
+- Bereinigungsaktivitäten werden in `~/Library/Logs/mole/operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`.
 - Schütze Verzeichnisse mit `mo clean --whitelist` oder Wartungsaufgaben mit `mo optimize --whitelist`.
 
 Weitere Details zu Sicherheitsgrenzen findest du in [SECURITY.md](SECURITY.md) und [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
@@ -203,7 +203,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### Optimierung (Optimize)
 
-`mo optimize` führt sichere Wartungsaufgaben für Finder, Netzwerk, Datenbanken und macOS-Dienste aus. Aufgaben, die nicht nötig, aktuell verwendet oder nicht verfügbar sind, werden mit Begründung übersprungen. Nutze `mo optimize --dry-run` zur Vorschau und `mo optimize --whitelist` zum Ausschließen bestimmter Aufgaben.
+`mo optimize` führt begrenzte Wartungsaufgaben für unterstützte Finder-, Netzwerk-, Datenbank- und macOS-Dienste aus. Aufgaben, die nicht nötig, gerade nicht sicher oder nicht verfügbar sind, werden mit Begründung übersprungen. Nutze `mo optimize --dry-run` zur Vorschau und `mo optimize --whitelist`, um Aufgaben oder Pfadmuster auszuschließen.
 
 ```text
 $ mo optimize
@@ -244,7 +244,7 @@ Pfadmuster werden unterstützt, um beispielsweise dauerhaft gemountete Images wi
 
 Ein `+` am Ende einer Größenangabe zeigt einen Teilscan an; `unknown` bedeutet, dass die Größe nicht berechnet werden konnte. Durch Timeouts unterbrochene Ergebnisse überschreiben keinen vollständigen Cache; spätere Scans ergänzen fehlende Daten. Ordner, die macOS das Terminal nicht lesen lässt, bleiben als Teilscan markiert, bis sich die Zugriffsrechte ändern. Die Terminal-Liste zeigt nur die 30 größten Einträge, daher kann ein nicht lesbarer Eintrag außerhalb der Liste liegen; die Summe zeigt trotzdem einen Teilscan an. Die JSON-Ausgabe für Verzeichnisse enthält alle gescannten Einträge.
 
-`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag. Numerische Größen enthalten gemessene Bytes; eine Null mit `unavailable` bedeutet kein leeres Verzeichnis. Auch Teilscans enden mit Code 0, daher sollten Skripte `scan_status` prüfen. Die Vollständigkeit gilt innerhalb der bestehenden Scan-Ausschlüsse von Mole und verspricht keinen atomaren Dateisystem-Snapshot.
+`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag. Numerische Größen enthalten gemessene Bytes; eine Null mit `unavailable` heißt nicht, dass das Verzeichnis leer ist. Auch Teilscans enden mit Code 0, daher sollten Skripte `scan_status` prüfen. Die Vollständigkeit gilt innerhalb der bestehenden Scan-Ausschlüsse von Mole und verspricht keinen atomaren Dateisystem-Snapshot.
 
 ```text
 $ mo analyze
@@ -318,9 +318,9 @@ $ mo status --json
 }
 ```
 
-Die Zombie-Prozess-Diagnose ist rein lesend; sie beendet keine Prozesse und beeinflusst die Bewertung nicht. Solange Mole noch keine erfolgreiche Prozessprobe hat, fehlen `process_collected_at`, `process_stale`, `zombie_count` und `zombie_parents_complete`, und `zombie_parents` ist `null`. Spätere fast/watch-Snapshots verwenden die letzte erfolgreiche Probe mit ihrem ursprünglichen `process_collected_at` weiter und setzen `process_stale: true`; eine neue Prozessprobe setzt es auf `false`. Ein Wert von `0` bedeutet, dass Mole gemessen und keine Zombies gefunden hat. Die Zusammenfassung der Elternprozesse enthält höchstens drei bekannte Besitzer; `zombie_parents_complete: false` heißt, dass die Zuordnung nicht verfügbar, unvollständig oder gekürzt war.
+Die Zombie-Prozess-Diagnose ist rein lesend; sie beendet keine Prozesse und beeinflusst den Zustandswert nicht. Solange Mole noch keine erfolgreiche Prozessprobe hat, fehlen `process_collected_at`, `process_stale`, `zombie_count` und `zombie_parents_complete`, und `zombie_parents` ist `null`. Spätere fast/watch-Snapshots verwenden die letzte erfolgreiche Probe mit ihrem ursprünglichen `process_collected_at` weiter und setzen `process_stale: true`; eine neue Prozessprobe setzt es auf `false`. Ein Wert von `0` bedeutet, dass Mole gemessen und keine Zombies gefunden hat. Die Zusammenfassung der Elternprozesse enthält höchstens drei bekannte Besitzer; `zombie_parents_complete: false` heißt, dass die Zuordnung nicht verfügbar, unvollständig oder gekürzt war.
 
-Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus, meldet den Fehler auf stderr und beendet mit Code 0, so wie `--watch` weiter streamt. Mit Code 1 endet es nur, wenn weder CPU-, Speicher-, Festplatten- noch Prozessdaten verfügbar sind oder die JSON-Ausgabe fehlschlägt.
+Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus, meldet den Fehler auf stderr und endet mit Code 0, so wie `--watch` weiter streamt. Mit Code 1 endet es nur, wenn weder CPU-, Speicher-, Festplatten- noch Prozessdaten verfügbar sind oder die JSON-Ausgabe fehlschlägt.
 
 Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-window` oder `--proc-cpu-alerts=false` konfiguriert werden.
 
@@ -367,13 +367,13 @@ Führe `mo purge --paths` aus oder bearbeite `~/.config/mole/purge_paths` direkt
 ~/Work/ClientB
 ```
 
-Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse (Standard: `~/Projects`, `~/GitHub`, `~/dev` und unterstützte Agent-Worktree-Ordner). Unvollständige Suchergebnisse werden nicht gespeichert. Artefakt-Scans reichen sechs Ebenen unter jeden konfigurierten Stamm; für tiefer liegende Projekte füge einen näheren Stamm hinzu. Purge entfernt neu erstellbare Artefakte innerhalb von Worktrees, nie die Worktrees selbst.
+Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse. Andernfalls nutzt Mole Standardpfade wie `~/Projects`, `~/GitHub`, `~/dev` und unterstützte Agent-Worktree-Ordner. Unvollständige Suchergebnisse werden nicht gespeichert. Artefakt-Scans reichen sechs Ebenen unter jeden konfigurierten Stamm; für tiefer liegende Projekte füge einen näheren Stamm hinzu. Purge entfernt neu erstellbare Artefakte innerhalb von Worktrees, nie die Worktrees selbst.
 
 </details>
 
 ### Installationsdateien (Installer)
 
-`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren typischen Ordnern. Vor dem Löschen werden Größe und Pfad angezeigt. Nutze `mo installer --dry-run` zur Vorschau. Scans verfügen über einen globalen Timeout-Schutz; schlägt ein Scan oder eine Metadatenabfrage fehl oder läuft ab, verwirft Mole die Liste und wählt keine Dateien aus. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
+`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren unterstützten Orten. Vor dem Löschen werden Größe und Pfad angezeigt. Nutze `mo installer --dry-run` zur Vorschau. Scans verfügen über einen globalen Timeout-Schutz; schlägt ein Scan oder eine Metadatenabfrage fehl oder läuft ab, verwirft Mole die Liste und wählt keine Dateien aus. Beschädigte und nicht lesbare ZIP-Archive werden übersprungen. Symlinks als Scan-Wurzel werden unterstützt, Symlinks darunter aber nicht verfolgt. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
 
 <details>
 <summary><strong>Installer Beispielausgabe</strong></summary>
