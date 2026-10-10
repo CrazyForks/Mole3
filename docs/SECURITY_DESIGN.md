@@ -2,7 +2,7 @@
 
 This document describes the safety mechanisms that prevent Mole from
 destroying data it shouldn't. It is written for reviewers, contributors,
-and anyone interested in how Mole safeguards user data.
+and anyone evaluating Mole for production use.
 
 The corresponding implementation lives in `lib/core/file_ops.sh`,
 `lib/core/app_protection.sh`, and `lib/core/app_protection_data.sh`. Path

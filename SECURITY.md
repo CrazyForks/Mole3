@@ -31,35 +31,46 @@ Response times are best-effort for a maintainer-led open source project, but sec
 
 ## Supported Versions
 
-Security fixes are provided for:
+Security fixes are only guaranteed for:
 
-- The latest stable release
+- The latest published release
 - The current `main` branch
 
-Older releases do not receive backported security patches. We recommend updating to the latest release to ensure you have current safety protections.
+Older releases may not receive security fixes. Users running high-risk commands should stay current.
 
-## What Qualifies as a Security Issue
+## What We Consider a Security Issue
 
-Security-relevant issues include:
+Examples of security-relevant issues include:
 
 - Path validation bypasses
 - Deletion outside intended cleanup boundaries
 - Unsafe handling of symlinks or path traversal
 - Unexpected privilege escalation or unsafe sudo behavior
-- Removal of protected sensitive data (keychains, credentials, browser history)
+- Sensitive data removal that bypasses documented protections
 - Release, installation, update, or checksum integrity issues
-- Logic defects leading to unintended data loss
+- Vulnerabilities in logic that can cause unintended destructive behavior
 
 ## What Usually Does Not Qualify
 
-These are handled as regular issues or feature requests rather than security reports:
+The following are usually normal bugs, feature requests, or documentation issues rather than security issues:
 
-- Residual junk left behind (incomplete cleanup)
-- False negatives where Mole conservatively skips a file
-- Cosmetic or UI rendering glitches
-- Requests for more aggressive deletion rules
-- Compatibility quirks without security impact
+- Cleanup misses that leave recoverable junk behind
+- False negatives where Mole refuses to clean something
+- Cosmetic UI problems
+- Requests for broader or more aggressive cleanup behavior
+- Compatibility issues without a plausible security impact
 
-When in doubt, report privately first.
+If you are unsure whether something is security-relevant, report it privately first.
 
-For architecture details, safety layers, and known limitations, see [SECURITY_DESIGN.md](docs/SECURITY_DESIGN.md) and [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+## Security-Focused Areas in Mole
+
+The project pays particular attention to:
+
+- Destructive command boundaries
+- Path validation and protected-directory rules
+- Sudo and privilege boundaries
+- Symlink and path traversal handling
+- Sensitive data exclusions
+- Packaging, release artifacts, checksums, and update/install flows
+
+For the current technical design and known limitations, see [SECURITY_DESIGN.md](docs/SECURITY_DESIGN.md) and [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
