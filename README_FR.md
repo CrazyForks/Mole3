@@ -423,7 +423,7 @@ Les lanceurs reconnaissent automatiquement les principaux terminaux (Terminal, i
 
 ## Communauté
 
-Merci à tous ceux qui contribuent au développement de Mole ❤️
+Merci à tous ceux qui contribuent au développement de Mole. Allez les suivre ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Contributeurs de Mole" width="1000" />

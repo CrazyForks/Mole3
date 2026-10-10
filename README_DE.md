@@ -423,7 +423,7 @@ Die Starter erkennen gängige Terminals automatisch (Terminal, iTerm2, Alacritty
 
 ## Community
 
-Vielen Dank an alle Mitwirkenden, die Mole voranbringen ❤️
+Vielen Dank an alle Mitwirkenden, die Mole voranbringen. Folge ihnen gern ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole Mitwirkende" width="1000" />

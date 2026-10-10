@@ -423,7 +423,7 @@ Raycast 설정 방법:
 
 ## 커뮤니티
 
-Mole 제작에 힘을 보태주신 모든 기여자분들께 감사드립니다 ❤️
+Mole 제작에 힘을 보태주신 모든 기여자분들께 감사드립니다. 이분들을 팔로우해 보세요 ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole 기여자" width="1000" />

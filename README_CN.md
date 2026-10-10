@@ -423,7 +423,7 @@ Raycast 安装后需一次性手动设置：
 
 ## 社区反馈
 
-感谢所有参与 Mole 开发与维护的贡献者 ❤️
+感谢所有参与 Mole 开发与维护的贡献者，去关注一下他们吧 ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole 贡献者" width="1000" />

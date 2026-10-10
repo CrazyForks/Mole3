@@ -423,7 +423,7 @@ Raycastは一度だけ手動設定が必要です：
 
 ## コミュニティ
 
-Moleの開発に貢献いただいたすべての方に感謝申し上げます ❤️
+Moleの開発に貢献いただいたすべての方に感謝申し上げます。ぜひフォローしてみてください ❤️
 
 <a href="https://github.com/tw93/Mole/graphs/contributors">
   <img src="./CONTRIBUTORS.svg?v=2" alt="Mole コントリビューター" width="1000" />
