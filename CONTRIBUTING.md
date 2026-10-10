@@ -185,6 +185,6 @@ CI will verify formatting, linting, and tests.
 
 ## Licensing
 
-Mole is licensed under GPL-3.0, and contributions carry the same license. There is no CLA: you retain your copyright, and your code cannot be re-licensed under a different proprietary license.
+Mole is GPL-3.0, and that is the licence your contribution carries. There is no CLA. You keep your copyright and I get only what the licence gives me, which means I cannot put your code under a different one.
 
-There is also a separate closed-source Mac app at [mole.fit](https://mole.fit). It is an independent codebase and neither program calls or depends on the other; what they share is common domain knowledge about macOS cleanup locations and conventions. If you prefer not to contribute alongside a commercial companion app, we completely understand and respect that choice.
+I also sell a closed-source Mac app at [mole.fit](https://mole.fit). It is a separate codebase rather than a build of this one, and neither program calls the other. What the two share is what anyone can observe about macOS: where a cache lives, what an app leaves behind. If you would rather not contribute alongside a paid product, that is a fair call, and I would rather you made it now than later.

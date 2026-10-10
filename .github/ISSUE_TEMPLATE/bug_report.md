@@ -16,7 +16,7 @@ Run `mo update` to install the latest stable version, then check `mo --version`.
 
 Describe what happened. English is preferred so more contributors can help triage.
 
-> If this issue involves unsafe deletion, path validation bypass, privilege escalation, or installer integrity, please report it privately according to [SECURITY.md](SECURITY.md).
+If you believe the issue may allow unsafe deletion, path validation bypass, privilege boundary bypass, or release/install integrity issues, do not file a public bug report. Report it privately using the contact details in [SECURITY.md](https://github.com/tw93/Mole/blob/main/SECURITY.md).
 
 ## Steps to reproduce
 
