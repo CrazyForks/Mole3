@@ -1016,21 +1016,31 @@ EOF
 
     local raw="$HOME/spinner-update.raw"
     # shellcheck disable=SC2016  # inner bash expands these from its environment
-    PROJECT_ROOT="$PROJECT_ROOT" HOME="$HOME" TERM=xterm-256color \
-        /usr/bin/script -q "$raw" /bin/bash --noprofile --norc -c '
+    # -F flushes each write, so the inner shell can watch its own frames.
+    PROJECT_ROOT="$PROJECT_ROOT" HOME="$HOME" TERM=xterm-256color RAW="$raw" \
+        /usr/bin/script -qF "$raw" /bin/bash --noprofile --norc -c '
             source "$PROJECT_ROOT/lib/core/common.sh"
+            # A loaded runner can take longer than a fixed sleep to draw the
+            # next frame, so wait for the text itself, up to 3 s.
+            wait_for_frame() {
+                local tries=0
+                until /usr/bin/grep -q "$1" "$RAW" 2> /dev/null || [[ $tries -ge 30 ]]; do
+                    /bin/sleep 0.1
+                    tries=$((tries + 1))
+                done
+            }
             MOLE_SPINNER_PREFIX="  " start_inline_spinner "Phase one..."
             pid_before="$INLINE_SPINNER_PID"
             control_dir="$INLINE_SPINNER_CONTROL_DIR"
             control_mode=$(stat -f%Lp "$control_dir")
             [[ "$INLINE_SPINNER_MSG_FILE" == "$control_dir/message" && "$control_mode" == "700" ]] && echo "CONTROL_PRIVATE"
-            /bin/sleep 0.2
+            wait_for_frame "Phase one"
             update_inline_spinner_message "Phase two..." || echo "UPDATE_FAILED"
-            /bin/sleep 0.2
+            wait_for_frame "Phase two"
             pid_after="$INLINE_SPINNER_PID"
             stop_inline_spinner
             [[ "$pid_before" == "$pid_after" && -n "$pid_before" ]] && echo "PID_STABLE"
-        ' > /dev/null 2>&1
+        ' < /dev/null > /dev/null 2>&1
 
     raw_content="$(cat "$raw")"
     [[ "$raw_content" == *"Phase one..."* ]] || return 1
