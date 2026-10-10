@@ -27,7 +27,7 @@
 
 ## Schnellstart
 
-Mole erfordert macOS 12 oder neuer und unterstützt sowohl Intel als auch Apple Silicon Macs.
+Mole erfordert macOS 12 oder neuer und unterstützt sowohl Intel als auch Apple Silicon Macs. Falls Homebrew deine macOS-Version nicht mehr unterstützt, nutze stattdessen das Skript; eine experimentelle Windows-Version befindet sich im [windows Branch](https://github.com/tw93/Mole/tree/windows).
 
 **Installation über Homebrew**
 
@@ -35,15 +35,11 @@ Mole erfordert macOS 12 oder neuer und unterstützt sowohl Intel als auch Apple 
 brew install mole
 ```
 
-Falls Homebrew deine macOS-Version nicht mehr unterstützt, nutze stattdessen das folgende Skript.
-
 **Oder per Skript**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash
 ```
-
-Mole wurde für macOS entwickelt. Eine experimentelle Windows-Version befindet sich im [windows Branch](https://github.com/tw93/Mole/tree/windows).
 
 **Befehle**
 
@@ -85,8 +81,6 @@ mo analyze /Volumes          # Nur externe Laufwerke analysieren
 mo analyze /private/tmp      # Temporäre Benutzerverzeichnisse prüfen
 ```
 
-Mit `mo clean --whitelist` gespeicherte Pfade liegen in `~/.config/mole/whitelist`. Bevor du eigene Pfade hinzufügst, öffne das Menü und drücke Enter, um die Auswahl zu speichern, und ergänze dann einen Pfad pro Zeile. Eine vorhandene Datei ersetzt die optionalen Standardregeln; der integrierte Sicherheitsschutz gilt weiterhin.
-
 <details>
 <summary><strong>Weitere Installationsoptionen</strong></summary>
 
@@ -123,19 +117,17 @@ Für eine deklarative Konfiguration füge `github:tw93/mole/main` als Flake-Inpu
 
 </details>
 
-Video-Anleitung bevorzugt? Sieh dir das [Mole-Tutorial](https://www.youtube.com/watch?v=UEe9-w4CcQ0) von PAPAYA 電腦教室 an.
-
 ## Sicherheit
 
 Mole kann Dateien löschen. Deshalb prüft es Pfade, schützt gemeinsam genutzte und systemeigene Orte und fragt nach einer Bestätigung, wenn eine Aktion sie braucht. Kann Mole nicht belegen, dass eine Änderung sicher ist, überspringt oder verweigert es sie.
 
-- `clean`, `uninstall`, `purge`, `installer` und `remove` löschen Dateien. Überprüfe sie zuerst mit `--dry-run` und bei Bedarf mit `--debug`.
-- Führe Mole **ohne `sudo`** aus; Administratorrechte werden nur bei Bedarf für Systembereinigungen angefordert.
-- `mo analyze` verschiebt ausgewählte Objekte nach Bestätigung in den macOS-Papierkorb.
-- Bereinigungsaktivitäten werden in `~/Library/Logs/mole/operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`.
-- Schütze Verzeichnisse mit `mo clean --whitelist` oder Wartungsaufgaben mit `mo optimize --whitelist`.
+- `clean`, `uninstall`, `purge`, `installer` und `remove` löschen Dateien, überprüfe sie also zuerst mit `--dry-run` und bei Bedarf mit `--debug`
+- Führe Mole **ohne `sudo`** aus; Administratorrechte werden nur bei Bedarf für Systembereinigungen angefordert
+- `mo analyze` verschiebt ausgewählte Objekte nach Bestätigung in den macOS-Papierkorb
+- Bereinigungsaktivitäten werden in `~/Library/Logs/mole/operations.log` protokolliert; überprüfe sie mit `mo history` oder deaktiviere das Logging mit `MO_NO_OPLOG=1`
+- Schütze Verzeichnisse mit `mo clean --whitelist` oder Wartungsaufgaben mit `mo optimize --whitelist`
 
-Weitere Details zu Sicherheitsgrenzen findest du in [SECURITY.md](SECURITY.md) und [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
+Hinweise zum Melden von Schwachstellen, Sicherheitsgrenzen und aktuelle Einschränkungen findest du in [SECURITY.md](SECURITY.md) und [SECURITY_AUDIT.md](SECURITY_AUDIT.md).
 
 ## Funktionsdetails
 
@@ -143,7 +135,7 @@ Die folgenden Beispiele sind gekürzt. Die genauen Einträge und Größen hänge
 
 ### Bereinigung (Clean)
 
-`mo clean` scannt sichere Caches, Protokolle, temporäre Dateien, Entwickler-Artefakte und Reste entfernter Apps. Nutze `mo clean --dry-run` zur Vorschau und `mo clean --whitelist` zum Schutz spezifischer Pfade. `mo clean` leert standardmäßig den Papierkorb; um ihn zu behalten, wähle Trash in `mo clean --whitelist`.
+`mo clean` scannt sichere Caches, Protokolle, temporäre Dateien, Entwickler-Artefakte und Reste entfernter Apps. Es leert standardmäßig den Papierkorb; um ihn zu behalten, wähle Trash in `mo clean --whitelist`, demselben Menü, mit dem du Caches schützt. Die Auswahl wird in `~/.config/mole/whitelist` gespeichert. Bevor du eigene Pfade hinzufügst, öffne das Menü und drücke Enter, um die Auswahl zu speichern, und ergänze dann einen Pfad pro Zeile. Eine vorhandene Datei ersetzt die optionalen Standardregeln; der integrierte Sicherheitsschutz gilt weiterhin.
 
 ```text
 $ mo clean
@@ -177,7 +169,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### Deinstallation (Uninstall)
 
-`mo uninstall` entfernt eine installierte App zusammen mit den zugehörigen Dateien, die Mole eindeutig dieser App zuordnen kann. Gemeinsam genutzte Dateien bleiben erhalten, solange eine andere installierte Kopie derselben App sie noch nutzt. Nutze `mo uninstall --dry-run` zur Vorschau. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
+`mo uninstall` entfernt eine installierte App zusammen mit den zugehörigen Dateien, die Mole eindeutig dieser App zuordnen kann. Gemeinsam genutzte Dateien bleiben erhalten, solange eine andere installierte Kopie derselben App sie noch nutzt. Falls eine App bereits gelöscht wurde, findet `mo clean` verbliebene Reste.
 
 ```text
 $ mo uninstall
@@ -203,7 +195,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### Optimierung (Optimize)
 
-`mo optimize` führt begrenzte Wartungsaufgaben für unterstützte Finder-, Netzwerk-, Datenbank- und macOS-Dienste aus. Aufgaben, die nicht nötig, gerade nicht sicher oder nicht verfügbar sind, werden mit Begründung übersprungen. Nutze `mo optimize --dry-run` zur Vorschau und `mo optimize --whitelist`, um Aufgaben oder Pfadmuster auszuschließen.
+`mo optimize` führt begrenzte Wartungsaufgaben für unterstützte Finder-, Netzwerk-, Datenbank- und macOS-Dienste aus. Aufgaben, die nicht nötig, gerade nicht sicher oder nicht verfügbar sind, werden mit Begründung übersprungen. Mit `mo optimize --whitelist` schließt du Aufgaben oder Pfadmuster aus, etwa um dauerhaft gemountete Images wie `/Volumes/mail` vom Unmount-Vorschlag auszuschließen.
 
 ```text
 $ mo optimize
@@ -236,8 +228,6 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-Pfadmuster werden unterstützt, um beispielsweise dauerhaft gemountete Images wie `/Volumes/mail` vom Unmount-Vorschlag auszuschließen.
-
 ### Speicheranalyse (Analyze)
 
 `mo analyze` öffnet einen interaktiven Festplatten-Explorer im Terminal. Unterstützt Pfeiltasten und Vim-Steuerung, Filterung, Mehrfachauswahl, Finder-Vorschau und sicheres Verschieben in den Papierkorb. Externe Laufwerke werden in der Standardübersicht ausgespart; prüfe sie mit `mo analyze /Volumes`. Verwende `mo analyze /private/tmp`, um temporäre Benutzerdateien zu prüfen, ohne sie automatisch zu löschen.
@@ -253,10 +243,10 @@ Analyze Disk  (302.1GB free)
 Select a location to explore:
 
  ▶  1. ████████████████████████  47.9%  |  Home                       75.4GB
-     2. ███████████               22.0%  |  User Library               34.6GB
-     3. ███████                   14.2%  |  Applications               22.4GB
-     4. █████                     10.7%  |  System Library             16.9GB
-     5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
+    2. ███████████               22.0%  |  User Library               34.6GB
+    3. ███████                   14.2%  |  Applications               22.4GB
+    4. █████                     10.7%  |  System Library             16.9GB
+    5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
 ```
 
 ### Systemstatus (Status)
@@ -288,15 +278,15 @@ Up      ▄▄▄▃▃▃▄▆▆▇█▁▁▁▁▁  0.02 MB/s      Code   
 Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 ```
 
-Der Zustandswert fasst CPU, RAM, Festplattenkapazität, SMART-Status, I/O, Temperatur, Batterie und Uptime zusammen. Drücke `k` für das Kätzchen, `c` zum Umschalten der CPU-Kerne und `q` zum Beenden. Einstellungen werden gespeichert.
+Der Zustandswert fasst CPU, RAM, Festplattenkapazität, SMART-Status, I/O, Temperatur, Batterie und Uptime zusammen. Drücke `k` für das Kätzchen, `c` zum Umschalten der CPU-Kerne und `q` zum Beenden; Einstellungen werden gespeichert.
 
 <details>
 <summary><strong>JSON, NDJSON und Prozess-Warnungen</strong></summary>
 
-- `mo analyze --json ~/Documents`: Gibt den Festplattenbericht einmalig als JSON aus.
-- `mo status --json`: Gibt den Systemstatus einmalig als JSON aus.
-- `mo status | jq '.health_score'`: Schaltet bei Weiterleitung in Pipes automatisch auf JSON um.
-- `mo status --watch --interval 2s`: Streamt NDJSON (durch Zeilenumbrüche getrenntes JSON).
+- `mo analyze --json ~/Documents`: Gibt den Festplattenbericht einmalig als JSON aus
+- `mo status --json`: Gibt den Systemstatus einmalig als JSON aus
+- `mo status | jq '.health_score'`: Schaltet bei Weiterleitung in Pipes automatisch auf JSON um
+- `mo status --watch --interval 2s`: Streamt NDJSON (durch Zeilenumbrüche getrenntes JSON)
 - `mo history --json`: Gibt die Bereinigungshistorie als JSON aus. Sitzungen enthalten `run_id` (ein undurchsichtiger String, leer, wenn keine Identität protokolliert wurde) und `attribution`: `run` für erkannte Läufe, `command` für die alte Gruppierung nach Befehl oder `ambiguous`, wenn alte Markierungen eine Unterbrechung nicht von überlappenden Läufen unterscheiden können. Aufgezeichnete Aktionen bleiben verfügbar; mehrdeutige Zählungen lassen sich einzelnen Läufen nicht zuverlässig zuordnen. Ein leeres `ended_at` bedeutet, dass keine Endmarkierung aufgezeichnet wurde.
 
 ```text
@@ -328,9 +318,9 @@ Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-w
 
 ### Projektbereinigung (Purge)
 
-`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert, und nur die bestätigten Einträge werden endgültig gelöscht, ohne Umweg über den Papierkorb. Artefakte mit Aktivität in den letzten 7 Tagen oder mit nicht prüfbarer Aktivität sind standardmäßig abgewählt. Mole nutzt `fd`, wenn verfügbar, und fällt sonst auf `find` zurück. Verzeichnisse mit Deployment-Schlüsseln, verschachtelten Git-Repositories oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
+`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert, und nur die bestätigten Einträge werden endgültig gelöscht, ohne Umweg über den Papierkorb. Artefakte mit Aktivität in den letzten 7 Tagen oder mit nicht prüfbarer Aktivität sind standardmäßig abgewählt. Mole nutzt `fd`, wenn verfügbar, und fällt sonst auf `find` zurück; Verzeichnisse mit Deployment-Schlüsseln, verschachtelten Git-Repositories oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
 
-Verwende Bild auf/ab oder `h`/`l` zum Blättern, `[`/`]` zum Springen zwischen Projekten und `X`, um ein Projekt zu überspringen und weiterzugehen. `/` durchsucht Projektpfade und Artefaktnamen, `n` findet den nächsten Treffer, ohne die Auswahl zu ändern. Enter öffnet die abschließende Pfadprüfung. Der angezeigte Speicherplatz ist eine Schätzung; nicht gemessene Artefakte und unvollständige Scans werden ausdrücklich gekennzeichnet.
+Verwende Bild auf/ab oder `h`/`l` zum Blättern, `[`/`]` zum Springen zwischen Projekten und `X`, um ein Projekt zu überspringen und weiterzugehen. `/` durchsucht Projektpfade und Artefaktnamen, `n` findet den nächsten Treffer, ohne die Auswahl zu ändern, und Enter öffnet die abschließende Pfadprüfung. Der angezeigte Speicherplatz ist eine Schätzung; nicht gemessene Artefakte und unvollständige Scans werden ausdrücklich gekennzeichnet.
 
 <details>
 <summary><strong>Purge Beispielausgabe</strong></summary>
@@ -373,7 +363,7 @@ Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse. A
 
 ### Installationsdateien (Installer)
 
-`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren unterstützten Orten. Vor dem Löschen werden Größe und Pfad angezeigt. Nutze `mo installer --dry-run` zur Vorschau. Scans verfügen über einen globalen Timeout-Schutz; schlägt ein Scan oder eine Metadatenabfrage fehl oder läuft ab, verwirft Mole die Liste und wählt keine Dateien aus. Beschädigte und nicht lesbare ZIP-Archive werden übersprungen. Symlinks als Scan-Wurzel werden unterstützt, Symlinks darunter aber nicht verfolgt. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
+`mo installer` findet DMG-, PKG-, MPKG-, ISO-, XIP- und Installer-ZIP-Dateien in Downloads, Schreibtisch, Homebrew-Caches, iCloud, Mail, Telegram und weiteren unterstützten Orten. Vor dem Löschen werden Größe und Pfad angezeigt. Scans verfügen über einen globalen Timeout-Schutz; schlägt ein Scan oder eine Metadatenabfrage fehl oder läuft ab, verwirft Mole die Liste und wählt keine Dateien aus. Beschädigte und nicht lesbare ZIP-Archive werden übersprungen, Symlinks als Scan-Wurzel werden unterstützt, Symlinks darunter aber nicht verfolgt. Vor dem endgültigen Löschen werden Dateien erneut überprüft, um sicherzustellen, dass sie sich nicht verändert haben.
 
 <details>
 <summary><strong>Installer Beispielausgabe</strong></summary>
@@ -434,11 +424,13 @@ Echtes Feedback von Nutzern auf X (Twitter):
 
 <img src="./docs/img/mole-love.png" alt="Community-Feedback zu Mole" width="1000" />
 
+Video-Anleitung bevorzugt? Sieh dir das [Mole-Tutorial](https://www.youtube.com/watch?v=UEe9-w4CcQ0) von PAPAYA 電腦教室 an.
+
 ## Unterstützung
 
-- Der Kauf von [Mole for Mac](https://mole.fit) ist die direkteste Art, die Entwicklung von Mole zu unterstützen.
-- Wenn dir Mole hilft, gib dem Projekt einen Stern, [teile es auf X](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.) oder erstelle ein Issue/PR.
-- Ich habe zwei Katzen: TangYuan und Coke. Wenn Mole dir gefällt, spendiere ihnen gerne eine Dose <a href="https://cats.tw93.fun?name=Mole" target="_blank">Katzenfutter 🥩</a>.
+- Der Kauf von [Mole for Mac](https://mole.fit) ist die direkteste Art, die Entwicklung von Mole zu unterstützen
+- Wenn dir Mole hilft, gib dem Projekt einen Stern, [teile es auf X](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.) oder erstelle ein Issue/PR
+- Ich habe zwei Katzen, TangYuan und Coke, und wenn Mole dir gefällt, spendiere ihnen gerne eine Dose <a href="https://cats.tw93.fun?name=Mole" target="_blank">Katzenfutter 🥩</a>
 
 <details>
 <summary>Diese wunderbaren Unterstützer haben das bereits getan 🐱</summary>
@@ -448,6 +440,4 @@ Echtes Feedback von Nutzern auf X (Twitter):
 
 ## Lizenz
 
-Mole ist Open Source unter der GPL-3.0; siehe [LICENSE](LICENSE). Modifizierte und weitergegebene Versionen müssen unter derselben Lizenz verbleiben. Bei einem Fork verwende bitte einen eigenständigen Namen und nenne Mole als Upstream-Quelle.
-
-[Mole for Mac](https://mole.fit) ist eine separate proprietäre App. Mole bleibt langfristig bestehen.
+Mole ist Open Source unter der GPL-3.0; siehe [LICENSE](LICENSE). Modifizierte und weitergegebene Versionen müssen unter derselben Lizenz verbleiben. Bei einem Fork verwende bitte einen eigenständigen Namen und nenne Mole als Upstream-Quelle. [Mole for Mac](https://mole.fit) ist eine separate proprietäre App. Mole bleibt langfristig bestehen.

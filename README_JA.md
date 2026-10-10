@@ -27,7 +27,7 @@
 
 ## クイックスタート
 
-MoleはmacOS 12以降に対応し、IntelおよびApple Silicon Macの双方をサポートします。
+MoleはmacOS 12以降に対応し、IntelおよびApple Silicon Macの双方をサポートします。お使いのmacOSでHomebrewが利用できない場合はスクリプトでインストールしてください。実験的なWindows版は [windowsブランチ](https://github.com/tw93/Mole/tree/windows) にあります。
 
 **Homebrewでインストール**
 
@@ -35,15 +35,11 @@ MoleはmacOS 12以降に対応し、IntelおよびApple Silicon Macの双方を�
 brew install mole
 ```
 
-お使いのmacOS環境でHomebrewが利用できない場合は、以下のスクリプトをご利用ください。
-
 **スクリプトでインストール**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash
 ```
-
-MoleはmacOS向けに設計されています。実験的なWindows版は [windowsブランチ](https://github.com/tw93/Mole/tree/windows) をご覧ください。
 
 **主要コマンド**
 
@@ -55,7 +51,7 @@ mo optimize                  # システム最適化：システムサービス�
 mo analyze                   # ディスク分析：ディスク容量の内訳確認と大容量ファイルの探索
 mo status                    # 状態監視：CPU、メモリ、ネットワーク、ハードウェアの健康度ダッシュボード
 mo purge                     # プロジェクトクリーン：ビルド生成物（node_modules、targetなど）の整理
-mo installer                 # インストーラ整理：使用済みDMGおよびPKGファイルの探索と削除
+mo installer                 # インストーラ整理：インストーラファイルの探索と削除
 
 mo touchid                   # ターミナルsudo用Touch ID認証の設定
 mo completion                # シェル補完の設定
@@ -84,8 +80,6 @@ mo purge --paths             # プロジェクト検索ディレクトリの設�
 mo analyze /Volumes          # 外付けドライブのみ分析
 mo analyze /private/tmp      # 一時ディレクトリの確認（自動削除なし）
 ```
-
-`mo clean --whitelist` で選んだパスは `~/.config/mole/whitelist` に保存されます。独自のパスを追加する前に、メニューを開いてEnterで選択内容を保存し、そのあと1行に1パスずつ追記してください。ファイルが存在するとオプションの標準ルールは置き換えられますが、組み込みの安全保護は引き続き有効です。
 
 <details>
 <summary><strong>その他のインストールオプション</strong></summary>
@@ -123,19 +117,17 @@ nix profile remove mole
 
 </details>
 
-PAPAYA 電腦教室 による [Moleチュートリアル動画](https://www.youtube.com/watch?v=UEe9-w4CcQ0) をご覧いただけます。
-
 ## 安全性
 
 Moleはファイルを削除できるため、パスを検証し、共有の場所やシステム所有の場所を保護し、必要な操作では確認を求めます。安全に変更できると確認できない項目は、スキップするか処理を拒否します。
 
-- `clean`、`uninstall`、`purge`、`installer`、`remove` はファイル削除を伴います。事前に `--dry-run` で確認し、必要に応じて `--debug` を併用してください
-- 通常利用では **`sudo` 不要** です。システム領域のクリーン時のみ必要に応じて管理者権限を要求します
+- `clean`、`uninstall`、`purge`、`installer`、`remove` はファイル削除を伴うため、事前に `--dry-run` で確認し、必要に応じて `--debug` を併用してください
+- 通常利用では **`sudo` 不要** で、システム領域のクリーン時のみ必要に応じて管理者権限を要求します
 - `mo analyze` で選択した項目は、確認後にmacOSのゴミ箱へ移動されます
-- クリーンアップ履歴は `~/Library/Logs/mole/operations.log` に記録されます。`mo history` で確認するか、`MO_NO_OPLOG=1` で無効化できます
+- クリーンアップ履歴は `~/Library/Logs/mole/operations.log` に記録され、`mo history` で確認するか、`MO_NO_OPLOG=1` で無効化できます
 - `mo clean --whitelist` で保持したいキャッシュを保護し、`mo optimize --whitelist` で除外項目を設定できます
 
-詳細は [SECURITY.md](SECURITY.md) および [SECURITY_AUDIT.md](SECURITY_AUDIT.md) をご覧ください。
+脆弱性の報告方法、安全上の境界、現在の制限は [SECURITY.md](SECURITY.md) および [SECURITY_AUDIT.md](SECURITY_AUDIT.md) をご覧ください。
 
 ## 機能詳細
 
@@ -143,7 +135,7 @@ Moleはファイルを削除できるため、パスを検証し、共有の場�
 
 ### ディープクリーン（Clean）
 
-`mo clean` は安全なキャッシュ、ログ、一時ファイル、開発ツールキャッシュ、アンインストール済みアプリの残留物を探索して削除します。`mo clean --dry-run` で事前確認し、`mo clean --whitelist` で特定ディレクトリを保護できます。`mo clean` は既定でゴミ箱を空にします。残したい場合は `mo clean --whitelist` で Trash を選択してください。
+`mo clean` は安全なキャッシュ、ログ、一時ファイル、開発ツールキャッシュ、アンインストール済みアプリの残留物を探索して削除します。既定でゴミ箱を空にするので、残したい場合は `mo clean --whitelist` で Trash を選択してください。同じメニューで保持したいキャッシュも保護でき、選択内容は `~/.config/mole/whitelist` に保存されます。独自のパスを追加する前に、メニューを開いてEnterで選択内容を保存し、そのあと1行に1パスずつ追記してください。ファイルが存在するとオプションの標準ルールは置き換えられますが、組み込みの安全保護は引き続き有効です。
 
 ```text
 $ mo clean
@@ -177,7 +169,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### アプリアンインストール（Uninstall）
 
-`mo uninstall` はインストール済みアプリと、Moleがそのアプリのものだと特定できる関連ファイルを削除します。同じアプリの別のインストールがまだ使っている共有ファイルは保持されます。`mo uninstall --dry-run` で削除計画を確認できます。アプリがすでに削除済みの場合は、`mo clean` で残留ファイルを探せます。
+`mo uninstall` はインストール済みアプリと、Moleがそのアプリのものだと特定できる関連ファイルを削除します。同じアプリの別のインストールがまだ使っている共有ファイルは保持されます。アプリがすでに削除済みの場合は、`mo clean` で残留ファイルを探せます。
 
 ```text
 $ mo uninstall
@@ -203,7 +195,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### システム最適化（Optimize）
 
-`mo optimize` は対応するFinder、ネットワーク、データベース、macOSサービスに対して、範囲を限定したメンテナンスを実行します。不要な処理、その時点では安全に実行できない処理、利用できない処理は理由とともにスキップされます。`mo optimize --dry-run` で事前に確認し、`mo optimize --whitelist` でタスクやパスパターンを除外できます。
+`mo optimize` は対応するFinder、ネットワーク、データベース、macOSサービスに対して、範囲を限定したメンテナンスを実行します。不要な処理、その時点では安全に実行できない処理、利用できない処理は理由とともにスキップされます。`mo optimize --whitelist` でタスクやパスパターンを除外でき、たとえば `/Volumes/mail` のように長くマウントしたままにしておくディスクイメージを、取り外し候補に出さないようにできます。
 
 ```text
 $ mo optimize
@@ -236,8 +228,6 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-パスパターンも指定できるので、たとえば `/Volumes/mail` のように長くマウントしたままにしておくディスクイメージを、取り外し候補に出さないようにできます。
-
 ### ディスク分析（Analyze）
 
 `mo analyze` はターミナル内で動作するインタラクティブなディスク探索ツールです。矢印キーやVimキーバインドでの移動、絞り込み、複数選択、Finderプレビュー、ゴミ箱への移動に対応しています。外付けドライブは通常画面から除外されており、`mo analyze /Volumes` で確認できます。`mo analyze /private/tmp` を使うと、ユーザー所有の一時ファイルを自動クリーンアップの対象にせずに確認できます。
@@ -253,10 +243,10 @@ Analyze Disk  (302.1GB free)
 Select a location to explore:
 
  ▶  1. ████████████████████████  47.9%  |  Home                       75.4GB
-     2. ███████████               22.0%  |  User Library               34.6GB
-     3. ███████                   14.2%  |  Applications               22.4GB
-     4. █████                     10.7%  |  System Library             16.9GB
-     5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
+    2. ███████████               22.0%  |  User Library               34.6GB
+    3. ███████                   14.2%  |  Applications               22.4GB
+    4. █████                     10.7%  |  System Library             16.9GB
+    5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
 ```
 
 ### 状態監視（Status）
@@ -330,7 +320,7 @@ CPU使用率がしきい値を超え続けるプロセスについて、読み�
 
 `mo purge` は再ビルド可能なプロジェクト生成ディレクトリ（`node_modules`、`target`、`.build`、`build`、`dist` など）を検出します。プロジェクトごとに整理して表示し、チェックして確認した項目のみを、ゴミ箱を経由せず完全に削除します。直近7日間にファイルの変更があった項目や、変更時期をMoleが確認できない項目は標準で選択解除されます。`fd` があれば使用し、なければ `find` を使います。デプロイ用のキーペアファイル、入れ子のGitリポジトリ、Gitで管理されたファイルを含むディレクトリは保護されます。非対話モードでは `mo purge --yes` が必要です。先に `mo purge --dry-run` で候補を確認してください。
 
-Page Up/Downまたは `h`/`l` でページ移動、`[`/`]` でプロジェクト間を移動、`X` でそのプロジェクトをスキップして次へ進みます。`/` でプロジェクトのパスと生成物の名前を検索し、`n` で選択状態を変えずに次の一致へ移動します。Enterで最終的なパスの確認画面を開きます。表示される容量は推定値で、計測できなかった生成物や不完全なスキャンは明示されます。
+Page Up/Downまたは `h`/`l` でページ移動、`[`/`]` でプロジェクト間を移動、`X` でそのプロジェクトをスキップして次へ進みます。`/` でプロジェクトのパスと生成物の名前を検索し、`n` で選択状態を変えずに次の一致へ移動し、Enterで最終的なパスの確認画面を開きます。表示される容量は推定値で、計測できなかった生成物や不完全なスキャンは明示されます。
 
 <details>
 <summary><strong>Purge 出力例</strong></summary>
@@ -373,7 +363,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### インストーラ整理（Installer）
 
-`mo installer` はダウンロード、デスクトップ、Homebrewキャッシュ、iCloud、Mail、TelegramなどからDMG、PKG、MPKG、ISO、XIP、ZIPインストーラを探索します。削除前にサイズと保存場所が表示されます。`mo installer --dry-run` で削除対象を事前に確認できます。スキャン全体に制限時間があり、スキャンやメタデータの取得が失敗またはタイムアウトした場合は、部分的なデータで処理せず結果を破棄します。破損したZIPや読み取れないZIPはスキップされます。シンボリックリンクのスキャンルートには対応しますが、その配下のシンボリックリンクはたどりません。選択したファイルは、変更されていないことを削除の直前に再検証します。
+`mo installer` はダウンロード、デスクトップ、Homebrewキャッシュ、iCloud、Mail、TelegramなどからDMG、PKG、MPKG、ISO、XIP、ZIPインストーラを探索し、削除前にサイズと保存場所を表示します。スキャン全体に制限時間があり、スキャンやメタデータの取得が失敗またはタイムアウトした場合は、部分的なデータで処理せず結果を破棄します。破損したZIPや読み取れないZIPはスキップされ、シンボリックリンクのスキャンルートには対応しますが、その配下のシンボリックリンクはたどりません。選択したファイルは、変更されていないことを削除の直前に再検証します。
 
 <details>
 <summary><strong>Installer 出力例</strong></summary>
@@ -434,11 +424,13 @@ X (Twitter) で寄せられた実際の声：
 
 <img src="./docs/img/mole-love.png" alt="コミュニティフィードバック" width="1000" />
 
+PAPAYA 電腦教室 による [Moleチュートリアル動画](https://www.youtube.com/watch?v=UEe9-w4CcQ0) をご覧いただけます。
+
 ## サポート
 
 - [Mole for Mac](https://mole.fit) の購入が、Moleの継続開発を支援する最も直接的な方法です
 - Moleが役に立った場合は、GitHubのStarや [Xでのシェア](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)、Issue・PRでのフィードバックをお願いします
-- 飼い猫の「湯圓（タンユエン）」と「コーラ」に <a href="https://cats.tw93.fun?name=Mole" target="_blank">缶詰 🥩</a> をプレゼントしていただけると励みになります
+- 我が家には「湯圓（タンユエン）」と「コーラ」という2匹の猫がいて、Moleが役に立ったら彼女たちに <a href="https://cats.tw93.fun?name=Mole" target="_blank">缶詰 🥩</a> をごちそうしてもらえるとうれしいです
 
 <details>
 <summary>支援してくださった方々 🐱</summary>
@@ -448,6 +440,4 @@ X (Twitter) で寄せられた実際の声：
 
 ## ライセンス
 
-MoleはGPL-3.0ライセンスのもとでオープンソース公開されています。詳細は [LICENSE](LICENSE) をご覧ください。変更したバージョンを共有する場合は、同じライセンスのままにする必要があります。Moleをフォークして別の製品にする場合は、別の名前を使い、Moleを元のプロジェクトとして明記してください。
-
-[Mole for Mac](https://mole.fit) は独立したプロプライエタリなアプリです。Moleはこれからも長く続けていきます。
+MoleはGPL-3.0ライセンスのもとでオープンソース公開されています。詳細は [LICENSE](LICENSE) をご覧ください。変更したバージョンを共有する場合は、同じライセンスのままにする必要があります。Moleをフォークして別の製品にする場合は、別の名前を使い、Moleを元のプロジェクトとして明記してください。[Mole for Mac](https://mole.fit) は独立したプロプライエタリなアプリです。Moleはこれからも長く続けていきます。

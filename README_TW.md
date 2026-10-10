@@ -14,20 +14,20 @@
   <img src="./docs/img/big-mole.png" alt="Mole 清理成果" width="1000" />
 </p>
 
-> 💡 這個倉庫是免費開源的命令列工具（`mo`）。喜歡圖形介面的話，[Mole for Mac](https://mole.fit/) 需要另外下載，支援刪除前逐項確認、實測 800 多款軟體的解除安裝殘留、系統維護、逐層分析磁碟空間、即時狀態監控，以及在支援的 Mac 上控制風扇。`brew install mole` 只會安裝命令列工具。
+> 💡 這個倉庫是免費開源的命令列工具（`mo`），喜歡圖形介面的話可以另外下載 [Mole for Mac](https://mole.fit/)，支援刪除前逐項確認、實測 800 多款軟體的解除安裝殘留、系統維護、逐層分析磁碟空間、即時狀態監控，以及在支援的 Mac 上控制風扇，`brew install mole` 只會安裝命令列工具。
 
 ## 功能
 
 - **多合一命令列**：把 CleanMyMac、AppCleaner、DaisyDisk 與 iStat Menus 的日常用法放進一個終端機指令
-- **深度清理**：安全清除系統快取、應用程式日誌與解除安裝殘留，釋放磁碟空間
+- **深度清理**：清除系統快取、應用程式日誌與解除安裝殘留，釋放磁碟空間
 - **應用程式解除安裝**：移除應用程式，同步清理偏好設定與自啟動項目
-- **磁碟分析**：終端機互動式視覺化，清楚瀏覽目錄層級，定位佔用空間的大檔案
+- **磁碟分析**：終端機互動式瀏覽目錄層級，定位佔用空間的大檔案
 - **系統最佳化**：重新整理系統服務、重建快取並最佳化核心資料庫
 - **即時監控**：在終端機儀表板中即時查看 CPU、記憶體、磁碟讀寫、網路流量與行程
 
 ## 快速開始
 
-Mole 支援 macOS 12 及更高版本，同時相容 Intel 與 Apple Silicon 晶片。
+Mole 支援 macOS 12 及更高版本，相容 Intel 與 Apple Silicon 晶片，Homebrew 不再支援你的 macOS 版本時改用指令碼安裝，實驗性的 Windows 版本在 [windows 分支](https://github.com/tw93/Mole/tree/windows)。
 
 **透過 Homebrew 安裝**
 
@@ -35,27 +35,23 @@ Mole 支援 macOS 12 及更高版本，同時相容 Intel 與 Apple Silicon 晶�
 brew install mole
 ```
 
-如果你的 macOS 版本較舊導致 Homebrew 無法支援，可以使用下方的指令碼安裝。
-
 **透過指令碼安裝**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash
 ```
 
-Mole 主要面向 macOS。實驗性的 Windows 版本可在 [windows 分支](https://github.com/tw93/Mole/tree/windows) 查看。
-
 **常用指令**
 
 ```bash
 mo                           # 開啟互動式選單
-mo clean                     # 深度清理：安全清理系統快取、日誌與解除安裝殘留
-mo uninstall                 # 應用程式解除安裝：完整解除安裝軟體並清理殘留檔案
-mo optimize                  # 系統最佳化：重新整理系統服務與快取
-mo analyze                   # 磁碟分析：互動式查看磁碟空間佔用與大檔案
-mo status                    # 狀態監控：即時監控 CPU、記憶體、網路與硬體健康
-mo purge                     # 專案清理：清理開發建置產物（如 node_modules、target）
-mo installer                 # 安裝檔清理：尋找並清理 DMG 與 PKG 安裝檔
+mo clean                     # 深度清理與已移除應用程式殘留
+mo uninstall                 # 解除安裝應用程式及其殘留
+mo optimize                  # 重新整理系統快取與服務
+mo analyze                   # 磁碟空間瀏覽（也可寫 mo analyse）
+mo status                    # 即時系統健康儀表板
+mo purge                     # 清理專案建置產物
+mo installer                 # 尋找並刪除安裝檔
 
 mo touchid                   # 設定終端機 Touch ID 指紋認證
 mo completion                # 設定命令列 Tab 鍵自動補全
@@ -84,8 +80,6 @@ mo purge --paths             # 設定程式碼專案掃描目錄
 mo analyze /Volumes          # 僅分析外接行動硬碟或磁碟卷宗
 mo analyze /private/tmp      # 僅檢視暫存目錄（不自動清理）
 ```
-
-使用 `mo clean --whitelist` 選好的路徑會寫進 `~/.config/mole/whitelist`，想加自訂路徑時先打開選單按 Enter 儲存一次，再往檔案裡每行追加一個路徑，檔案一旦存在就會取代可選的預設規則，內建安全保護仍然生效。
 
 <details>
 <summary><strong>其他安裝選項</strong></summary>
@@ -123,19 +117,17 @@ nix profile remove mole
 
 </details>
 
-觀看 PAPAYA 電腦教室 製作的 [Mole 教學影片](https://www.youtube.com/watch?v=UEe9-w4CcQ0)。
-
 ## 安全機制
 
 Mole 會刪除檔案，所以會先檢查路徑、保護共用和系統目錄，需要時才請你確認，無法確認安全的項目一律略過或拒絕。
 
-- `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會執行檔案清理，建議先用 `--dry-run` 預覽，需要時加上 `--debug`
+- `clean`、`uninstall`、`purge`、`installer` 與 `remove` 會刪除檔案，可先用 `--dry-run` 預覽，需要時加上 `--debug`
 - 日常執行 **無需 `sudo`**，僅在觸及系統級清理時按需請求管理員權限
 - `mo analyze` 中的刪除操作在確認後預設放入 macOS 垃圾桶
 - 清理操作記錄在 `~/Library/Logs/mole/operations.log` 中，可透過 `mo history` 查看，或設定 `MO_NO_OPLOG=1` 停用
 - 可透過 `mo clean --whitelist` 保護指定快取，或使用 `mo optimize --whitelist` 排除維護項目
 
-更多安全機制與詳細設計請參考 [SECURITY.md](SECURITY.md) 與 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
+漏洞回報方式、安全邊界與目前限制見 [SECURITY.md](SECURITY.md) 與 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)。
 
 ## 功能說明
 
@@ -143,7 +135,7 @@ Mole 會刪除檔案，所以會先檢查路徑、保護共用和系統目錄，
 
 ### 深度清理（Clean）
 
-`mo clean` 掃描並清理已知可安全刪除的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案。可先用 `mo clean --dry-run` 預覽清理路徑，或用 `mo clean --whitelist` 保護特定目錄。`mo clean` 預設會清空垃圾桶，想保留的話在 `mo clean --whitelist` 裡勾選 Trash。
+`mo clean` 掃描並清理已知可安全刪除的快取、日誌、暫存檔案、開發者工具快取以及已移除應用程式的殘留檔案，預設會清空垃圾桶，想保留就在 `mo clean --whitelist` 裡勾選 Trash，同一個選單也用來保護想留下的快取。選好的項目會寫進 `~/.config/mole/whitelist`，想加自訂路徑時先打開選單按 Enter 儲存一次，再往檔案裡每行追加一個路徑，檔案一旦存在就會取代可選的預設規則，內建安全保護仍然生效。
 
 ```text
 $ mo clean
@@ -177,7 +169,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 應用程式解除安裝（Uninstall）
 
-`mo uninstall` 移除已安裝的應用程式，以及 Mole 能確認屬於這個應用程式的相關檔案。若同一應用程式的另一個已安裝副本仍在使用這些檔案，會自動保留。可先用 `mo uninstall --dry-run` 預覽解除安裝計畫。如果應用程式此前已被手動刪除，可直接執行 `mo clean` 掃描遺留殘留。
+`mo uninstall` 移除已安裝的應用程式，以及 Mole 能確認屬於這個應用程式的相關檔案，若同一應用程式的另一個已安裝副本仍在使用這些檔案，會自動保留；應用程式此前已被手動刪除的話，執行 `mo clean` 掃描殘留。
 
 ```text
 $ mo uninstall
@@ -203,7 +195,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 系統最佳化（Optimize）
 
-`mo optimize` 對支援的 Finder、網路、資料庫與 macOS 服務執行範圍明確的維護。非必要、目前執行不安全或無法使用的任務會略過並說明原因。可使用 `mo optimize --dry-run` 預覽這一輪操作，使用 `mo optimize --whitelist` 排除任務或路徑模式。
+`mo optimize` 對支援的 Finder、網路、資料庫與 macOS 服務執行範圍明確的維護，非必要、目前執行不安全或無法使用的任務會略過並說明原因。可用 `mo optimize --whitelist` 排除任務或路徑模式，例如常駐掛載的 `/Volumes/mail`，避免它被識別為卸載目標。
 
 ```text
 $ mo optimize
@@ -236,11 +228,9 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-支援透過路徑規則排除掛載項目（例如常駐掛載的 `/Volumes/mail`），避免被識別為卸載目標。
-
 ### 磁碟分析（Analyze）
 
-`mo analyze` 開啟終端機互動式磁碟分析器，支援方向鍵與 Vim 快捷鍵瀏覽、快速過濾、多選標記、Finder 預覽與放入垃圾桶。外接磁碟預設不在概覽中顯示，可執行 `mo analyze /Volumes` 或指定掛載路徑單獨檢視。使用 `mo analyze /private/tmp` 僅檢查暫存目錄而不執行自動清理。
+`mo analyze` 開啟終端機互動式磁碟分析器，支援方向鍵與 Vim 快捷鍵瀏覽、快速過濾、多選標記、Finder 預覽與放入垃圾桶。外接磁碟預設不在概覽中顯示，可執行 `mo analyze /Volumes` 或指定掛載路徑單獨檢視，`mo analyze /private/tmp` 只檢查暫存目錄，不會把它們變成自動清理目標。
 
 以 `+` 結尾的大小是部分掃描裡實際測到的位元組數，`unknown` 表示無法測出大小。因臨時逾時中斷的項目不會覆蓋已有完整快取，後續重新整理可自動補全。macOS 不允許終端機讀取的資料夾會一直標為部分掃描，直到存取權限改變。終端機介面只列出最大的 30 個項目，讀不到的項目可能不在這 30 項裡，但總量仍會標為部分掃描，JSON 格式輸出則包含所有掃描項目。
 
@@ -253,10 +243,10 @@ Analyze Disk  (302.1GB free)
 Select a location to explore:
 
  ▶  1. ████████████████████████  47.9%  |  Home                       75.4GB
-     2. ███████████               22.0%  |  User Library               34.6GB
-     3. ███████                   14.2%  |  Applications               22.4GB
-     4. █████                     10.7%  |  System Library             16.9GB
-     5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
+    2. ███████████               22.0%  |  User Library               34.6GB
+    3. ███████                   14.2%  |  Applications               22.4GB
+    4. █████                     10.7%  |  System Library             16.9GB
+    5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
 ```
 
 ### 狀態監控（Status）
@@ -288,15 +278,15 @@ Up      ▄▄▄▃▃▃▄▆▆▇█▁▁▁▁▁  0.02 MB/s      Code   
 Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 ```
 
-健康評分綜合了 CPU、記憶體、磁碟餘量、SMART 狀態、I/O 讀寫、溫度、電池狀況與開機時間。按 `k` 可切換儀表板小貓，按 `c` 可調整顯示的 CPU 核心數，按 `q` 結束。偏好設定會自動儲存。
+健康評分綜合了 CPU、記憶體、磁碟餘量、SMART 狀態、I/O 讀寫、溫度、電池狀況與開機時間，按 `k` 切換儀表板小貓，按 `c` 調整顯示的 CPU 核心數，按 `q` 結束，偏好設定會自動儲存。
 
 <details>
 <summary><strong>JSON、NDJSON 與行程警示</strong></summary>
 
-- `mo analyze --json ~/Documents`：單次輸出指定路徑的磁碟分析 JSON。
-- `mo status --json`：單次輸出系統狀態快照 JSON。
-- `mo status | jq '.health_score'`：當輸出被管線重定向時自動切換為 JSON 模式。
-- `mo status --watch --interval 2s`：持續串流輸出 NDJSON（換行分隔的 JSON）。
+- `mo analyze --json ~/Documents`：單次輸出指定路徑的磁碟分析 JSON
+- `mo status --json`：單次輸出系統狀態快照 JSON
+- `mo status | jq '.health_score'`：當輸出被管線重定向時自動切換為 JSON 模式
+- `mo status --watch --interval 2s`：持續串流輸出 NDJSON（換行分隔的 JSON）
 - `mo history --json`：以 JSON 格式輸出歷史清理日誌。每個工作階段帶有 `run_id`（不透明字串，沒有記錄身分時為空）和 `attribution`，能識別的執行是 `run`，舊版按指令分組的是 `command`，舊標記分不清中斷和重疊執行時是 `ambiguous`。記錄下來的操作仍然都能看到，但 `ambiguous` 的計數沒辦法可靠地分到單次執行上。`ended_at` 為空表示沒有記錄到結束標記。
 
 ```text
@@ -328,9 +318,9 @@ $ mo status --json
 
 ### 專案清理（Purge）
 
-`mo purge` 自動尋找可隨時重新建置的專案生成目錄，例如 `node_modules`、`target`、`.build`、`build` 與 `dist`。按專案歸類呈現，只永久刪除你勾選確認的項目，不經過垃圾桶，最近 7 天內有改動或無法確認改動時間的產物預設不勾選。優先使用 `fd`，降級使用 `find`。包含部署金鑰、巢狀 Git 倉庫或 Git 追蹤檔案的目錄會自動受到保護。非互動式執行需使用 `mo purge --yes`；建議先執行 `mo purge --dry-run` 預覽候選目錄。
+`mo purge` 自動尋找可隨時重新建置的專案生成目錄，例如 `node_modules`、`target`、`.build`、`build` 與 `dist`。按專案歸類呈現，只永久刪除你勾選確認的項目，不經過垃圾桶，最近 7 天內有改動或無法確認改動時間的產物預設不勾選。掃描優先用 `fd`，沒有時降級到 `find`，包含部署金鑰、巢狀 Git 倉庫或 Git 追蹤檔案的目錄會受到保護，非互動式執行需使用 `mo purge --yes`，可先用 `mo purge --dry-run` 預覽候選目錄。
 
-使用 Page Up/Down 或 `h`/`l` 翻頁，`[`/`]` 在專案間跳轉，`X` 略過目前專案並前往下一個。按 `/` 搜尋專案路徑與產物名稱，`n` 尋找下一個符合項目且不改變已選項目。按 Enter 開啟最終路徑確認畫面。顯示的空間是估算值，沒測出大小的產物和不完整的掃描會另外標明。
+使用 Page Up/Down 或 `h`/`l` 翻頁，`[`/`]` 在專案間跳轉，`X` 略過目前專案並前往下一個，`/` 搜尋專案路徑與產物名稱，`n` 跳到下一個符合項目且不改變已選項目，按 Enter 開啟最終路徑確認畫面。顯示的空間是估算值，沒測出大小的產物和不完整的掃描會另外標明。
 
 <details>
 <summary><strong>Purge 範例輸出</strong></summary>
@@ -367,13 +357,13 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-設定自訂路徑後，Mole 僅掃描這些指定目錄。未設定時使用預設目錄（如 `~/Projects`、`~/GitHub`、`~/dev` 以及支援的 agent worktree 目錄）。掃描中途得到的不完整結果不會儲存。產物掃描深度為設定根目錄下 6 層，更深的專案可以加一個更近的根目錄。Purge 只刪除 worktree 裡可重新建置的產物，不會刪除 worktree 目錄本身。
+設定了自訂路徑就只掃描這些目錄，沒設定時用預設目錄（如 `~/Projects`、`~/GitHub`、`~/dev` 以及支援的 agent worktree 目錄），掃描中途得到的不完整結果不會儲存。產物掃描深度為設定根目錄下 6 層，更深的專案可以加一個更近的根目錄，Purge 只刪除 worktree 裡可重新建置的產物，不會刪除 worktree 目錄本身。
 
 </details>
 
 ### 安裝檔清理（Installer）
 
-`mo installer` 自動尋找下載目錄、桌面、Homebrew 快取、iCloud、Mail、Telegram 及其他支援位置中的 DMG、PKG、MPKG、ISO、XIP 與安裝檔 ZIP。清理前會列出各檔案大小與來源。使用 `mo installer --dry-run` 預覽清理計畫。掃描具有全域逾時保護，如發生錯誤或逾時會直接放棄，避免在不完整的資料上操作。損壞或無法讀取的 ZIP 壓縮檔會略過。掃描根目錄可以是符號連結，但不會跟隨它底下的符號連結。在最終刪除前會對目標檔案進行再次驗證，確保檔案未發生變動。
+`mo installer` 自動尋找下載目錄、桌面、Homebrew 快取、iCloud、Mail、Telegram 及其他支援位置中的 DMG、PKG、MPKG、ISO、XIP 與安裝檔 ZIP，清理前會列出各檔案大小與來源。掃描有總時長上限，出錯或逾時就直接放棄，不在不完整的資料上操作，損壞或無法讀取的 ZIP 壓縮檔會略過，掃描根目錄可以是符號連結，但不會跟隨它底下的符號連結，最終刪除前還會再驗證一次，確保檔案未發生變動。
 
 <details>
 <summary><strong>Installer 範例輸出</strong></summary>
@@ -434,11 +424,13 @@ Raycast 安裝後需一次性手動設定：
 
 <img src="./docs/img/mole-love.png" alt="社群回饋" width="1000" />
 
+觀看 PAPAYA 電腦教室 製作的 [Mole 教學影片](https://www.youtube.com/watch?v=UEe9-w4CcQ0)。
+
 ## 支持專案
 
 - 購買 [Mole for Mac](https://mole.fit) 是支持 Mole 持續開發最直接的方式
 - 如果 Mole 幫到了你，歡迎給予 Star、[分享給朋友](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)，或在 GitHub 提交 Issue 和 PR
-- 我養了兩隻貓：湯圓和可樂。如果 Mole 讓你感覺好用，歡迎請牠們吃一頓 <a href="https://cats.tw93.fun?name=Mole" target="_blank">罐頭 🥩</a>
+- 我養了兩隻貓，湯圓和可樂，如果 Mole 用著順手，歡迎請她們吃一頓 <a href="https://cats.tw93.fun?name=Mole" target="_blank">罐頭 🥩</a>
 
 <details>
 <summary>已經請客的好心人 🐱</summary>
@@ -448,6 +440,4 @@ Raycast 安裝後需一次性手動設定：
 
 ## 開源授權條款
 
-Mole 基於 GPL-3.0 條款開源；詳見 [LICENSE](LICENSE)。任何修改與發布的版本需要保持相同的開源授權條款。如果你將 Mole 分叉為其他獨立產品，請使用不同名稱並註明出處。
-
-[Mole for Mac](https://mole.fit) 是獨立的閉源 App。Mole 會長期維護下去。
+Mole 基於 GPL-3.0 條款開源（詳見 [LICENSE](LICENSE)），任何修改與發布的版本需要保持相同的開源授權條款，如果你將 Mole 分叉為其他獨立產品，請使用不同名稱並註明出處。[Mole for Mac](https://mole.fit) 是獨立的閉源 App，Mole 會長期維護下去。

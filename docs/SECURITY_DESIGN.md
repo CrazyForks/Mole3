@@ -9,8 +9,6 @@ The corresponding implementation lives in `lib/core/file_ops.sh`,
 validation has machine-checked fuzz tests in `cmd/analyze/delete_fuzz_test.go`
 and `tests/path_validation_fuzz.bats`.
 
----
-
 ## Threat model
 
 Mole is a user-invoked CLI that performs three classes of destructive
@@ -48,8 +46,6 @@ The lines we will not cross, regardless of input:
 - Never uninstall a `com.apple.*` system app, except the explicit list
   of App Store / developer-portal Apple apps that users actually buy
   (Xcode, Final Cut Pro, Logic, GarageBand, iWork, MainStage, etc.).
-
----
 
 ## Layer 1: `validate_path_for_deletion`
 
@@ -120,8 +116,6 @@ The allow-then-deny ordering matters: rebuildable system caches we
 first means a maintainer adding a new safe path doesn't have to surgically
 weaken the deny rules.
 
----
-
 ## Layer 2: `# SAFE: <reason>` contract for raw `rm`
 
 The validator is opt-in: a contributor could bypass it by writing `rm -rf`
@@ -159,8 +153,6 @@ you "fix" it: it *must* use raw `rm`, because `should_protect_path` blankets
 validator refuse both stub paths and silently kill the feature. That reasoning
 is pinned by a test in `tests/clean_apps.bats`.
 
----
-
 ## Layer 3: App protection, split fast vs. detailed lists
 
 Uninstall and per-app cleanup decisions go through
@@ -195,17 +187,17 @@ by CRITICAL + DATA_PROTECTED. Any miss opens a tracking issue.
 Each macOS major release should also get a human pass over: bundle
 drift, mdls timeout regression, SIP path changes, and CI matrix updates.
 
----
-
 ## Layer 4: Trash routing default
 
-`mo analyze` and `mo clean`'s ad-hoc paths route deletions to the macOS
-Trash. `mo analyze` (`moveToTrash` in `cmd/analyze/delete.go`) tries
-Apple's `/usr/bin/trash` first, then an atomic no-overwrite rename into
+`mo analyze`, `mo uninstall` (default since #723), and `mo clean`'s
+ad-hoc paths route deletions to the macOS Trash. `mo analyze`
+(`moveToTrash` in `cmd/analyze/delete.go`) tries Apple's
+`/usr/bin/trash` first, then an atomic no-overwrite rename into
 the per-volume Trash, and uses Finder AppleScript only as the last
 fallback. This gives users the standard Apple-native "Put Back" recovery
-flow. Permanent deletion requires explicit `--permanent` or going through
-`mo clean`'s batched cleanup path.
+flow. `mo clean`'s batched cleanup path, `mo purge`, and `mo installer`
+delete permanently; `mo uninstall --permanent` opts out of Trash, and
+`mo analyze` always uses Trash.
 
 The `trash` and `osascript` calls use a 30-second timeout (`trashTimeout`)
 so a hung Finder can't wedge the binary, and the Finder path escapes both
@@ -214,8 +206,6 @@ literal. Defense in depth: `validateTrashTarget` (which wraps
 `validatePath`) runs on the raw path and again on the resolved absolute path
 before any of the three routes, so even if escape logic missed a case, a
 path containing `..` or null bytes is rejected before it reaches Finder.
-
----
 
 ## Layer 5: Test mode + dry run + property tests
 
@@ -241,8 +231,6 @@ prevent live-machine test runs from doing real damage:
 If you add a new way to bypass these layers, you are expected to add
 a corresponding test that fails before your code lands.
 
----
-
 ## What this design intentionally does not do
 
 - **No code signing of the cleanup config.** We rely on filesystem
@@ -261,14 +249,10 @@ a corresponding test that fails before your code lands.
   the deletions log `~/Library/Logs/mole/deletions.log` that `mole_delete`
   appends to.
 
----
-
 ## When to update this document
 
 - A new layer (e.g., a notarization check, a per-volume policy) is added.
 - The validator gains a new check class or relaxes an existing one.
 - A new app protection list is introduced.
-- An incident occurred where one of the layers failed and the writeup
-  belongs in the "lessons" section here, not just the commit log.
 
 Last reviewed: 2026-10-08 (mole V1.59.0).

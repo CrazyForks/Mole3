@@ -27,7 +27,7 @@
 
 ## 빠른 시작
 
-Mole은 macOS 12 이상을 지원하며, Intel 및 Apple Silicon Mac 모두에서 동작합니다.
+Mole은 macOS 12 이상을 지원하며, Intel 및 Apple Silicon Mac 모두에서 동작합니다. 현재 macOS 버전에서 Homebrew 설치가 어려우면 설치 스크립트를 사용하고, 실험적인 Windows 버전은 [windows 브랜치](https://github.com/tw93/Mole/tree/windows)에서 확인할 수 있습니다.
 
 **Homebrew로 설치**
 
@@ -35,15 +35,11 @@ Mole은 macOS 12 이상을 지원하며, Intel 및 Apple Silicon Mac 모두에�
 brew install mole
 ```
 
-현재 macOS 버전에서 Homebrew 설치가 어려울 경우 아래 설치 스크립트를 사용하세요.
-
 **설치 스크립트로 설치**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash
 ```
-
-Mole은 macOS용으로 제작되었습니다. 실험적인 Windows 버전은 [windows 브랜치](https://github.com/tw93/Mole/tree/windows)에서 확인할 수 있습니다.
 
 **주요 명령어**
 
@@ -55,7 +51,7 @@ mo optimize                  # 시스템 최적화: 시스템 서비스와 캐�
 mo analyze                   # 디스크 분석: 인터랙티브 디스크 용량 분석 및 대용량 파일 탐색
 mo status                    # 상태 모니터링: CPU, 메모리, 네트워크 및 하드웨어 실시간 대시보드
 mo purge                     # 프로젝트 정리: 개발 빌드 결과물(node_modules, target 등) 정리
-mo installer                 # 설치 파일 정리: 사용된 DMG 및 PKG 설치 패키지 탐색 및 삭제
+mo installer                 # 설치 파일 정리: 설치 파일 탐색 및 삭제
 
 mo touchid                   # 터미널 sudo용 Touch ID 지문 인증 설정
 mo completion                # 셸 Tab 키 자동완성 구성
@@ -84,8 +80,6 @@ mo purge --paths             # 프로젝트 검사 디렉터리 구성
 mo analyze /Volumes          # 외장 드라이브만 분석
 mo analyze /private/tmp      # 임시 디렉터리 검토(자동 삭제 없음)
 ```
-
-`mo clean --whitelist`에서 선택한 경로는 `~/.config/mole/whitelist`에 저장됩니다. 직접 경로를 추가하려면 먼저 메뉴를 열고 Enter를 눌러 선택 항목을 저장한 뒤, 한 줄에 하나씩 경로를 추가하세요. 이 파일이 있으면 선택적 기본 규칙을 대체하며, 내장 안전 보호는 계속 적용됩니다.
 
 <details>
 <summary><strong>기타 설치 옵션</strong></summary>
@@ -123,19 +117,17 @@ nix profile remove mole
 
 </details>
 
-영상 설명이 편하신가요? PAPAYA 電腦教室에서 제작한 [Mole 튜토리얼 영상](https://www.youtube.com/watch?v=UEe9-w4CcQ0)을 확인해 보세요.
-
 ## 안전성 및 신뢰성
 
 Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 공유 위치와 시스템 소유 위치를 보호하며, 필요할 때 확인을 요청합니다. 안전하게 변경할 수 있다고 확인할 수 없는 항목은 건너뛰거나 거부합니다.
 
-- `clean`, `uninstall`, `purge`, `installer`, `remove` 명령은 파일을 삭제합니다. 먼저 `--dry-run`으로 확인하고 필요 시 `--debug`를 함께 사용하세요.
-- 일상적인 Mole 실행에는 **`sudo`가 필요하지 않습니다**. 시스템 수준의 정리 작업에만 관리자 권한을 요청합니다.
-- `mo analyze`에서 선택한 항목은 확인 후 macOS 휴지통으로 이동됩니다.
-- 정리 내역은 `~/Library/Logs/mole/operations.log`에 기록됩니다. `mo history`로 확인하거나 `MO_NO_OPLOG=1`로 비활성화할 수 있습니다.
-- `mo clean --whitelist`로 보존할 캐시를 지정하거나 `mo optimize --whitelist`로 제외할 유지보수 작업을 관리하세요.
+- `clean`, `uninstall`, `purge`, `installer`, `remove` 명령은 파일을 삭제하므로 먼저 `--dry-run`으로 확인하고 필요 시 `--debug`를 함께 사용하세요
+- 일상적인 Mole 실행에는 **`sudo`가 필요하지 않으며**, 시스템 수준의 정리 작업에만 관리자 권한을 요청합니다
+- `mo analyze`에서 선택한 항목은 확인 후 macOS 휴지통으로 이동됩니다
+- 정리 내역은 `~/Library/Logs/mole/operations.log`에 기록되며, `mo history`로 확인하거나 `MO_NO_OPLOG=1`로 비활성화할 수 있습니다
+- `mo clean --whitelist`로 보존할 캐시를 지정하거나 `mo optimize --whitelist`로 제외할 유지보수 작업을 관리하세요
 
-자세한 안전 기준은 [SECURITY.md](SECURITY.md) 및 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)를 참고하세요.
+취약점 신고 방법, 안전 경계, 현재 한계는 [SECURITY.md](SECURITY.md) 및 [SECURITY_AUDIT.md](SECURITY_AUDIT.md)를 참고하세요.
 
 ## 세부 기능 안내
 
@@ -143,7 +135,7 @@ Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 공유 위�
 
 ### 심층 정리 (Clean)
 
-`mo clean`은 안전한 캐시, 로그, 임시 파일, 개발 도구 캐시 및 이미 삭제된 앱의 잔여 파일을 검사하고 정리합니다. `mo clean --dry-run`으로 대상 경로를 미리 확인하고 `mo clean --whitelist`로 보호할 디렉터리를 지정하세요. `mo clean`은 기본적으로 휴지통을 비웁니다. 휴지통을 유지하려면 `mo clean --whitelist`에서 Trash를 선택하세요.
+`mo clean`은 안전한 캐시, 로그, 임시 파일, 개발 도구 캐시 및 이미 삭제된 앱의 잔여 파일을 검사하고 정리하며, 기본적으로 휴지통을 비웁니다. 휴지통을 유지하려면 `mo clean --whitelist`에서 Trash를 선택하세요. 같은 메뉴에서 보존할 캐시도 지정할 수 있고, 선택한 항목은 `~/.config/mole/whitelist`에 저장됩니다. 직접 경로를 추가하려면 먼저 메뉴를 열고 Enter를 눌러 선택 항목을 저장한 뒤, 한 줄에 하나씩 경로를 추가하세요. 이 파일이 있으면 선택적 기본 규칙을 대체하며, 내장 안전 보호는 계속 적용됩니다.
 
 ```text
 $ mo clean
@@ -177,7 +169,7 @@ Free space: 223.5GB (+4.5GB)
 
 ### 앱 제거 (Uninstall)
 
-`mo uninstall`은 설치된 앱과 함께 Mole이 해당 앱의 것으로 확인할 수 있는 관련 파일을 제거합니다. 같은 앱의 다른 설치본이 아직 사용하는 공유 파일은 보존됩니다. `mo uninstall --dry-run`으로 삭제 대상을 미리 확인할 수 있습니다. 이미 휴지통으로 지운 앱의 경우 `mo clean`을 실행하여 남은 잔여물을 찾으세요.
+`mo uninstall`은 설치된 앱과 함께 Mole이 해당 앱의 것으로 확인할 수 있는 관련 파일을 제거합니다. 같은 앱의 다른 설치본이 아직 사용하는 공유 파일은 보존됩니다. 이미 휴지통으로 지운 앱의 경우 `mo clean`을 실행하여 남은 잔여물을 찾으세요.
 
 ```text
 $ mo uninstall
@@ -203,7 +195,7 @@ Removed 1 app, freed 12.80GB: Photoshop 2024
 
 ### 시스템 최적화 (Optimize)
 
-`mo optimize`는 지원되는 Finder, 네트워크, 데이터베이스, macOS 서비스에 대해 범위가 정해진 유지보수를 실행합니다. 불필요하거나, 지금 실행하기에 안전하지 않거나, 사용할 수 없는 작업은 이유와 함께 건너뜁니다. `mo optimize --dry-run`으로 작업을 미리 확인하고 `mo optimize --whitelist`로 작업이나 경로 패턴을 제외하세요.
+`mo optimize`는 지원되는 Finder, 네트워크, 데이터베이스, macOS 서비스에 대해 범위가 정해진 유지보수를 실행합니다. 불필요하거나, 지금 실행하기에 안전하지 않거나, 사용할 수 없는 작업은 이유와 함께 건너뜁니다. `mo optimize --whitelist`로 작업이나 경로 패턴을 제외할 수 있어, `/Volumes/mail`처럼 상시 마운트되는 디스크 이미지가 마운트 해제 후보로 표시되지 않게 할 수 있습니다.
 
 ```text
 $ mo optimize
@@ -236,8 +228,6 @@ Applied 3 optimizations
 ======================================================================
 ```
 
-`/Volumes/mail`처럼 상시 마운트되는 디스크 이미지가 마운트 해제 후보로 표시되지 않도록 경로 패턴으로 보호할 수 있습니다.
-
 ### 디스크 분석 (Analyze)
 
 `mo analyze`는 터미널 기반의 인터랙티브 디스크 탐색기입니다. 방향키와 Vim 단축키 탐색, 빠른 필터링, 다중 선택, Finder 미리보기 및 휴지통 이동을 지원합니다. 외장 드라이브는 기본 뷰에서 제외되며 `mo analyze /Volumes`로 확인할 수 있습니다. `mo analyze /private/tmp`를 사용하면 자동 삭제 없이 임시 파일만 확인할 수 있습니다.
@@ -253,10 +243,10 @@ Analyze Disk  (302.1GB free)
 Select a location to explore:
 
  ▶  1. ████████████████████████  47.9%  |  Home                       75.4GB
-     2. ███████████               22.0%  |  User Library               34.6GB
-     3. ███████                   14.2%  |  Applications               22.4GB
-     4. █████                     10.7%  |  System Library             16.9GB
-     5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
+    2. ███████████               22.0%  |  User Library               34.6GB
+    3. ███████                   14.2%  |  Applications               22.4GB
+    4. █████                     10.7%  |  System Library             16.9GB
+    5. ███                        5.2%  |  Old Downloads (90d+)       8.2GB  >3mo
 ```
 
 ### 시스템 상태 (Status)
@@ -288,15 +278,15 @@ Up      ▄▄▄▃▃▃▄▆▆▇█▁▁▁▁▁  0.02 MB/s      Code   
 Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 ```
 
-건강 점수는 CPU, 메모리, 여유 공간, SMART 상태, 입출력, 온도, 배터리 상태, 가동 시간을 종합하여 산출합니다. `k` 키로 고양이 표시 전환, `c` 키로 표시 코어 수 조절, `q` 키로 종료할 수 있습니다. 설정은 자동 저장됩니다.
+건강 점수는 CPU, 메모리, 여유 공간, SMART 상태, 입출력, 온도, 배터리 상태, 가동 시간을 종합하여 산출합니다. `k` 키로 고양이 표시 전환, `c` 키로 표시 코어 수 조절, `q` 키로 종료할 수 있으며, 설정은 자동 저장됩니다.
 
 <details>
 <summary><strong>JSON, NDJSON 및 프로세스 알림</strong></summary>
 
-- `mo analyze --json ~/Documents`: 지정 경로의 디스크 분석 결과를 JSON으로 출력합니다.
-- `mo status --json`: 현재 시스템 상태 스냅샷을 JSON으로 출력합니다.
-- `mo status | jq '.health_score'`: 출력이 파이프로 연결되면 자동으로 JSON 모드로 전환됩니다.
-- `mo status --watch --interval 2s`: NDJSON(줄바꿈 구분 JSON) 형식으로 실시간 스트리밍합니다.
+- `mo analyze --json ~/Documents`: 지정 경로의 디스크 분석 결과를 JSON으로 출력합니다
+- `mo status --json`: 현재 시스템 상태 스냅샷을 JSON으로 출력합니다
+- `mo status | jq '.health_score'`: 출력이 파이프로 연결되면 자동으로 JSON 모드로 전환됩니다
+- `mo status --watch --interval 2s`: NDJSON(줄바꿈 구분 JSON) 형식으로 실시간 스트리밍합니다
 - `mo history --json`: 정리 작업 이력을 JSON으로 출력합니다. 각 세션에는 `run_id`(불투명한 문자열이며 식별 정보가 기록되지 않았으면 빈 값)와 `attribution`이 들어 있으며, 식별된 실행은 `run`, 예전 명령 단위 묶음은 `command`, 예전 마커로 중단과 겹친 실행을 구분할 수 없으면 `ambiguous`입니다. 기록된 작업은 계속 확인할 수 있지만 `ambiguous` 개수는 개별 실행에 정확히 나눌 수 없습니다. `ended_at`이 비어 있으면 종료 마커가 기록되지 않은 것입니다.
 
 ```text
@@ -328,9 +318,9 @@ $ mo status --json
 
 ### 프로젝트 정리 (Purge)
 
-`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일, 중첩된 Git 저장소, Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
+`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체하며, 배포 키 파일, 중첩된 Git 저장소, Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하고, `mo purge --dry-run`으로 후보를 먼저 확인할 수 있습니다.
 
-Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뛰고 다음으로 이동합니다. `/`로 프로젝트 경로와 산출물 이름을 검색하고, `n`으로 선택 상태를 바꾸지 않고 다음 일치 항목을 찾습니다. Enter 키는 최종 경로 확인 화면을 엽니다. 표시되는 용량은 추정치이며, 측정하지 못한 산출물과 불완전한 검사는 따로 표시됩니다.
+Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뛰고 다음으로 이동합니다. `/`로 프로젝트 경로와 산출물 이름을 검색하고, `n`으로 선택 상태를 바꾸지 않고 다음 일치 항목을 찾으며, Enter 키는 최종 경로 확인 화면을 엽니다. 표시되는 용량은 추정치이며, 측정하지 못한 산출물과 불완전한 검사는 따로 표시됩니다.
 
 <details>
 <summary><strong>Purge 출력 예시</strong></summary>
@@ -373,7 +363,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 
 ### 설치 패키지 정리 (Installer)
 
-`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. `mo installer --dry-run`으로 대상을 미리 확인할 수 있습니다. 검사에는 전체 제한 시간이 적용되며, 검사나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 손상되었거나 읽을 수 없는 ZIP 압축 파일은 건너뜁니다. 심볼릭 링크로 된 검사 루트는 지원하지만 그 아래의 심볼릭 링크는 따라가지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
+`mo installer`는 다운로드, 데스크탑, Homebrew 캐시, iCloud, Mail, Telegram 등 자주 쓰이는 디렉터리에서 DMG, PKG, MPKG, ISO, XIP 및 설치용 ZIP 파일을 찾습니다. 삭제 전 각 파일의 용량과 위치가 표시됩니다. 검사에는 전체 제한 시간이 적용되며, 검사나 메타데이터 확인이 실패하거나 시간 초과되면 목록을 버리고 파일을 선택하지 않습니다. 손상되었거나 읽을 수 없는 ZIP 압축 파일은 건너뛰고, 심볼릭 링크로 된 검사 루트는 지원하지만 그 아래의 심볼릭 링크는 따라가지 않습니다. 최종 삭제 직전에는 파일 변경 여부를 한 번 더 확인합니다.
 
 <details>
 <summary><strong>Installer 출력 예시</strong></summary>
@@ -434,11 +424,13 @@ X (Twitter)에 공유해 주신 사용자들의 생생한 후기:
 
 <img src="./docs/img/mole-love.png" alt="커뮤니티 후기" width="1000" />
 
+영상 설명이 편하신가요? PAPAYA 電腦教室에서 제작한 [Mole 튜토리얼 영상](https://www.youtube.com/watch?v=UEe9-w4CcQ0)을 확인해 보세요.
+
 ## 후원 및 응원
 
-- [Mole for Mac](https://mole.fit)을 구매하시는 것이 Mole 개발을 지속하는 가장 직접적인 힘이 됩니다.
-- Mole이 마음에 드셨다면 GitHub Star를 눌러주시고, [주변에 공유](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)해 주시거나 Issue/PR로 함께해 주세요.
-- 제게는 '탕위안'과 '콜라'라는 고양이 두 마리가 있습니다. Mole이 유용하셨다면 고양이들에게 <a href="https://cats.tw93.fun?name=Mole" target="_blank">맛있는 캔 🥩</a> 하나 선물해 주세요.
+- [Mole for Mac](https://mole.fit)을 구매하시는 것이 Mole 개발을 지속하는 가장 직접적인 힘이 됩니다
+- Mole이 마음에 드셨다면 GitHub Star를 눌러주시고, [주변에 공유](https://twitter.com/intent/tweet?url=https://github.com/tw93/Mole&text=Mole%20-%20Deep%20clean%20and%20optimize%20your%20Mac.)해 주시거나 Issue/PR로 함께해 주세요
+- 제게는 '탕위안'과 '콜라'라는 고양이 두 마리가 있는데, Mole이 유용하셨다면 두 아이에게 <a href="https://cats.tw93.fun?name=Mole" target="_blank">맛있는 캔 🥩</a> 하나 선물해 주세요
 
 <details>
 <summary>이미 고양이들에게 간식을 선물해 주신 분들 🐱</summary>
@@ -448,6 +440,4 @@ X (Twitter)에 공유해 주신 사용자들의 생생한 후기:
 
 ## 라이선스
 
-Mole은 GPL-3.0 라이선스 하에 오픈소스로 공개되어 있습니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하세요. 코드를 수정하여 배포하는 경우 동일한 라이선스를 유지해야 합니다. 프로젝트를 포크하는 경우 고유한 이름을 사용하고 Mole을 원출처로 명시해 주세요.
-
-[Mole for Mac](https://mole.fit)은 별도의 비공개 소스 앱입니다. Mole은 앞으로도 계속 유지보수됩니다.
+Mole은 GPL-3.0 라이선스 하에 오픈소스로 공개되어 있습니다. 자세한 내용은 [LICENSE](LICENSE)를 참조하세요. 코드를 수정하여 배포하는 경우 동일한 라이선스를 유지해야 합니다. 프로젝트를 포크하는 경우 고유한 이름을 사용하고 Mole을 원출처로 명시해 주세요. [Mole for Mac](https://mole.fit)은 별도의 비공개 소스 앱입니다. Mole은 앞으로도 계속 유지보수됩니다.
