@@ -978,7 +978,7 @@ EOF
     PATH="$fake_bin:$PATH" PROJECT_ROOT="$PROJECT_ROOT" HOME="$HOME" \
         /usr/bin/script -q /dev/null /bin/bash --noprofile --norc -c \
         "source \"\$PROJECT_ROOT/lib/core/common.sh\"; start_inline_spinner \"Testing...\"; /bin/sleep 0.15; stop_inline_spinner" \
-        > /dev/null 2>&1
+        < /dev/null > /dev/null 2>&1
 
     [ ! -f "$marker" ]
 }
@@ -1068,7 +1068,7 @@ EOF
             /bin/sleep 0.2
             stop_inline_spinner
             [[ "$pid_before" == "$pid_after" && -n "$pid_before" ]] && echo "PID_STABLE"
-        ' > /dev/null 2>&1
+        ' < /dev/null > /dev/null 2>&1
 
     raw_content="$(cat "$raw")"
     # This case failed once on a CI runner and could not be reproduced in

@@ -1876,7 +1876,7 @@ EOF
             note_activity
             echo "  row output"
             end_section
-        ' > /dev/null 2>&1
+        ' < /dev/null > /dev/null 2>&1
 
     raw_content="$(cat "$raw")"
     # Idle header painted, then the next header overwrites its line in place.
@@ -1903,7 +1903,7 @@ EOF
             start_section "User essentials"
             note_activity
             end_section
-        ' > /dev/null 2>&1
+        ' < /dev/null > /dev/null 2>&1
 
     raw_content="$(cat "$raw")"
     # The log_success row counts as activity: the section is not idle, so the
