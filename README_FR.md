@@ -107,7 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Ajoutez l'exportation `PATH` correspondante dans votre `~/.zshrc` ou configuration de shell.
+Ajoutez l'exportation `PATH` correspondante dans votre `~/.zshrc` ou configuration de shell. Mole met à jour l'installation que vous avez lancée et continue donc d'utiliser ce dossier. Les commandes qui modifient des fichiers appartenant au système peuvent toujours demander un accès administrateur.
 
 **Nix**
 
@@ -119,7 +119,7 @@ nix profile upgrade mole
 nix profile remove mole
 ```
 
-Pour une installation déclarative, ajoutez `github:tw93/mole/main` comme entrée flake et utilisez le paquet `packages.${system}.mole`. La mise à jour et la suppression se font alors via Nix.
+Pour une installation déclarative, ajoutez `github:tw93/mole/main` comme entrée flake et utilisez le paquet `packages.${system}.mole`. Mettez à jour ou supprimez Mole via Nix ; `mo update` et `mo remove` ne modifient pas les installations gérées par Nix.
 
 </details>
 
@@ -127,7 +127,7 @@ Vous préférez un tutoriel vidéo ? Regardez la [présentation de Mole](https:/
 
 ## Sécurité et fiabilité
 
-La sécurité des données est au cœur de la conception de Mole : chaque chemin est validé, les dossiers critiques du système sont préservés, et une confirmation est requise avant toute suppression. Lorsqu'un fichier ne peut être certifié sans risque, Mole l'ignore automatiquement.
+Mole peut supprimer des fichiers ; il valide donc les chemins, protège les emplacements partagés et ceux du système, et demande une confirmation quand une action l'exige. Quand Mole ne peut pas prouver qu'un élément peut être modifié sans risque, il l'ignore ou refuse l'opération.
 
 - `clean`, `uninstall`, `purge`, `installer` et `remove` suppriment des fichiers. Prévisualisez toujours leurs actions avec `--dry-run`, complété au besoin de `--debug`.
 - Exécutez Mole **sans `sudo`** : les privilèges administrateur ne sont demandés que pour les actions touchant au système.
@@ -244,7 +244,7 @@ Les motifs de chemins sont acceptés, ce qui permet par exemple de préserver un
 
 Une taille terminée par `+` signale une analyse partielle ; `unknown` indique que le volume n'a pas pu être mesuré. Les résultats interrompus par un délai d'attente n'écrasent pas les mesures complètes en cache ; une analyse ultérieure comblera les données manquantes. Les dossiers que macOS ne laisse pas lire au terminal restent marqués comme partiels tant que les droits d'accès ne changent pas. La liste du terminal ne garde que les 30 plus gros éléments, si bien qu'un élément illisible peut ne pas y figurer ; le total signale tout de même une analyse partielle. La sortie JSON d'un dossier inclut tous les éléments analysés.
 
-`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour le résultat et pour chaque élément. Une analyse partielle se termine quand même avec le code 0 ; les scripts doivent donc vérifier `scan_status`.
+`mo analyze --json /path` inclut le statut `scan_status` (`complete`, `partial` ou `unavailable`) pour le résultat et pour chaque élément. Les tailles numériques correspondent aux octets mesurés ; un zéro avec `unavailable` ne signifie pas un dossier vide. Une analyse partielle se termine quand même avec le code 0 ; les scripts doivent donc vérifier `scan_status`. La complétude s'entend dans le cadre des exclusions d'analyse existantes de Mole et ne garantit pas un instantané atomique du système de fichiers.
 
 ```text
 $ mo analyze
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` affiche un tableau de bord en lecture seule pour le matériel, la charge système, l'activité disque, le trafic réseau, l'alimentation et les processus anormaux.
 
-Lorsque la route IPv4 par défaut transite par un VPN, le graphique réseau suit cette interface afin d'éviter tout double comptage du trafic avec la carte physique.
+Lorsque la route IPv4 par défaut transite par un VPN ou un tunnel, le graphique réseau suit cette interface afin d'éviter tout double comptage du trafic avec la carte physique. La sortie JSON conserve le débit de chaque interface, y compris le tunnel routé ; les tunnels inactifs hors route par défaut restent masqués.
 
 ```text
 $ mo status
@@ -297,7 +297,7 @@ Le score de santé combine le CPU, la mémoire, l'espace disque, l'état SMART, 
 - `mo status --json` : renvoie un instantané de l'état système au format JSON.
 - `mo status | jq '.health_score'` : passe automatiquement en mode JSON lorsqu'il est utilisé dans un pipeline.
 - `mo status --watch --interval 2s` : transmet un flux NDJSON (JSON délimité par des retours à la ligne).
-- `mo history --json` : affiche l'historique des nettoyages au format JSON.
+- `mo history --json` : affiche l'historique des nettoyages au format JSON. Les sessions incluent `run_id` (une chaîne opaque, vide si aucune identité n'a été enregistrée) et `attribution` : `run` pour les exécutions identifiées, `command` pour l'ancien regroupement par commande, ou `ambiguous` quand les anciens marqueurs ne permettent pas de distinguer une interruption d'exécutions qui se chevauchent. Les actions enregistrées restent disponibles ; les décomptes ambigus ne peuvent pas être attribués de façon fiable à une exécution précise. Un `ended_at` vide signifie qu'aucun marqueur de fin n'a été enregistré.
 
 ```text
 $ mo status --json
@@ -318,7 +318,9 @@ $ mo status --json
 }
 ```
 
-La détection des processus zombies est en lecture seule ; elle n'interrompt aucun processus et n'altère pas la note de santé. Si un collecteur rencontre une erreur, `mo status --json` affiche les métriques disponibles, consigne l'incident dans stderr et quitte avec le code 0. Il quitte avec le code 1 uniquement si aucune métrique CPU, mémoire, disque ou processus n'est disponible, ou si la sortie JSON échoue.
+La détection des processus zombies est en lecture seule ; elle n'interrompt aucun processus et n'altère pas la note de santé. Tant que Mole n'a obtenu aucun échantillon de processus, `process_collected_at`, `process_stale`, `zombie_count` et `zombie_parents_complete` sont omis et `zombie_parents` vaut `null`. Les instantanés fast/watch suivants réutilisent le dernier échantillon réussi avec son `process_collected_at` d'origine et définissent `process_stale: true` ; un nouvel échantillon le repasse à `false`. Une valeur de `0` signifie que Mole a mesuré et n'a trouvé aucun zombie. Le résumé des parents contient au plus trois propriétaires connus ; `zombie_parents_complete: false` signifie que l'attribution était indisponible, incomplète ou tronquée.
+
+Si un collecteur rencontre une erreur, `mo status --json` affiche les métriques disponibles, consigne l'incident dans stderr et quitte avec le code 0, comme `--watch` qui continue de diffuser. Il quitte avec le code 1 uniquement si aucune métrique CPU, mémoire, disque ou processus n'est disponible, ou si la sortie JSON échoue.
 
 Des alertes en lecture seule pour les processus monopolisant le processeur sont également disponibles ; réglez-les avec `--proc-cpu-threshold`, `--proc-cpu-window` ou `--proc-cpu-alerts=false`.
 
@@ -326,9 +328,9 @@ Des alertes en lecture seule pour les processus monopolisant le processeur sont 
 
 ### Nettoyage de projets (Purge)
 
-`mo purge` identifie les dossiers de build régénérables tels que `node_modules`, `target`, `.build`, `build` et `dist`. Ils sont regroupés par projet, et seuls les éléments confirmés sont supprimés définitivement, sans passer par la Corbeille. Les éléments modifiés au cours des 7 derniers jours, ou dont l'activité ne peut pas être vérifiée, sont décochés par défaut. Mole privilégie `fd` et se rabat sur `find`. Les dossiers contenant des clés de déploiement ou des fichiers sous contrôle Git sont protégés. En mode non interactif, utilisez `mo purge --yes` ; prévisualisez d'abord avec `mo purge --dry-run`.
+`mo purge` identifie les dossiers de build régénérables tels que `node_modules`, `target`, `.build`, `build` et `dist`. Ils sont regroupés par projet, et seuls les éléments confirmés sont supprimés définitivement, sans passer par la Corbeille. Les éléments modifiés au cours des 7 derniers jours, ou dont l'activité ne peut pas être vérifiée, sont décochés par défaut. Mole privilégie `fd` et se rabat sur `find`. Les dossiers contenant des clés de déploiement, des dépôts Git imbriqués ou des fichiers sous contrôle Git sont protégés. En mode non interactif, utilisez `mo purge --yes` ; prévisualisez d'abord avec `mo purge --dry-run`.
 
-Utilisez Page Haut/Bas ou `h`/`l` pour faire défiler, `[`/`]` pour naviguer entre les projets et `X` pour passer au suivant. `/` recherche par nom de projet ou de dossier, `n` passe à l'occurrence suivante. Appuyez sur Entrée pour valider.
+Utilisez Page Haut/Bas ou `h`/`l` pour changer de page, `[`/`]` pour naviguer entre les projets et `X` pour ignorer un projet et passer au suivant. `/` recherche dans les chemins de projet et les noms d'artefacts ; `n` passe à l'occurrence suivante sans modifier la sélection. Entrée ouvre la vérification finale des chemins. L'espace indiqué est une estimation ; les artefacts non mesurés et les analyses incomplètes sont signalés explicitement.
 
 <details>
 <summary><strong>Exemple de sortie Purge</strong></summary>
@@ -365,7 +367,7 @@ Lancez `mo purge --paths` pour sélectionner les répertoires à analyser, ou mo
 ~/Work/ClientB
 ```
 
-Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers (par défaut : `~/Projects`, `~/GitHub`, `~/dev` et les dossiers de worktrees d'agents pris en charge). L'analyse explore jusqu'à 6 niveaux de profondeur. Purge supprime les artefacts régénérables à l'intérieur des worktrees, jamais les worktrees eux-mêmes.
+Si des chemins personnalisés sont définis, Mole scanne exclusivement ces dossiers (par défaut : `~/Projects`, `~/GitHub`, `~/dev` et les dossiers de worktrees d'agents pris en charge). Un résultat de recherche incomplet n'est jamais enregistré. L'analyse des artefacts descend jusqu'à 6 niveaux sous chaque racine configurée ; pour des projets plus profonds, ajoutez une racine plus proche. Purge supprime les artefacts régénérables à l'intérieur des worktrees, jamais les worktrees eux-mêmes.
 
 </details>
 

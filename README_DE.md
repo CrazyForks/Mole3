@@ -107,7 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Füge den `PATH`-Export auch zu deiner `~/.zshrc` oder Profil-Datei hinzu.
+Füge den `PATH`-Export auch zu deiner `~/.zshrc` oder Profil-Datei hinzu. Mole aktualisiert die Installation, die du aufgerufen hast, und bleibt daher bei diesem Verzeichnis. Befehle, die systemeigene Dateien ändern, können weiterhin Administratorrechte anfordern.
 
 **Nix**
 
@@ -119,7 +119,7 @@ nix profile upgrade mole
 nix profile remove mole
 ```
 
-Für eine deklarative Konfiguration füge `github:tw93/mole/main` als Flake-Input hinzu und nutze `packages.${system}.mole`. Aktualisierungen und Deinstallationen erfolgen dann direkt über Nix.
+Für eine deklarative Konfiguration füge `github:tw93/mole/main` als Flake-Input hinzu und nutze `packages.${system}.mole`. Aktualisiere oder entferne Mole über Nix; `mo update` und `mo remove` lassen von Nix verwaltete Installationen unverändert.
 
 </details>
 
@@ -127,7 +127,7 @@ Video-Anleitung bevorzugt? Sieh dir das [Mole-Tutorial](https://www.youtube.com/
 
 ## Sicherheit
 
-Mole legt höchsten Wert auf Datensicherheit: Pfade werden streng validiert, systemkritische und geschützte Verzeichnisse unberührt gelassen und destruktive Schritte vor der Ausführung bestätigt. Wenn die Sicherheit einer Datei nicht garantiert werden kann, wird sie übersprungen.
+Mole kann Dateien löschen. Deshalb prüft es Pfade, schützt gemeinsam genutzte und systemeigene Orte und fragt nach einer Bestätigung, wenn eine Aktion sie braucht. Kann Mole nicht belegen, dass eine Änderung sicher ist, überspringt oder verweigert es sie.
 
 - `clean`, `uninstall`, `purge`, `installer` und `remove` löschen Dateien. Überprüfe sie zuerst mit `--dry-run` und bei Bedarf mit `--debug`.
 - Führe Mole **ohne `sudo`** aus; Administratorrechte werden nur bei Bedarf für Systembereinigungen angefordert.
@@ -244,7 +244,7 @@ Pfadmuster werden unterstützt, um beispielsweise dauerhaft gemountete Images wi
 
 Ein `+` am Ende einer Größenangabe zeigt einen Teilscan an; `unknown` bedeutet, dass die Größe nicht berechnet werden konnte. Durch Timeouts unterbrochene Ergebnisse überschreiben keinen vollständigen Cache; spätere Scans ergänzen fehlende Daten. Ordner, die macOS das Terminal nicht lesen lässt, bleiben als Teilscan markiert, bis sich die Zugriffsrechte ändern. Die Terminal-Liste zeigt nur die 30 größten Einträge, daher kann ein nicht lesbarer Eintrag außerhalb der Liste liegen; die Summe zeigt trotzdem einen Teilscan an. Die JSON-Ausgabe für Verzeichnisse enthält alle gescannten Einträge.
 
-`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag. Auch Teilscans enden mit Code 0, daher sollten Skripte `scan_status` prüfen.
+`mo analyze --json /path` enthält `scan_status` (`complete`, `partial` oder `unavailable`) für das Ergebnis und jeden Eintrag. Numerische Größen enthalten gemessene Bytes; eine Null mit `unavailable` bedeutet kein leeres Verzeichnis. Auch Teilscans enden mit Code 0, daher sollten Skripte `scan_status` prüfen. Die Vollständigkeit gilt innerhalb der bestehenden Scan-Ausschlüsse von Mole und verspricht keinen atomaren Dateisystem-Snapshot.
 
 ```text
 $ mo analyze
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` ist ein schreibgeschütztes Dashboard für Hardware, Systemauslastung, Festplattenaktivität, Netzwerkverkehr, Stromversorgung und Prozesse.
 
-Wenn die Standard-IPv4-Route über ein VPN läuft, erfasst die Grafikanzeige diese Schnittstelle, um doppelte Zählungen mit dem physischen Adapter zu vermeiden.
+Wenn die Standard-IPv4-Route über ein VPN oder einen Tunnel läuft, erfasst die Grafikanzeige diese Schnittstelle, um doppelte Zählungen mit dem physischen Adapter zu vermeiden. Die JSON-Ausgabe behält die Raten pro Schnittstelle, einschließlich des gerouteten Tunnels; inaktive Tunnel außerhalb der Standardroute bleiben ausgeblendet.
 
 ```text
 $ mo status
@@ -297,7 +297,7 @@ Der Zustandswert fasst CPU, RAM, Festplattenkapazität, SMART-Status, I/O, Tempe
 - `mo status --json`: Gibt den Systemstatus einmalig als JSON aus.
 - `mo status | jq '.health_score'`: Schaltet bei Weiterleitung in Pipes automatisch auf JSON um.
 - `mo status --watch --interval 2s`: Streamt NDJSON (durch Zeilenumbrüche getrenntes JSON).
-- `mo history --json`: Gibt die Bereinigungshistorie als JSON aus.
+- `mo history --json`: Gibt die Bereinigungshistorie als JSON aus. Sitzungen enthalten `run_id` (ein undurchsichtiger String, leer, wenn keine Identität protokolliert wurde) und `attribution`: `run` für erkannte Läufe, `command` für die alte Gruppierung nach Befehl oder `ambiguous`, wenn alte Markierungen eine Unterbrechung nicht von überlappenden Läufen unterscheiden können. Aufgezeichnete Aktionen bleiben verfügbar; mehrdeutige Zählungen lassen sich einzelnen Läufen nicht zuverlässig zuordnen. Ein leeres `ended_at` bedeutet, dass keine Endmarkierung aufgezeichnet wurde.
 
 ```text
 $ mo status --json
@@ -318,7 +318,9 @@ $ mo status --json
 }
 ```
 
-Die Zombie-Prozess-Diagnose ist rein lesend; sie beendet keine Prozesse und beeinflusst die Bewertung nicht. Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus und beendet mit Code 0. Mit Code 1 endet es nur, wenn weder CPU-, Speicher-, Festplatten- noch Prozessdaten verfügbar sind oder die JSON-Ausgabe fehlschlägt.
+Die Zombie-Prozess-Diagnose ist rein lesend; sie beendet keine Prozesse und beeinflusst die Bewertung nicht. Solange Mole noch keine erfolgreiche Prozessprobe hat, fehlen `process_collected_at`, `process_stale`, `zombie_count` und `zombie_parents_complete`, und `zombie_parents` ist `null`. Spätere fast/watch-Snapshots verwenden die letzte erfolgreiche Probe mit ihrem ursprünglichen `process_collected_at` weiter und setzen `process_stale: true`; eine neue Prozessprobe setzt es auf `false`. Ein Wert von `0` bedeutet, dass Mole gemessen und keine Zombies gefunden hat. Die Zusammenfassung der Elternprozesse enthält höchstens drei bekannte Besitzer; `zombie_parents_complete: false` heißt, dass die Zuordnung nicht verfügbar, unvollständig oder gekürzt war.
+
+Tritt bei einem Erfasser ein Fehler auf, gibt `mo status --json` weiterhin alle verfügbaren Daten aus, meldet den Fehler auf stderr und beendet mit Code 0, so wie `--watch` weiter streamt. Mit Code 1 endet es nur, wenn weder CPU-, Speicher-, Festplatten- noch Prozessdaten verfügbar sind oder die JSON-Ausgabe fehlschlägt.
 
 Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-window` oder `--proc-cpu-alerts=false` konfiguriert werden.
 
@@ -326,9 +328,9 @@ Warnungen bei hoher CPU-Last können über `--proc-cpu-threshold`, `--proc-cpu-w
 
 ### Projektbereinigung (Purge)
 
-`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert, und nur die bestätigten Einträge werden endgültig gelöscht, ohne Umweg über den Papierkorb. Artefakte mit Aktivität in den letzten 7 Tagen oder mit nicht prüfbarer Aktivität sind standardmäßig abgewählt. Verzeichnisse mit Deployment-Schlüsseln oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
+`mo purge` findet neu erstellbare Projekt-Build-Dateien wie `node_modules`, `target`, `.build`, `build` und `dist`. Dateien werden nach Projekten gruppiert, und nur die bestätigten Einträge werden endgültig gelöscht, ohne Umweg über den Papierkorb. Artefakte mit Aktivität in den letzten 7 Tagen oder mit nicht prüfbarer Aktivität sind standardmäßig abgewählt. Mole nutzt `fd`, wenn verfügbar, und fällt sonst auf `find` zurück. Verzeichnisse mit Deployment-Schlüsseln, verschachtelten Git-Repositories oder getrackten Git-Dateien sind automatisch geschützt. Nicht-interaktiv erfordert `mo purge --yes`; nutze `mo purge --dry-run` zur Voransicht.
 
-Verwende Bild auf/ab oder `h`/`l` zum Blättern, `[`/`]` zum Springen zwischen Projekten und `X` zum Überspringen. `/` sucht nach Pfaden und Namen, `n` findet den nächsten Treffer. Enter bestätigt das Löschen.
+Verwende Bild auf/ab oder `h`/`l` zum Blättern, `[`/`]` zum Springen zwischen Projekten und `X`, um ein Projekt zu überspringen und weiterzugehen. `/` durchsucht Projektpfade und Artefaktnamen, `n` findet den nächsten Treffer, ohne die Auswahl zu ändern. Enter öffnet die abschließende Pfadprüfung. Der angezeigte Speicherplatz ist eine Schätzung; nicht gemessene Artefakte und unvollständige Scans werden ausdrücklich gekennzeichnet.
 
 <details>
 <summary><strong>Purge Beispielausgabe</strong></summary>
@@ -365,7 +367,7 @@ Führe `mo purge --paths` aus oder bearbeite `~/.config/mole/purge_paths` direkt
 ~/Work/ClientB
 ```
 
-Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse (Standard: `~/Projects`, `~/GitHub`, `~/dev` und unterstützte Agent-Worktree-Ordner). Purge entfernt neu erstellbare Artefakte innerhalb von Worktrees, nie die Worktrees selbst.
+Sind eigene Pfade hinterlegt, scannt Mole ausschließlich diese Verzeichnisse (Standard: `~/Projects`, `~/GitHub`, `~/dev` und unterstützte Agent-Worktree-Ordner). Unvollständige Suchergebnisse werden nicht gespeichert. Artefakt-Scans reichen sechs Ebenen unter jeden konfigurierten Stamm; für tiefer liegende Projekte füge einen näheren Stamm hinzu. Purge entfernt neu erstellbare Artefakte innerhalb von Worktrees, nie die Worktrees selbst.
 
 </details>
 

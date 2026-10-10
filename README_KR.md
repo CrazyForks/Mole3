@@ -107,7 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-해당 `PATH` 설정을 `~/.zshrc` 또는 셸 프로필 파일에 추가하세요.
+해당 `PATH` 설정을 `~/.zshrc` 또는 셸 프로필 파일에 추가하세요. Mole은 실행한 설치본을 업데이트하므로 이후에도 이 디렉터리를 계속 사용합니다. 시스템 소유 파일을 변경하는 명령은 여전히 관리자 권한을 요청할 수 있습니다.
 
 **Nix**
 
@@ -119,7 +119,7 @@ nix profile upgrade mole
 nix profile remove mole
 ```
 
-선언적 구성의 경우 `github:tw93/mole/main`을 flake 입력으로 추가하고 `packages.${system}.mole` 패키지를 사용하세요. 업데이트 및 제거는 Nix를 통해 진행됩니다.
+선언적 구성의 경우 `github:tw93/mole/main`을 flake 입력으로 추가하고 `packages.${system}.mole` 패키지를 사용하세요. 업데이트와 제거는 Nix로 진행하며, `mo update`와 `mo remove`는 Nix가 관리하는 설치를 변경하지 않습니다.
 
 </details>
 
@@ -127,7 +127,7 @@ nix profile remove mole
 
 ## 안전성 및 신뢰성
 
-Mole은 데이터 안전을 최우선으로 설계되었습니다. 모든 경로는 사전에 철저히 검증되며, 시스템 핵심 디렉터리는 보호되고, 필요할 때 확인을 요청합니다. 안전 여부가 확실하지 않은 파일은 자동으로 건너뜁니다.
+Mole은 파일을 삭제할 수 있으므로 경로를 검증하고, 공유 위치와 시스템 소유 위치를 보호하며, 필요할 때 확인을 요청합니다. 안전하게 변경할 수 있다고 확인할 수 없는 항목은 건너뛰거나 거부합니다.
 
 - `clean`, `uninstall`, `purge`, `installer`, `remove` 명령은 파일을 삭제합니다. 먼저 `--dry-run`으로 확인하고 필요 시 `--debug`를 함께 사용하세요.
 - 일상적인 Mole 실행에는 **`sudo`가 필요하지 않습니다**. 시스템 수준의 정리 작업에만 관리자 권한을 요청합니다.
@@ -244,7 +244,7 @@ Applied 3 optimizations
 
 크기 뒤에 `+`가 붙은 항목은 부분 검사를 의미하며, `unknown`은 계산이 불가능했음을 나타냅니다. 일시적인 시간 초과로 중단된 결과는 기존 캐시를 덮어쓰지 않으므로 나중에 다시 검사하여 보완할 수 있습니다. macOS가 터미널의 읽기를 허용하지 않는 폴더는 접근 권한이 바뀔 때까지 부분 검사로 남습니다. 터미널에는 상위 30개 항목만 표시되므로 읽을 수 없는 항목이 목록 밖에 있을 수 있지만, 합계는 여전히 부분 검사로 표시됩니다. JSON 출력에는 모든 항목이 포함됩니다.
 
-`mo analyze --json /path` 출력에는 결과 전체와 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다. 부분 검사도 종료 코드 0으로 끝나므로 스크립트에서는 `scan_status`를 확인해야 합니다.
+`mo analyze --json /path` 출력에는 결과 전체와 각 항목의 `scan_status`(`complete`, `partial`, `unavailable`)가 포함됩니다. 숫자 크기는 실제로 측정한 바이트이며, `unavailable`일 때의 0은 빈 디렉터리를 뜻하지 않습니다. 부분 검사도 종료 코드 0으로 끝나므로 스크립트에서는 `scan_status`를 확인해야 합니다. 완전성은 Mole의 기존 검색 제외 범위 안에서만 판단되며, 파일 시스템의 원자적 스냅샷을 보장하지 않습니다.
 
 ```text
 $ mo analyze
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status`는 하드웨어, 시스템 부하, 디스크 읽기/쓰기, 네트워크 트래픽, 전원 및 비정상 프로세스를 한눈에 보여주는 읽기 전용 대시보드입니다.
 
-기본 IPv4 라우팅이 VPN이나 터널 인터페이스를 사용하는 경우 물리 어댑터와의 중복 집계를 방지하기 위해 해당 인터페이스를 추적합니다.
+기본 IPv4 라우팅이 VPN이나 터널 인터페이스를 사용하는 경우 물리 어댑터와의 중복 집계를 방지하기 위해 해당 인터페이스를 추적합니다. JSON 출력에는 라우팅된 터널을 포함해 인터페이스별 속도가 남고, 기본 경로가 아닌 유휴 터널은 숨겨집니다.
 
 ```text
 $ mo status
@@ -297,7 +297,7 @@ Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 - `mo status --json`: 현재 시스템 상태 스냅샷을 JSON으로 출력합니다.
 - `mo status | jq '.health_score'`: 출력이 파이프로 연결되면 자동으로 JSON 모드로 전환됩니다.
 - `mo status --watch --interval 2s`: NDJSON(줄바꿈 구분 JSON) 형식으로 실시간 스트리밍합니다.
-- `mo history --json`: 정리 작업 이력을 JSON으로 출력합니다.
+- `mo history --json`: 정리 작업 이력을 JSON으로 출력합니다. 각 세션에는 `run_id`(불투명한 문자열이며 식별 정보가 기록되지 않았으면 빈 값)와 `attribution`이 들어 있으며, 식별된 실행은 `run`, 예전 명령 단위 묶음은 `command`, 예전 마커로 중단과 겹친 실행을 구분할 수 없으면 `ambiguous`입니다. 기록된 작업은 계속 확인할 수 있지만 `ambiguous` 개수는 개별 실행에 정확히 나눌 수 없습니다. `ended_at`이 비어 있으면 종료 마커가 기록되지 않은 것입니다.
 
 ```text
 $ mo status --json
@@ -318,7 +318,9 @@ $ mo status --json
 }
 ```
 
-좀비 프로세스 진단은 읽기 전용이며, 프로세스를 임의로 종료하거나 건강 점수를 차감하지 않습니다. 특정 수집기에서 에러가 발생하더라도 `mo status --json`은 가용한 지표를 정상 출력하고 stderr에 에러를 기록하며 정상 종료(코드 0)합니다. CPU, 메모리, 디스크, 프로세스 지표를 모두 수집하지 못했거나 JSON 출력에 실패한 경우에만 코드 1로 종료합니다.
+좀비 프로세스 진단은 읽기 전용이며, 프로세스를 임의로 종료하거나 건강 점수를 차감하지 않습니다. Mole이 프로세스 샘플을 한 번도 수집하지 못한 동안에는 `process_collected_at`, `process_stale`, `zombie_count`, `zombie_parents_complete`가 생략되고 `zombie_parents`는 `null`입니다. 이후의 fast/watch 스냅샷은 마지막으로 성공한 샘플을 원래의 `process_collected_at` 그대로 재사용하며 `process_stale: true`로 표시하고, 새 프로세스 샘플을 얻으면 `false`가 됩니다. `0`은 Mole이 측정한 결과 좀비 프로세스가 없다는 뜻입니다. 부모 프로세스 요약은 확인된 상위 세 개까지만 담으며, `zombie_parents_complete: false`는 귀속 정보를 얻지 못했거나 불완전하거나 잘렸다는 뜻입니다.
+
+특정 수집기에서 에러가 발생하더라도 `mo status --json`은 가용한 지표를 정상 출력하고 stderr에 에러를 기록하며 정상 종료(코드 0)합니다. `--watch`도 같은 방식으로 스트리밍을 이어 갑니다. CPU, 메모리, 디스크, 프로세스 지표를 모두 수집하지 못했거나 JSON 출력에 실패한 경우에만 코드 1로 종료합니다.
 
 높은 CPU 사용률을 지속하는 프로세스에 대한 읽기 전용 알림도 제공되며, `--proc-cpu-threshold`, `--proc-cpu-window`, `--proc-cpu-alerts=false`로 조정하거나 끌 수 있습니다.
 
@@ -326,9 +328,9 @@ $ mo status --json
 
 ### 프로젝트 정리 (Purge)
 
-`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일이나 Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
+`mo purge`는 언제든 다시 빌드할 수 있는 프로젝트 산출물(`node_modules`, `target`, `.build`, `build`, `dist` 등)을 탐색합니다. 프로젝트별로 묶어 보여주며, 체크하여 승인한 항목만 휴지통을 거치지 않고 영구 삭제합니다. 최근 7일 내 변경되었거나 변경 시점을 확인할 수 없는 항목은 기본적으로 체크 해제됩니다. `fd`를 우선 사용하고 없을 경우 `find`로 대체합니다. 배포 키 파일, 중첩된 Git 저장소, Git 추적 파일이 포함된 디렉터리는 자동으로 보호됩니다. 비대화형 모드는 `mo purge --yes`가 필요하며, 실행 전 `mo purge --dry-run`으로 먼저 확인하는 것을 권장합니다.
 
-Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뜁니다. `/`로 프로젝트 경로 및 산출물 검색, `n`으로 다음 항목을 찾습니다. Enter 키로 삭제를 확인합니다.
+Page Up/Down 또는 `h`/`l`로 페이지 이동, `[`/`]`로 프로젝트 간 이동, `X`로 해당 프로젝트를 건너뛰고 다음으로 이동합니다. `/`로 프로젝트 경로와 산출물 이름을 검색하고, `n`으로 선택 상태를 바꾸지 않고 다음 일치 항목을 찾습니다. Enter 키는 최종 경로 확인 화면을 엽니다. 표시되는 용량은 추정치이며, 측정하지 못한 산출물과 불완전한 검색은 따로 표시됩니다.
 
 <details>
 <summary><strong>Purge 출력 예시</strong></summary>
@@ -365,7 +367,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-사용자 지정 경로가 설정되면 해당 디렉터리만 검색합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 및 지원되는 에이전트 worktree 디렉터리)를 탐색합니다. 검색은 지정된 루트 아래 최대 6단계까지 진행됩니다. Purge는 worktree 안의 다시 빌드할 수 있는 산출물만 삭제하며 worktree 자체는 삭제하지 않습니다.
+사용자 지정 경로가 설정되면 해당 디렉터리만 검색합니다. 미설정 시 기본 경로(`~/Projects`, `~/GitHub`, `~/dev` 및 지원되는 에이전트 worktree 디렉터리)를 탐색합니다. 탐색 중 얻은 불완전한 결과는 저장하지 않습니다. 검색은 지정된 루트 아래 최대 6단계까지 진행되며, 더 깊은 프로젝트는 가까운 루트를 추가하세요. Purge는 worktree 안의 다시 빌드할 수 있는 산출물만 삭제하며 worktree 자체는 삭제하지 않습니다.
 
 </details>
 

@@ -20,7 +20,7 @@
 
 - **多合一命令行**：把 CleanMyMac、AppCleaner、DaisyDisk 与 iStat Menus 的日常用法放进一个终端命令
 - **深度清理**：安全清除系统缓存、应用日志与卸载残留，释放磁盘空间
-- **应用卸载**：完整移除应用程序，同步清理配置文件与自启动项
+- **应用卸载**：移除应用程序，同步清理配置文件与自启动项
 - **磁盘分析**：终端交互式可视化，清晰浏览目录层级，定位占用空间的大文件
 - **系统优化**：刷新系统服务与缓存，优化核心数据库
 - **实时监控**：在终端看板中实时查看 CPU、内存、磁盘读写、网络流量与进程
@@ -107,7 +107,7 @@ curl -fsSL https://raw.githubusercontent.com/tw93/mole/main/install.sh | bash -s
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-记得将 `export PATH` 加入 `~/.zshrc` 或相应的终端配置文件。
+记得将 `export PATH` 加入 `~/.zshrc` 或相应的终端配置文件。Mole 更新的是你运行的那份安装，之后会一直用这个目录，需要改系统文件的命令仍可能要管理员权限。
 
 **Nix**
 
@@ -119,7 +119,7 @@ nix profile upgrade mole
 nix profile remove mole
 ```
 
-声明式配置可将 `github:tw93/mole/main` 添加为 flake input，使用其 `packages.${system}.mole` 包。Nix 管理的安装请通过 Nix 进行升级与卸载。
+声明式配置可将 `github:tw93/mole/main` 添加为 flake input，使用其 `packages.${system}.mole` 包。Nix 管理的安装要通过 Nix 升级和卸载，`mo update` 和 `mo remove` 不会改动它。
 
 </details>
 
@@ -242,9 +242,9 @@ Applied 3 optimizations
 
 `mo analyze` 打开终端交互式磁盘分析器，支持方向键与 Vim 快捷键浏览、快速过滤、多选标记、Finder 预览与移入废纸篓。外置磁盘默认不在概览中显示，可运行 `mo analyze /Volumes` 或指定挂载路径单独查看。使用 `mo analyze /private/tmp` 仅检查临时目录而不执行自动清理。
 
-以 `+` 结尾的大小表示部分扫描；`unknown` 表示暂时无法计算。因临时超时中断的条目不会覆盖已有完整缓存，后续刷新可自动补全。macOS 不允许终端读取的文件夹会一直标为部分扫描，直到访问权限改变。终端界面只列出最大的 30 项，读不到的条目可能不在这 30 项里，但总量仍会标为部分扫描，JSON 格式输出则包含所有扫描条目。
+以 `+` 结尾的大小是部分扫描里实际测到的字节数，`unknown` 表示没法测出大小。因临时超时中断的条目不会覆盖已有完整缓存，后续刷新可自动补全。macOS 不允许终端读取的文件夹会一直标为部分扫描，直到访问权限改变。终端界面只列出最大的 30 项，读不到的条目可能不在这 30 项里，但总量仍会标为部分扫描，JSON 格式输出则包含所有扫描条目。
 
-`mo analyze --json /path` 的结果本身和其中每一项都带有 `scan_status`（`complete`、`partial` 或 `unavailable`）。未完成的扫描仍返回退出码 0，脚本要看 `scan_status` 判断结果是否完整，`unavailable` 时的 0 也不代表目录为空。
+`mo analyze --json /path` 的结果本身和其中每一项都带有 `scan_status`（`complete`、`partial` 或 `unavailable`）。数值大小是实际测到的字节数，`unavailable` 时的 0 也不代表目录为空。未完成的扫描仍返回退出码 0，脚本要看 `scan_status` 判断结果是否完整。完整性以 Mole 现有的扫描排除规则为界，不保证是文件系统的原子快照。
 
 ```text
 $ mo analyze
@@ -263,7 +263,7 @@ Select a location to explore:
 
 `mo status` 提供只读系统硬件仪表盘，涵盖 CPU、系统负载、磁盘读写、网络流量、电源与进程。
 
-当默认 IPv4 路由走 VPN 或隧道接口时，流量图表会统计这个接口，避免和物理网卡重复计算。
+当默认 IPv4 路由走 VPN 或隧道接口时，流量图表会统计这个接口，避免和物理网卡重复计算。JSON 输出保留每个接口的速率，包括路由经过的隧道，空闲的非默认隧道不显示。
 
 ```text
 $ mo status
@@ -297,7 +297,7 @@ Proxy   HTTP · 192.168.1.100             Chrome     ▮▮▮▯▯  28.3%
 - `mo status --json`：单次输出系统状态快照 JSON。
 - `mo status | jq '.health_score'`：当输出被管道重定向时自动切换为 JSON 模式。
 - `mo status --watch --interval 2s`：持续流式输出 NDJSON（换行分隔的 JSON）。
-- `mo history --json`：以 JSON 格式输出历史清理日志。
+- `mo history --json`：以 JSON 格式输出历史清理日志。每个会话带有 `run_id`（不透明字符串，没有记录身份时为空）和 `attribution`，能识别的运行是 `run`，旧版按命令分组的是 `command`，旧标记分不清中断和重叠运行时是 `ambiguous`。记录下来的操作仍然都能看到，但 `ambiguous` 的计数没法可靠地分到单次运行上。`ended_at` 为空表示没有记录到结束标记。
 
 ```text
 $ mo status --json
@@ -318,7 +318,9 @@ $ mo status --json
 }
 ```
 
-僵尸进程诊断是只读的，不会结束进程，也不影响健康分。如果某个指标采集出错，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0，只有 CPU、内存、磁盘和进程指标全都拿不到，或者 JSON 输出失败时才退出 1。
+僵尸进程诊断是只读的，不会结束进程，也不影响健康分。Mole 还没成功拿到一次进程样本时，`process_collected_at`、`process_stale`、`zombie_count` 和 `zombie_parents_complete` 都不会出现，`zombie_parents` 为 `null`。之后的 fast/watch 快照会沿用最近一次成功的样本，保留它原来的 `process_collected_at` 并设 `process_stale: true`，拿到新的进程样本后变回 `false`。`0` 表示 Mole 实际测过，没有僵尸进程。父进程摘要最多列出三个已知的父进程，`zombie_parents_complete: false` 表示归属信息拿不到、不完整或被截断。
+
+如果某个指标采集出错，`mo status --json` 仍会输出其他可用指标，将错误记录在 stderr 中并退出 0，`--watch` 也是这样继续输出，只有 CPU、内存、磁盘和进程指标全都拿不到，或者 JSON 输出失败时才退出 1。
 
 支持对持续高 CPU 占用的进程进行提示，可通过 `--proc-cpu-threshold`、`--proc-cpu-window` 或 `--proc-cpu-alerts=false` 进行调整或关闭。
 
@@ -328,7 +330,7 @@ $ mo status --json
 
 `mo purge` 自动查找可随时重新构建的项目生成目录（如 `node_modules`、`target`、`.build`、`build` 与 `dist`）。按项目归类展示，只永久删除你勾选确认的项目，不经过废纸篓，最近 7 天内有改动或无法确认改动时间的产物默认不勾选。优先使用 `fd`，回退使用 `find`。包含部署密钥、嵌套 Git 仓库或 Git 追踪文件的目录会自动受保护。非交互式运行需加 `--yes`；建议先运行 `mo purge --dry-run` 预览候选目录。
 
-使用 Page Up/Down 或 `h`/`l` 翻页，`[`/`]` 在项目间跳转，`X` 跳过当前项目。按 `/` 搜索项目路径与产物名称，`n` 查找下一个。回车确认清理。
+使用 Page Up/Down 或 `h`/`l` 翻页，`[`/`]` 在项目间跳转，`X` 跳过当前项目并前进到下一个。按 `/` 搜索项目路径与产物名称，`n` 查找下一个匹配且不改变已选项。回车打开最终路径确认界面。显示的空间是估算值，没测出大小的产物和不完整的扫描会单独标明。
 
 <details>
 <summary><strong>Purge 示例输出</strong></summary>
@@ -365,7 +367,7 @@ Estimated space freed: 6.00GB | Items: 2 | Free: 223.5GB
 ~/Work/ClientB
 ```
 
-配置自定义路径后，Mole 仅扫描这些指定目录。未配置时使用默认目录（如 `~/Projects`、`~/GitHub`、`~/dev` 以及受支持的 agent worktree 目录）。产物扫描深度为配置根目录下 6 层。Purge 只删除 worktree 里可重建的产物，不会删除 worktree 目录本身。
+配置自定义路径后，Mole 仅扫描这些指定目录。未配置时使用默认目录（如 `~/Projects`、`~/GitHub`、`~/dev` 以及受支持的 agent worktree 目录）。扫描中途得到的不完整结果不会保存。产物扫描深度为配置根目录下 6 层，更深的项目可以加一个更近的根目录。Purge 只删除 worktree 里可重建的产物，不会删除 worktree 目录本身。
 
 </details>
 
