@@ -290,6 +290,7 @@ Repository-level signals include:
 - CI checks for unsafe `rm -rf` usage patterns and core protection behavior
 - targeted tests for path validation, purge boundaries, symlink behavior, dry-run flows, and destructive helpers
 - macOS 15 and macOS 26 compatibility coverage for core Bats suites
+- Nix package build plus profile install, upgrade, and removal checks on Apple Silicon and Intel macOS 15 runners
 - CodeQL scanning for Go and GitHub Actions workflows, with workflow permission hardening
 - curated changelog-driven release notes for user-visible changes
 - published SHA-256 checksums for release assets
@@ -358,6 +359,6 @@ Key coverage areas include:
 - Release artifacts include checksums and attestations, but downstream package-manager trust also depends on external distribution infrastructure.
 - Operation and deletion logs write control bytes as `\n`, `\r`, `\t` or `\xHH` and leave backslashes literal, so a filename holding a backslash followed by `n` reads the same as one holding a newline. Every call still appends one record, so nothing can be forged; only that one shape is ambiguous.
 - `mo history --json` escapes strings byte by byte under `LC_ALL=C` (`history_json_escape`) for portable behavior on bash 3.2. Printable multibyte bytes are emitted verbatim, so the emitted JSON stays valid UTF-8, but the escaper does not perform Unicode-aware codepoint iteration. This is a known display-layer detail, not a correctness issue.
-- Ongoing priorities include expanded regression coverage for destructive paths, continuous fuzzing of path validation, and further verification of release integrity.
+- Planned follow-up work includes stronger destructive-command threat modeling, more regression coverage for high-risk paths, and continued hardening of release integrity and disclosure workflow.
 
 For reporting procedures and supported versions, see [SECURITY.md](SECURITY.md).
